@@ -1,0 +1,26 @@
+{
+  "tool": "analyze_table",
+  "args": {
+    "table_ref": "table_19696_1774147924673065800",
+    "columns": [
+      "column_23",
+      "column_25",
+      "column_26"
+    ],
+    "casts": [
+      {
+        "column": "column_23",
+        "target_type": "float64"
+      },
+      {
+        "column": "column_25",
+        "target_type": "float64"
+      },
+      {
+        "column": "column_26",
+        "target_type": "float64"
+      }
+    ],
+    "top_k": 5
+  }
+}

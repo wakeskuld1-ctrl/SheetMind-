@@ -1,0 +1,15 @@
+{
+  "tool": "cluster_kmeans",
+  "args": {
+    "path": "D:\\Excel测试\\新疆客户\\2026文旅体台账.xlsx",
+    "sheet": "旅责险",
+    "features": [
+      "保险金额（人民币）",
+      "总保费（人民币）",
+      "保费"
+    ],
+    "cluster_count": 3,
+    "max_iterations": 100,
+    "missing_strategy": "drop_rows"
+  }
+}

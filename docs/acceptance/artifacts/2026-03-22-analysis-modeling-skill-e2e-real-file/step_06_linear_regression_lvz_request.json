@@ -1,0 +1,15 @@
+{
+  "tool": "linear_regression",
+  "args": {
+    "path": "D:\\Excel测试\\新疆客户\\2026文旅体台账.xlsx",
+    "sheet": "旅责险",
+    "features": [
+      "保险金额（人民币）",
+      "总保费（人民币）",
+      "保费"
+    ],
+    "target": "价税合计",
+    "intercept": true,
+    "missing_strategy": "drop_rows"
+  }
+}

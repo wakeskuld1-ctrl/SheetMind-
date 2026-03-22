@@ -1,0 +1,5217 @@
+mod common;
+
+use assert_cmd::Command;
+use calamine::{Data, Reader, open_workbook_auto};
+use excel_skill::frame::result_ref_store::{PersistedResultDataset, ResultRefStore};
+use polars::prelude::{DataFrame, NamedFrom, Series};
+use predicates::str::contains;
+use rusqlite::Connection;
+use serde_json::json;
+
+use crate::common::{
+    create_chinese_path_fixture, create_positioned_workbook, create_test_output_path,
+    create_test_runtime_db, create_test_workbook, run_cli_with_bytes, run_cli_with_json,
+    run_cli_with_json_and_runtime,
+};
+
+fn create_datetime_result_ref_for_cli() -> String {
+    let store = ResultRefStore::workspace_default().unwrap();
+    let result_ref = ResultRefStore::create_result_ref();
+    // 2026-03-23: 这里手工构造日期时间文本结果集，目的是让 CLI 测试直接覆盖 result_ref 输入链路。
+    let dataframe = DataFrame::new(vec![
+        Series::new("biz_date".into(), ["2026/03/01", "2026-03-02"]).into(),
+        Series::new(
+            "created_at".into(),
+            ["2026-03-01 8:30", "2026-03-02T09:15:20"],
+        )
+        .into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "seed_parse_datetime",
+        vec!["seed_datetime".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+    result_ref
+}
+
+#[test]
+fn cli_without_args_returns_json_help() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    cmd.assert().success().stdout(contains("tool_catalog"));
+}
+
+#[test]
+fn cli_dispatches_open_workbook_json_request() {
+    let request = json!({
+        "tool": "open_workbook",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["sheet_names"][0], "Sales");
+}
+
+#[test]
+fn open_workbook_returns_file_ref_and_indexed_sheets_for_follow_up_selection() {
+    let request = json!({
+        "tool": "open_workbook",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-23: 这里先锁定 open_workbook 会补充 file_ref 与带序号的 Sheet 目录，目的是让后续流程可以按“第几个 Sheet”继续，而不是重复依赖中文或长字符串 Sheet 名。
+    assert!(
+        output["data"]["file_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("file_")
+    );
+    assert_eq!(
+        output["data"]["sheets"],
+        json!([
+            { "sheet_index": 1, "sheet_name": "Sales" },
+            { "sheet_index": 2, "sheet_name": "Lookup" }
+        ])
+    );
+}
+
+#[test]
+fn tool_catalog_includes_inspect_sheet_range() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里先锁定目录里暴露 inspect_sheet_range，目的是让 Skill 能显式发现区域探查入口。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "inspect_sheet_range")
+    );
+}
+
+#[test]
+fn inspect_sheet_range_returns_used_range_and_sample() {
+    let workbook_path = create_positioned_workbook(
+        "inspect_sheet_range_cli",
+        "offset-inspect-cli.xlsx",
+        &[(
+            "Report",
+            vec![
+                (2, 1, "user_id"),
+                (2, 2, "region"),
+                (2, 3, "sales"),
+                (3, 1, "1001"),
+                (3, 2, "North"),
+                (3, 3, "88"),
+                (4, 1, "1002"),
+                (4, 2, "South"),
+                (4, 3, "95"),
+            ],
+        )],
+    );
+    let request = json!({
+        "tool": "inspect_sheet_range",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Report",
+            "sample_rows": 2
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里先锁定 CLI 层会把 used range 与样本结构稳定透出，目的是给上层问答界面明确的下一步依据。
+    assert_eq!(output["data"]["used_range"], "B3:D5");
+    assert_eq!(output["data"]["row_count_estimate"], 3);
+    assert_eq!(output["data"]["column_count_estimate"], 3);
+    assert_eq!(output["data"]["sample_rows"][0]["row_number"], 3);
+    assert_eq!(
+        output["data"]["sample_rows"][0]["values"],
+        json!(["user_id", "region", "sales"])
+    );
+    assert_eq!(
+        output["data"]["sample_rows"][1]["values"],
+        json!(["1001", "North", "88"])
+    );
+}
+
+#[test]
+fn inspect_sheet_range_accepts_file_ref_and_sheet_index() {
+    let workbook_path = create_positioned_workbook(
+        "inspect_sheet_range_file_ref_cli",
+        "offset-inspect-file-ref-cli.xlsx",
+        &[(
+            "Report",
+            vec![
+                (2, 1, "user_id"),
+                (2, 2, "region"),
+                (2, 3, "sales"),
+                (3, 1, "1001"),
+                (3, 2, "North"),
+                (3, 3, "88"),
+                (4, 1, "1002"),
+                (4, 2, "South"),
+                (4, 3, "95"),
+            ],
+        )],
+    );
+    let open_request = json!({
+        "tool": "open_workbook",
+        "args": {
+            "path": workbook_path.to_string_lossy()
+        }
+    });
+    let open_output = run_cli_with_json(&open_request.to_string());
+    let file_ref = open_output["data"]["file_ref"].as_str().unwrap();
+
+    let inspect_request = json!({
+        "tool": "inspect_sheet_range",
+        "args": {
+            "file_ref": file_ref,
+            "sheet_index": 1,
+            "sample_rows": 2
+        }
+    });
+
+    let output = run_cli_with_json(&inspect_request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-23: 这里先锁定 inspect_sheet_range 可以直接消费 file_ref + sheet_index，目的是避免后续再次传递中文或超长 Sheet 名。
+    assert_eq!(output["data"]["sheet"], "Report");
+    assert_eq!(output["data"]["used_range"], "B3:D5");
+}
+
+#[test]
+fn tool_catalog_includes_load_table_region() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里先锁定目录里暴露 load_table_region，目的是让 Skill 能从 inspect 结果继续进入显式区域加载。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "load_table_region")
+    );
+}
+
+#[test]
+fn load_table_region_returns_preview_and_result_ref() {
+    let workbook_path = create_positioned_workbook(
+        "load_table_region_cli",
+        "region-cli.xlsx",
+        &[(
+            "Report",
+            vec![
+                (2, 1, "user_id"),
+                (2, 2, "region"),
+                (2, 3, "sales"),
+                (3, 1, "1001"),
+                (3, 2, "North"),
+                (3, 3, "88"),
+                (4, 1, "1002"),
+                (4, 2, "South"),
+                (4, 3, "95"),
+            ],
+        )],
+    );
+    let request = json!({
+        "tool": "load_table_region",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Report",
+            "range": "B3:D5",
+            "header_row_count": 1
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: ????? CLI ??????????result_ref ? table_ref?????????????????????
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["user_id", "region", "sales"])
+    );
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["rows"][0]["user_id"], "1001");
+    assert_eq!(output["data"]["rows"][1]["sales"], "95");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+    assert!(
+        output["data"]["table_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("table_")
+    );
+}
+
+#[test]
+fn preview_table_accepts_table_ref_from_load_table_region() {
+    let workbook_path = create_positioned_workbook(
+        "load_table_region_table_ref_cli",
+        "region-table-ref-cli.xlsx",
+        &[(
+            "Report",
+            vec![
+                (2, 1, "user_id"),
+                (2, 2, "region"),
+                (2, 3, "sales"),
+                (3, 1, "1001"),
+                (3, 2, "North"),
+                (3, 3, "88"),
+                (4, 1, "1002"),
+                (4, 2, "South"),
+                (4, 3, "95"),
+            ],
+        )],
+    );
+    let load_request = json!({
+        "tool": "load_table_region",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Report",
+            "range": "B3:D5",
+            "header_row_count": 1
+        }
+    });
+    let load_output = run_cli_with_json(&load_request.to_string());
+    let table_ref = load_output["data"]["table_ref"].as_str().unwrap();
+
+    let preview_request = json!({
+        "tool": "preview_table",
+        "args": {
+            "table_ref": table_ref,
+            "limit": 5
+        }
+    });
+    let output = run_cli_with_json(&preview_request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: ????? load_table_region ??? table_ref ????? Tool ???????????????????????
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["rows"][0]["user_id"], "1001");
+    assert_eq!(output["data"]["rows"][1]["sales"], "95");
+}
+
+#[test]
+fn load_table_region_updates_session_state_and_mirrors_region_table_ref() {
+    let runtime_db = create_test_runtime_db("load_table_region_state");
+    let workbook_path = create_positioned_workbook(
+        "load_table_region_state_cli",
+        "region-state-cli.xlsx",
+        &[(
+            "Report",
+            vec![
+                (2, 1, "user_id"),
+                (2, 2, "region"),
+                (2, 3, "sales"),
+                (3, 1, "1001"),
+                (3, 2, "North"),
+                (3, 3, "88"),
+                (4, 1, "1002"),
+                (4, 2, "South"),
+                (4, 3, "95"),
+            ],
+        )],
+    );
+    let load_request = json!({
+        "tool": "load_table_region",
+        "args": {
+            "session_id": "session_load_table_region",
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Report",
+            "range": "B3:D5",
+            "header_row_count": 1
+        }
+    });
+    let load_output = run_cli_with_json_and_runtime(&load_request.to_string(), &runtime_db);
+    assert_eq!(load_output["status"], "ok");
+    let table_ref = load_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_load_table_region"
+        }
+    });
+    let state_output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-22: 这里锁定显式区域加载后会同步会话摘要，目的是让总入口能够直接记住当前局部表上下文。
+    assert_eq!(state_output["status"], "ok");
+    assert_eq!(
+        state_output["data"]["current_workbook"],
+        workbook_path.to_string_lossy().to_string()
+    );
+    assert_eq!(state_output["data"]["current_sheet"], "Report");
+    assert_eq!(state_output["data"]["current_stage"], "table_processing");
+    assert_eq!(state_output["data"]["schema_status"], "confirmed");
+    assert_eq!(state_output["data"]["active_table_ref"], table_ref);
+
+    let connection = Connection::open(&runtime_db).unwrap();
+    let mirrored_region: String = connection
+        .query_row(
+            "SELECT region FROM table_refs WHERE table_ref = ?1",
+            [&table_ref],
+            |row| row.get(0),
+        )
+        .unwrap();
+
+    // 2026-03-22: 这里锁定本地记忆层会把 region table_ref 的显式范围一起镜像下来，目的是后续恢复局部上下文时不丢区域信息。
+    assert_eq!(mirrored_region, "B3:D5");
+}
+
+#[test]
+fn tool_catalog_includes_list_sheets() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: ?????????? list_sheets????????????????? I/O Tool?
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "list_sheets")
+    );
+}
+
+#[test]
+fn list_sheets_returns_visible_sheet_names() {
+    let request = json!({
+        "tool": "list_sheets",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: ????? list_sheets ?????? open_workbook ????????????????????????? sheet ???
+    assert_eq!(output["data"]["sheet_names"], json!(["Sales", "Lookup"]));
+}
+
+#[test]
+fn normalize_table_accepts_file_ref_and_sheet_index_without_sheet_name() {
+    let open_request = json!({
+        "tool": "open_workbook",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx"
+        }
+    });
+    let open_output = run_cli_with_json(&open_request.to_string());
+    let file_ref = open_output["data"]["file_ref"].as_str().unwrap();
+
+    let request = json!({
+        "tool": "normalize_table",
+        "args": {
+            "file_ref": file_ref,
+            "sheet_index": 1
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-23: 这里先锁定 normalize_table 能按“第几个 Sheet”继续，目的是让表头判断不再依赖再次传递 Sheet 名。
+    assert_eq!(output["data"]["sheet"], "Sales");
+    assert_eq!(
+        output["data"]["columns"][0]["canonical_name"],
+        "user_id"
+    );
+}
+
+#[test]
+fn apply_header_schema_accepts_file_ref_and_sheet_index_and_updates_session_state() {
+    let runtime_db = create_test_runtime_db("apply_header_schema_file_ref");
+    let open_request = json!({
+        "tool": "open_workbook",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx"
+        }
+    });
+    let open_output = run_cli_with_json_and_runtime(&open_request.to_string(), &runtime_db);
+    let file_ref = open_output["data"]["file_ref"].as_str().unwrap();
+
+    let request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_apply_header_schema_file_ref",
+            "file_ref": file_ref,
+            "sheet_index": 1
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db);
+    assert_eq!(output["status"], "ok");
+    assert!(
+        output["data"]["table_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("table_")
+    );
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_apply_header_schema_file_ref"
+        }
+    });
+    let state_output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-23: 这里先锁定 file_ref + sheet_index 入口在固化 table_ref 后仍会把当前文件与当前 Sheet 正确同步回会话态，目的是保证后续编排不受新入口影响。
+    assert_eq!(state_output["status"], "ok");
+    assert_eq!(state_output["data"]["current_sheet"], "Sales");
+    assert_eq!(
+        state_output["data"]["current_workbook"],
+        "tests/fixtures/basic-sales.xlsx"
+    );
+}
+
+#[test]
+fn tool_catalog_includes_fill_missing_values() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里先锁定目录里暴露 fill_missing_values，目的是让上层 Skill 能显式发现通用补空入口。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "fill_missing_values")
+    );
+}
+
+#[test]
+fn fill_missing_values_returns_result_ref_with_filled_preview() {
+    let workbook_path = create_test_workbook(
+        "fill_missing_values_cli",
+        "fill-missing-values.xlsx",
+        &[(
+            "Sales",
+            vec![
+                vec!["user_id", "city", "sales", "region"],
+                vec!["1", "", "", "North"],
+                vec!["2", "Urumqi", "15", ""],
+                vec!["3", "", "", "West"],
+                vec!["4", "", "", ""],
+            ],
+        )],
+    );
+    let request = json!({
+        "tool": "fill_missing_values",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Sales",
+            "rules": [
+                {
+                    "column": "city",
+                    "strategy": "constant",
+                    "value": "Unknown"
+                },
+                {
+                    "column": "sales",
+                    "strategy": "zero"
+                },
+                {
+                    "column": "region",
+                    "strategy": "forward_fill"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 层补空结果与 result_ref 回传，目的是让通用补空 Tool 能直接进入后续链式分析。
+    assert_eq!(output["data"]["rows"][0]["city"], "Unknown");
+    assert_eq!(output["data"]["rows"][0]["sales"], "0");
+    assert_eq!(output["data"]["rows"][1]["region"], "North");
+    assert_eq!(output["data"]["rows"][3]["region"], "West");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_distinct_rows() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里先锁定目录里暴露 distinct_rows，目的是让上层能显式发现通用去重入口。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "distinct_rows")
+    );
+}
+
+#[test]
+fn distinct_rows_returns_result_ref_with_subset_deduplication() {
+    let workbook_path = create_test_workbook(
+        "distinct_rows_cli",
+        "distinct-rows.xlsx",
+        &[(
+            "Sales",
+            vec![
+                vec!["user_id", "region", "sales"],
+                vec!["1", "East", "100"],
+                vec!["1", "East", "100"],
+                vec!["2", "West", "90"],
+                vec!["2", "West", "95"],
+            ],
+        )],
+    );
+    let request = json!({
+        "tool": "distinct_rows",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Sales",
+            "subset": ["user_id", "region"],
+            "keep": "last"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 层按子集列去重并保留最后一条，目的是让 Excel 用户能稳定做主键级去重。
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["rows"][0]["sales"], "100");
+    assert_eq!(output["data"]["rows"][1]["sales"], "95");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_deduplicate_by_key() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里先锁定目录里暴露 deduplicate_by_key，目的是让上层能显式发现“按业务键去重”的独立入口。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "deduplicate_by_key")
+    );
+}
+
+#[test]
+fn deduplicate_by_key_returns_result_ref_with_kept_rows() {
+    let workbook_path = create_test_workbook(
+        "deduplicate_by_key_cli",
+        "deduplicate-by-key.xlsx",
+        &[(
+            "Sales",
+            vec![
+                vec!["user_id", "updated_at", "sales"],
+                vec!["1", "2026-03-01", "100"],
+                vec!["1", "2026-03-03", "120"],
+                vec!["2", "2026-03-02", "90"],
+                vec!["2", "2026-03-04", "95"],
+            ],
+        )],
+    );
+    let request = json!({
+        "tool": "deduplicate_by_key",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Sales",
+            "keys": ["user_id"],
+            "order_by": [
+                {
+                    "column": "updated_at",
+                    "direction": "asc"
+                }
+            ],
+            "keep": "last"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 层会先排序再按主键保留末条记录，目的是让 Excel 用户直接消费“保留最新记录”的去重结果。
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["rows"][0]["updated_at"], "2026-03-03");
+    assert_eq!(output["data"]["rows"][0]["sales"], "120");
+    assert_eq!(output["data"]["rows"][1]["updated_at"], "2026-03-04");
+    assert_eq!(output["data"]["rows"][1]["sales"], "95");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_format_table_for_export() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里先锁定目录里暴露 format_table_for_export，目的是让输出层桥接能力能被上层显式发现。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "format_table_for_export")
+    );
+}
+
+#[test]
+fn format_table_for_export_returns_result_ref_with_export_layout() {
+    let workbook_path = create_test_workbook(
+        "format_table_for_export_cli",
+        "format-table-for-export.xlsx",
+        &[(
+            "Sales",
+            vec![
+                vec!["user_id", "region", "sales", "debug_tag"],
+                vec!["1", "East", "120", "internal"],
+                vec!["2", "West", "95", "internal"],
+            ],
+        )],
+    );
+    let request = json!({
+        "tool": "format_table_for_export",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Sales",
+            "column_order": ["region", "sales", "user_id"],
+            "rename_mappings": [
+                {
+                    "from": "region",
+                    "to": "区域"
+                },
+                {
+                    "from": "sales",
+                    "to": "销售额"
+                },
+                {
+                    "from": "user_id",
+                    "to": "客户ID"
+                }
+            ],
+            "drop_unspecified_columns": true
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 层导出整理结果，目的是让后续 compose_workbook 能直接消费整理好的交付表。
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["区域", "销售额", "客户ID"])
+    );
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["rows"][0]["区域"], "East");
+    assert_eq!(output["data"]["rows"][1]["销售额"], "95");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn cli_open_workbook_accepts_chinese_windows_path() {
+    let fixture_path = create_chinese_path_fixture("\u{57fa}\u{7840}\u{9500}\u{552e}-cli.xlsx");
+    let request = json!({
+        "tool": "open_workbook",
+        "args": {
+            "path": fixture_path.to_string_lossy()
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: ???? CLI ??????????????????????????????
+    assert_eq!(output["data"]["sheet_names"], json!(["Sales", "Lookup"]));
+    assert!(
+        output["data"]["path"]
+            .as_str()
+            .unwrap()
+            .contains("\u{4e2d}\u{6587}\u{8def}\u{5f84}")
+    );
+}
+
+#[test]
+fn cli_open_workbook_accepts_gbk_encoded_json_with_chinese_path() {
+    let fixture_path = create_chinese_path_fixture("\u{57fa}\u{7840}\u{9500}\u{552e}-gbk.xlsx");
+    let request = json!({
+        "tool": "open_workbook",
+        "args": {
+            "path": fixture_path.to_string_lossy()
+        }
+    });
+
+    let request_json = request.to_string();
+    let (encoded, _, _) = encoding_rs::GBK.encode(&request_json);
+    let output = run_cli_with_bytes(encoded.into_owned());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: ???? Windows ?? GBK ??????? CLI ???????????????? IT ?????????
+    assert_eq!(output["data"]["sheet_names"], json!(["Sales", "Lookup"]));
+}
+
+#[test]
+fn normalize_table_returns_confirmation_payload_for_ambiguous_headers() {
+    let request = json!({
+        "tool": "normalize_table",
+        "args": {
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "needs_confirmation");
+    assert_eq!(output["data"]["confidence"], "medium");
+    assert_eq!(output["data"]["columns"][0]["canonical_name"], "user_id");
+}
+
+#[test]
+fn normalize_table_marks_non_ascii_headers_for_confirmation_before_dataframe_loading() {
+    let request = json!({
+        "tool": "normalize_table",
+        "args": {
+            "path": "tests/fixtures/header-non-ascii.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "needs_confirmation");
+    // 2026-03-22: 这里锁定纯中文表头会先进入确认态，目的是避免空列名误判为可直接执行。
+    assert_eq!(output["data"]["confidence"], "medium");
+    assert_eq!(output["data"]["schema_state"], "pending");
+    assert_eq!(output["data"]["columns"][0]["canonical_name"], "column_1");
+    assert_eq!(output["data"]["columns"][1]["canonical_name"], "column_2");
+}
+
+#[test]
+fn preview_table_stops_at_confirmation_for_non_ascii_headers() {
+    let request = json!({
+        "tool": "preview_table",
+        "args": {
+            "path": "tests/fixtures/header-non-ascii.xlsx",
+            "sheet": "Sheet1",
+            "limit": 2
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "needs_confirmation");
+    // 2026-03-22: 这里锁定预览入口会在确认层拦住风险表头，目的是不再走到 Polars 重复空列名报错。
+    assert_eq!(output["data"]["schema_state"], "pending");
+    assert_eq!(output["data"]["columns"][2]["canonical_name"], "column_3");
+}
+
+#[test]
+fn apply_header_schema_returns_confirmed_table_reference() {
+    let request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/multi-header-sales.xlsx",
+            "sheet": "Report"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["schema_state"], "confirmed");
+    assert_eq!(
+        output["data"]["columns"][0]["canonical_name"],
+        "region_east_sales"
+    );
+    assert_eq!(output["data"]["row_count"], 2);
+    assert!(
+        output["data"]["table_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("table_")
+    );
+}
+
+#[test]
+fn apply_header_schema_returns_reusable_table_ref() {
+    let request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定确认后的返回里必须带可跨请求复用的 table_ref，目的是把表处理层确认态升级成分析建模层可直接复用的稳定句柄。
+    assert!(
+        output["data"]["table_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("table_")
+    );
+    assert_eq!(output["data"]["schema_state"], "confirmed");
+}
+
+#[test]
+fn get_session_state_returns_persisted_update_from_previous_request() {
+    let runtime_db = create_test_runtime_db("session_round_trip");
+    let update_request = json!({
+        "tool": "update_session_state",
+        "args": {
+            "session_id": "session_cli_round_trip",
+            "current_workbook": "tests/fixtures/title-gap-header.xlsx",
+            "current_sheet": "Sheet1",
+            "current_stage": "table_processing",
+            "schema_status": "pending_confirmation",
+            "last_user_goal": "先看看这个 Excel",
+            "selected_columns": ["user_id", "sales"]
+        }
+    });
+
+    let update_output = run_cli_with_json_and_runtime(&update_request.to_string(), &runtime_db);
+    assert_eq!(update_output["status"], "ok");
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_cli_round_trip"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-22: 这里先锁定跨 CLI 请求的会话状态持久化，目的是验证 orchestrator 读取到的是上一轮已落盘的摘要，而不是同轮临时变量。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["current_workbook"],
+        "tests/fixtures/title-gap-header.xlsx"
+    );
+    assert_eq!(output["data"]["current_sheet"], "Sheet1");
+    assert_eq!(output["data"]["current_stage"], "table_processing");
+    assert_eq!(output["data"]["schema_status"], "pending_confirmation");
+    assert_eq!(output["data"]["last_user_goal"], "先看看这个 Excel");
+    assert_eq!(
+        output["data"]["selected_columns"],
+        json!(["user_id", "sales"])
+    );
+}
+
+#[test]
+fn get_session_state_exposes_active_handle_summary() {
+    let runtime_db = create_test_runtime_db("session_active_handle_summary");
+    let update_request = json!({
+        "tool": "update_session_state",
+        "args": {
+            "session_id": "session_active_handle_summary",
+            "active_handle_ref": "result_123456",
+            "current_stage": "analysis_modeling"
+        }
+    });
+
+    let update_output = run_cli_with_json_and_runtime(&update_request.to_string(), &runtime_db);
+    assert_eq!(update_output["status"], "ok");
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_active_handle_summary"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-22: 这里锁定兼容式 active_handle 摘要，目的是在保留 active_table_ref 旧字段的同时，对上层 Skill 暴露更清晰的激活句柄语义。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["active_table_ref"], "result_123456");
+    assert_eq!(output["data"]["active_handle"]["ref"], "result_123456");
+    assert_eq!(output["data"]["active_handle"]["kind"], "result_ref");
+    assert_eq!(output["data"]["active_handle_ref"], "result_123456");
+}
+
+#[test]
+fn apply_header_schema_updates_session_state_and_active_table_ref() {
+    let runtime_db = create_test_runtime_db("apply_header_schema_state");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_apply_header_schema",
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+
+    let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_apply_header_schema"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-22: 这里先锁定确认态建立后会自动激活 active_table_ref，目的是让用户后续切分析或决策时不需要再次手填 path + sheet。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["current_workbook"],
+        "tests/fixtures/title-gap-header.xlsx"
+    );
+    assert_eq!(output["data"]["current_sheet"], "Sheet1");
+    assert_eq!(output["data"]["current_stage"], "table_processing");
+    assert_eq!(output["data"]["schema_status"], "confirmed");
+    assert_eq!(output["data"]["active_table_ref"], table_ref);
+}
+
+#[test]
+fn stat_summary_with_table_ref_advances_session_stage_to_analysis_modeling() {
+    let runtime_db = create_test_runtime_db("stat_summary_stage");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_stat_summary_stage",
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+    let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap();
+
+    let stat_request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "session_id": "session_stat_summary_stage",
+            "table_ref": table_ref,
+            "columns": ["sales"],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+    let stat_output = run_cli_with_json_and_runtime(&stat_request.to_string(), &runtime_db);
+    assert_eq!(stat_output["status"], "ok");
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_stat_summary_stage"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-22: 这里先锁定分析入口消费 table_ref 后会把阶段推进到 analysis_modeling，目的是让总入口能识别用户已经进入分析建模层。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["current_stage"], "analysis_modeling");
+    assert_eq!(output["data"]["schema_status"], "confirmed");
+    assert_eq!(output["data"]["active_table_ref"], table_ref);
+}
+
+#[test]
+fn decision_assistant_with_table_ref_advances_session_stage_to_decision_assistant() {
+    let runtime_db = create_test_runtime_db("decision_stage");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_decision_stage",
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+    let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap();
+
+    let decision_request = json!({
+        "tool": "decision_assistant",
+        "args": {
+            "session_id": "session_decision_stage",
+            "table_ref": table_ref,
+            "columns": ["user_id", "sales"],
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+    let decision_output = run_cli_with_json_and_runtime(&decision_request.to_string(), &runtime_db);
+    assert_eq!(decision_output["status"], "ok");
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_decision_stage"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-22: 这里先锁定决策助手入口会推进阶段，目的是让 orchestrator 下一轮能知道当前更接近建议与决策语境，而不是重新回到表处理。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["current_stage"], "decision_assistant");
+    assert_eq!(output["data"]["schema_status"], "confirmed");
+    assert_eq!(output["data"]["active_table_ref"], table_ref);
+}
+
+#[test]
+fn stat_summary_accepts_result_ref_from_previous_step() {
+    let store = ResultRefStore::workspace_default().unwrap();
+    let result_ref = ResultRefStore::create_result_ref();
+    // 2026-03-22: 这里先构造一个持久化中间结果，目的是锁定分析 Tool 可以直接复用上一步结果，而不必回退到 path+sheet。
+    let dataframe = DataFrame::new(vec![
+        Series::new("customer_id".into(), ["c001", "c002", "c003"]).into(),
+        Series::new("sales".into(), [100_i64, 200_i64, 300_i64]).into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "group_and_aggregate",
+        vec!["table_sales".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+
+    let request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "result_ref": result_ref,
+            "columns": ["sales"]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["numeric_summaries"][0]["column"], "sales");
+    assert_eq!(output["data"]["numeric_summaries"][0]["count"], 3);
+}
+
+#[test]
+fn stat_summary_accepts_table_ref_from_apply_header_schema() {
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap();
+
+    let request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "table_ref": table_ref,
+            "columns": ["sales"],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    // 2026-03-22: 这里锁定 analysis bridge 会优先复用 table_ref，而不是重新回到 needs_confirmation，目的是把表处理确认态真正接进分析摘要入口。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["numeric_summaries"][0]["column"], "sales");
+}
+
+#[test]
+fn stat_summary_accepts_region_table_ref_from_load_table_region() {
+    let workbook_path = create_positioned_workbook(
+        "region_table_ref_stat_summary",
+        "region-table-ref-stat-summary.xlsx",
+        &[(
+            "Report",
+            vec![
+                (2, 1, "user_id"),
+                (2, 2, "region"),
+                (2, 3, "sales"),
+                (3, 1, "1001"),
+                (3, 2, "North"),
+                (3, 3, "88"),
+                (4, 1, "1002"),
+                (4, 2, "South"),
+                (4, 3, "95"),
+            ],
+        )],
+    );
+    let load_request = json!({
+        "tool": "load_table_region",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Report",
+            "range": "B3:D5",
+            "header_row_count": 1
+        }
+    });
+    let load_output = run_cli_with_json(&load_request.to_string());
+    assert_eq!(load_output["status"], "ok");
+    let table_ref = load_output["data"]["table_ref"].as_str().unwrap();
+
+    let request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "table_ref": table_ref,
+            "columns": ["sales"],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 5
+        }
+    });
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-22: 这里锁定 region table_ref 可以直接进入统计摘要，目的是把显式区域确认态真正桥接到分析层。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["numeric_summaries"][0]["column"], "sales");
+    assert_eq!(output["data"]["numeric_summaries"][0]["count"], 2);
+}
+
+#[test]
+fn analyze_table_accepts_region_table_ref_from_load_table_region() {
+    let workbook_path = create_positioned_workbook(
+        "region_table_ref_analyze",
+        "region-table-ref-analyze.xlsx",
+        &[(
+            "Report",
+            vec![
+                (2, 1, "user_id"),
+                (2, 2, "region"),
+                (2, 3, "sales"),
+                (3, 1, "1001"),
+                (3, 2, "North"),
+                (3, 3, "88"),
+                (4, 1, "1002"),
+                (4, 2, "South"),
+                (4, 3, "95"),
+            ],
+        )],
+    );
+    let load_request = json!({
+        "tool": "load_table_region",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Report",
+            "range": "B3:D5",
+            "header_row_count": 1
+        }
+    });
+    let load_output = run_cli_with_json(&load_request.to_string());
+    assert_eq!(load_output["status"], "ok");
+    let table_ref = load_output["data"]["table_ref"].as_str().unwrap();
+
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "table_ref": table_ref,
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 3
+        }
+    });
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-22: 这里锁定 region table_ref 也能直接进入分析诊断，目的是让局部区域分析不必退回原始 path+sheet。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 2);
+    assert!(output["data"]["table_health"].is_object());
+    assert!(output["data"]["human_summary"].is_object());
+}
+
+#[test]
+fn cluster_kmeans_accepts_table_ref_from_apply_header_schema() {
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap();
+
+    let request = json!({
+        "tool": "cluster_kmeans",
+        "args": {
+            "table_ref": table_ref,
+            "features": ["user_id", "sales"],
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "cluster_count": 2,
+            "missing_strategy": "drop_rows"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    // 2026-03-22: 这里锁定建模 Tool 也能直接消费 table_ref，目的是确保桥接不是只修统计摘要而是打通到建模公共准备层。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["model_kind"], "cluster_kmeans");
+    assert_eq!(output["data"]["features"], json!(["user_id", "sales"]));
+    assert_eq!(output["data"]["cluster_count"], 2);
+}
+
+#[test]
+fn decision_assistant_accepts_table_ref_from_apply_header_schema() {
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap();
+
+    let request = json!({
+        "tool": "decision_assistant",
+        "args": {
+            "table_ref": table_ref,
+            "columns": ["user_id", "sales"],
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    // 2026-03-22: 这里锁定决策助手也能复用 table_ref，目的是把表处理确认态继续桥接到更上层的决策助手入口。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["assistant_kind"], "quality_diagnostic");
+    assert!(output["data"]["human_summary"].is_object());
+}
+
+#[test]
+fn stat_summary_rejects_stale_table_ref() {
+    let runtime_dir = std::path::PathBuf::from("tests").join("runtime_fixtures");
+    std::fs::create_dir_all(&runtime_dir).unwrap();
+    let copied_path = runtime_dir.join("title-gap-header-stale.xlsx");
+    std::fs::copy("tests/fixtures/title-gap-header.xlsx", &copied_path).unwrap();
+
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": copied_path.to_string_lossy(),
+            "sheet": "Sheet1"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    std::fs::copy("tests/fixtures/basic-sales.xlsx", &copied_path).unwrap();
+
+    let request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "table_ref": table_ref,
+            "columns": ["sales"],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "error");
+    // 2026-03-22: 这里锁定源文件变更后 table_ref 会被拒绝复用，目的是防止用户改过 Excel 以后系统还偷偷吃旧确认态。
+    assert!(output["error"].as_str().unwrap().contains("table_ref"));
+}
+
+#[test]
+fn stat_summary_rejects_stale_region_table_ref() {
+    let workbook_path = create_positioned_workbook(
+        "stale_region_table_ref",
+        "stale-region-table-ref.xlsx",
+        &[(
+            "Report",
+            vec![
+                (2, 1, "user_id"),
+                (2, 2, "region"),
+                (2, 3, "sales"),
+                (3, 1, "1001"),
+                (3, 2, "North"),
+                (3, 3, "88"),
+                (4, 1, "1002"),
+                (4, 2, "South"),
+                (4, 3, "95"),
+            ],
+        )],
+    );
+    let load_request = json!({
+        "tool": "load_table_region",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Report",
+            "range": "B3:D5",
+            "header_row_count": 1
+        }
+    });
+    let load_output = run_cli_with_json(&load_request.to_string());
+    assert_eq!(load_output["status"], "ok");
+    let table_ref = load_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    std::fs::copy("tests/fixtures/basic-sales.xlsx", &workbook_path).unwrap();
+
+    let request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "table_ref": table_ref,
+            "columns": ["sales"],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "error");
+    // 2026-03-22: 这里锁定 region table_ref 在源文件变化后同样会被拒绝，目的是防止局部区域确认态吃到过期底表。
+    assert!(output["error"].as_str().unwrap().contains("table_ref"));
+}
+
+#[test]
+fn preview_table_returns_first_rows_from_target_sheet() {
+    let request = json!({
+        "tool": "preview_table",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "limit": 1
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["region"], "East");
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["user_id", "region", "sales"])
+    );
+}
+
+#[test]
+fn select_columns_returns_trimmed_columns_for_target_sheet() {
+    let request = json!({
+        "tool": "select_columns",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "columns": ["region", "sales"]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["columns"], json!(["region", "sales"]));
+    assert_eq!(output["data"]["row_count"], 2);
+}
+
+#[test]
+fn cast_column_types_returns_updated_dtype_summary() {
+    let request = json!({
+        "tool": "cast_column_types",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["column_types"][2]["column"], "sales");
+    assert_eq!(output["data"]["column_types"][2]["dtype"], "int64");
+}
+
+#[test]
+fn group_and_aggregate_returns_grouped_rows_for_target_sheet() {
+    let request = json!({
+        "tool": "group_and_aggregate",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "group_by": ["region"],
+            "aggregations": [
+                {
+                    "column": "sales",
+                    "operator": "sum"
+                },
+                {
+                    "column": "sales",
+                    "operator": "count"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["region", "sales_sum", "sales_count"])
+    );
+    assert_eq!(output["data"]["rows"][0]["region"], "East");
+    assert_eq!(output["data"]["rows"][0]["sales_sum"], "200");
+    assert_eq!(output["data"]["rows"][1]["region"], "West");
+    assert_eq!(output["data"]["rows"][1]["sales_count"], "2");
+}
+
+#[test]
+fn group_and_aggregate_returns_reusable_result_ref_for_follow_up_analysis() {
+    let group_request = json!({
+        "tool": "group_and_aggregate",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "group_by": ["region"],
+            "aggregations": [
+                {
+                    "column": "sales",
+                    "operator": "sum"
+                }
+            ]
+        }
+    });
+
+    let group_output = run_cli_with_json(&group_request.to_string());
+    assert_eq!(group_output["status"], "ok");
+    let result_ref = group_output["data"]["result_ref"]
+        .as_str()
+        .expect("group_and_aggregate should return result_ref")
+        .to_string();
+
+    let stat_request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "result_ref": result_ref,
+            "casts": [
+                {
+                    "column": "sales_sum",
+                    "target_type": "int64"
+                }
+            ],
+            "columns": ["sales_sum"]
+        }
+    });
+
+    let stat_output = run_cli_with_json(&stat_request.to_string());
+    // 2026-03-22: 这里锁定表处理结果可以直接交给分析 Tool 继续消费，目的是把“先处理，再分析”的链式闭环真正落到用户可调用路径。
+    assert_eq!(stat_output["status"], "ok");
+    assert_eq!(
+        stat_output["data"]["numeric_summaries"][0]["column"],
+        "sales_sum"
+    );
+    assert_eq!(stat_output["data"]["numeric_summaries"][0]["count"], 2);
+}
+
+#[test]
+fn sort_rows_returns_rows_in_requested_order() {
+    let request = json!({
+        "tool": "sort_rows",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "sorts": [
+                {
+                    "column": "region",
+                    "descending": false
+                },
+                {
+                    "column": "sales",
+                    "descending": true
+                }
+            ],
+            "limit": 4
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 4);
+    assert_eq!(output["data"]["rows"][0]["region"], "East");
+    assert_eq!(output["data"]["rows"][0]["sales"], "120");
+    assert_eq!(output["data"]["rows"][1]["sales"], "80");
+    assert_eq!(output["data"]["rows"][2]["region"], "West");
+    assert_eq!(output["data"]["rows"][2]["sales"], "90");
+}
+
+#[test]
+fn top_n_returns_highest_sales_rows_for_target_sheet() {
+    let request = json!({
+        "tool": "top_n",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "sorts": [
+                {
+                    "column": "sales",
+                    "descending": true
+                }
+            ],
+            "n": 2
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["rows"][0]["sales"], "120");
+    assert_eq!(output["data"]["rows"][1]["sales"], "90");
+}
+
+#[test]
+fn derive_columns_builds_labels_buckets_and_scores() {
+    let request = json!({
+        "tool": "derive_columns",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "derivations": [
+                {
+                    "kind": "case_when",
+                    "output_column": "priority",
+                    "rules": [
+                        {
+                            "when": {
+                                "column": "sales",
+                                "operator": "gte",
+                                "value": "110"
+                            },
+                            "value": "A"
+                        }
+                    ],
+                    "else_value": "B"
+                },
+                {
+                    "kind": "bucketize",
+                    "source_column": "sales",
+                    "output_column": "sales_band",
+                    "buckets": [
+                        {
+                            "label": "low",
+                            "max_exclusive": 110.0
+                        },
+                        {
+                            "label": "high",
+                            "min_inclusive": 110.0
+                        }
+                    ],
+                    "else_value": "unknown"
+                },
+                {
+                    "kind": "score_rules",
+                    "output_column": "priority_score",
+                    "default_score": 0,
+                    "rules": [
+                        {
+                            "when": {
+                                "column": "region",
+                                "operator": "equals",
+                                "value": "East"
+                            },
+                            "score": 10
+                        },
+                        {
+                            "when": {
+                                "column": "sales",
+                                "operator": "gte",
+                                "value": "110"
+                            },
+                            "score": 5
+                        }
+                    ]
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    // 2026-03-22: 这里先锁定最小派生字段引擎，目的是让客户分层、旺淡季标签和优先级评分这些经营分析中间表能在 Tool 层直接生成。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["result_ref"].is_string(), true);
+    assert_eq!(output["data"]["rows"][0]["priority"], "A");
+    assert_eq!(output["data"]["rows"][0]["sales_band"], "high");
+    assert_eq!(output["data"]["rows"][0]["priority_score"], "15");
+}
+
+#[test]
+fn derive_columns_supports_condition_groups_date_bucket_and_template_in_cli() {
+    let workbook_path = create_test_workbook(
+        "derive_columns_advanced_cli",
+        "derive-columns-advanced.xlsx",
+        &[(
+            "Sales",
+            vec![
+                vec!["customer_id", "sales", "visits", "biz_date", "region"],
+                vec!["C001", "120", "3", "2026-01-15", "East"],
+                vec!["C002", "95", "5", "2026-04-10", "West"],
+                vec!["C003", "60", "1", "2026-08-01", "North"],
+            ],
+        )],
+    );
+
+    let request = json!({
+        "tool": "derive_columns",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Sales",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "visits",
+                    "target_type": "int64"
+                }
+            ],
+            "derivations": [
+                {
+                    "kind": "case_when",
+                    "output_column": "priority",
+                    "rules": [
+                        {
+                            "when": {
+                                "mode": "all",
+                                "conditions": [
+                                    {
+                                        "column": "sales",
+                                        "operator": "gte",
+                                        "value": "100"
+                                    },
+                                    {
+                                        "column": "visits",
+                                        "operator": "gte",
+                                        "value": "3"
+                                    }
+                                ]
+                            },
+                            "value": "A"
+                        },
+                        {
+                            "when": {
+                                "mode": "any",
+                                "conditions": [
+                                    {
+                                        "column": "sales",
+                                        "operator": "gte",
+                                        "value": "90"
+                                    },
+                                    {
+                                        "column": "visits",
+                                        "operator": "gte",
+                                        "value": "5"
+                                    }
+                                ]
+                            },
+                            "value": "B"
+                        }
+                    ],
+                    "else_value": "C"
+                },
+                {
+                    "kind": "date_bucketize",
+                    "source_column": "biz_date",
+                    "output_column": "season",
+                    "buckets": [
+                        {
+                            "label": "Q1",
+                            "start_inclusive": "2026-01-01",
+                            "end_exclusive": "2026-04-01"
+                        },
+                        {
+                            "label": "Q2",
+                            "start_inclusive": "2026-04-01",
+                            "end_exclusive": "2026-07-01"
+                        }
+                    ],
+                    "else_value": "H2"
+                },
+                {
+                    "kind": "template",
+                    "output_column": "reason",
+                    "template": "{customer_id}-{region}-{priority}-{season}"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层也能直接产出条件组标签、日期分段与说明列，目的是让 Skill 能少问一步直接生成中间分析表。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["priority"], "A");
+    assert_eq!(output["data"]["rows"][1]["priority"], "B");
+    assert_eq!(output["data"]["rows"][2]["priority"], "C");
+    assert_eq!(output["data"]["rows"][0]["season"], "Q1");
+    assert_eq!(output["data"]["rows"][1]["season"], "Q2");
+    assert_eq!(output["data"]["rows"][2]["season"], "H2");
+    assert_eq!(output["data"]["rows"][0]["reason"], "C001-East-A-Q1");
+    assert_eq!(output["data"]["rows"][1]["reason"], "C002-West-B-Q2");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn join_tables_returns_matched_rows_for_explicit_join_request() {
+    let request = json!({
+        "tool": "join_tables",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-customers.xlsx",
+                "sheet": "Customers"
+            },
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 3);
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["user_id", "name", "region", "order_id", "amount"])
+    );
+    assert_eq!(output["data"]["rows"][0]["name"], "Alice");
+    assert_eq!(output["data"]["rows"][1]["order_id"], "102");
+    assert_eq!(output["data"]["rows"][2]["amount"], "90");
+}
+
+#[test]
+fn join_tables_returns_reusable_result_ref_for_follow_up_analysis() {
+    let join_request = json!({
+        "tool": "join_tables",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-customers.xlsx",
+                "sheet": "Customers"
+            },
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only"
+        }
+    });
+
+    let join_output = run_cli_with_json(&join_request.to_string());
+    assert_eq!(join_output["status"], "ok");
+    let result_ref = join_output["data"]["result_ref"]
+        .as_str()
+        .expect("join_tables should return result_ref")
+        .to_string();
+
+    let stat_request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "result_ref": result_ref,
+            "casts": [
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "columns": ["amount"]
+        }
+    });
+
+    let stat_output = run_cli_with_json(&stat_request.to_string());
+    // 2026-03-22: 这里锁定多表关联结果也能无缝进入分析层，目的是把多表链式闭环补齐到客户可直接使用。
+    assert_eq!(stat_output["status"], "ok");
+    assert_eq!(
+        stat_output["data"]["numeric_summaries"][0]["column"],
+        "amount"
+    );
+}
+
+#[test]
+fn join_tables_accepts_casts_before_matching() {
+    let request = json!({
+        "tool": "join_tables",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-customers-padded.xlsx",
+                "sheet": "Customers"
+            },
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "left_casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                }
+            ],
+            "right_casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                }
+            ],
+            "keep_mode": "matched_only"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 3);
+    // 2026-03-21: 这里校验显式类型对齐后的关联结果，目的是确保带前导零的字符串 ID 在统一转型后也能正确匹配。
+    assert_eq!(output["data"]["rows"][0]["name"], "Alice");
+    assert_eq!(output["data"]["rows"][1]["order_id"], "102");
+    assert_eq!(output["data"]["rows"][2]["amount"], "90");
+}
+
+#[test]
+fn join_tables_aligns_integer_and_float_result_refs_without_manual_casts() {
+    let store = ResultRefStore::workspace_default().unwrap();
+    let left_result_ref = ResultRefStore::create_result_ref();
+    let right_result_ref = ResultRefStore::create_result_ref();
+    // 2026-03-23: 这里手工准备整数键 result_ref，目的是锁定 CLI 在多步链路里也能直接复用数值型中间结果做显性关联。
+    let left_dataframe = DataFrame::new(vec![
+        Series::new("user_id".into(), [1_i64, 2_i64, 3_i64]).into(),
+        Series::new("name".into(), ["Alice", "Bob", "Cara"]).into(),
+    ])
+    .unwrap();
+    let left_record = PersistedResultDataset::from_dataframe(
+        &left_result_ref,
+        "seed_join_left_int",
+        vec!["seed_join_left_int".to_string()],
+        &left_dataframe,
+    )
+    .unwrap();
+    store.save(&left_record).unwrap();
+    // 2026-03-23: 这里手工准备浮点键 result_ref，目的是复现 step_n_result 链路里“1”和“1.0”本该相等却可能错过匹配的问题。
+    let right_dataframe = DataFrame::new(vec![
+        Series::new("user_id".into(), [1.0_f64, 2.0_f64, 4.0_f64]).into(),
+        Series::new("order_id".into(), ["A-101", "A-102", "A-104"]).into(),
+    ])
+    .unwrap();
+    let right_record = PersistedResultDataset::from_dataframe(
+        &right_result_ref,
+        "seed_join_right_float",
+        vec!["seed_join_right_float".to_string()],
+        &right_dataframe,
+    )
+    .unwrap();
+    store.save(&right_record).unwrap();
+
+    let request = json!({
+        "tool": "join_tables",
+        "args": {
+            "left": {
+                "result_ref": left_result_ref
+            },
+            "right": {
+                "result_ref": right_result_ref
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-23: 这里锁定 CLI 层也会把整数键与浮点键按同一数值语义对齐，目的是让中间结果链式 join 更稳。
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["rows"][0]["user_id"], "1");
+    assert_eq!(output["data"]["rows"][0]["name"], "Alice");
+    assert_eq!(output["data"]["rows"][0]["order_id"], "A-101");
+    assert_eq!(output["data"]["rows"][1]["user_id"], "2");
+    assert_eq!(output["data"]["rows"][1]["order_id"], "A-102");
+}
+
+#[test]
+fn join_tables_ignores_blank_keys_in_cli_requests() {
+    let request = json!({
+        "tool": "join_tables",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-empty-keys.xlsx",
+                "sheet": "Customers"
+            },
+            "right": {
+                "path": "tests/fixtures/join-empty-keys.xlsx",
+                "sheet": "Orders"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定 CLI 层也忽略空键，目的是防止问答界面把“未填 ID”数据误当作关联成功。
+    assert_eq!(output["data"]["row_count"], 1);
+    assert_eq!(output["data"]["rows"][0]["user_id"], "1");
+    assert_eq!(output["data"]["rows"][0]["order_id"], "101");
+}
+
+#[test]
+fn join_tables_expands_many_to_many_matches_and_keeps_stable_columns_in_cli() {
+    let request = json!({
+        "tool": "join_tables",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-conflict-columns.xlsx",
+                "sheet": "Left"
+            },
+            "right": {
+                "path": "tests/fixtures/join-conflict-columns.xlsx",
+                "sheet": "Right"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only",
+            "limit": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定 CLI 多对多展开结果，目的是保证 Skill 看到的行数与底层 join 语义一致。
+    assert_eq!(output["data"]["row_count"], 5);
+    // 2026-03-21: 这里锁定连续冲突列名，目的是让上层编排能稳定引用右表补充列。
+    assert_eq!(
+        output["data"]["columns"],
+        json!([
+            "user_id",
+            "region",
+            "region_right",
+            "tag",
+            "region_right_right",
+            "region_right_right_right",
+            "amount"
+        ])
+    );
+    assert_eq!(output["data"]["rows"][0]["amount"], "120");
+}
+
+#[test]
+fn summarize_table_returns_column_profiles() {
+    let request = json!({
+        "tool": "summarize_table",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "columns": ["region", "sales"],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 2
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["summaries"][0]["column"], "region");
+    // 2026-03-21: 这里校验文本列摘要会正确经过 Tool 返回，目的是保证问答界面能直接消费列画像。
+    assert_eq!(output["data"]["summaries"][0]["summary_kind"], "string");
+    assert_eq!(output["data"]["summaries"][0]["distinct_count"], 2);
+    // 2026-03-21: 这里补 CLI 缺失率断言，目的是确保问答界面直接读取 Tool 输出即可得到质量指标。
+    assert_eq!(output["data"]["summaries"][0]["missing_rate"], 0.0);
+    // 2026-03-21: 这里校验数值列会先完成 cast 再做摘要，目的是让统计结果基于真实数值而不是字符串。
+    assert_eq!(output["data"]["summaries"][1]["column"], "sales");
+    assert_eq!(output["data"]["summaries"][1]["summary_kind"], "numeric");
+    // 2026-03-21: 这里补数值列缺失率断言，目的是保证 CLI JSON 与内存摘要结构保持一致。
+    assert_eq!(output["data"]["summaries"][1]["missing_rate"], 0.0);
+    assert_eq!(output["data"]["summaries"][1]["mean"], 107.5);
+    assert_eq!(output["data"]["summaries"][1]["sum"], 215.0);
+}
+
+#[test]
+fn summarize_table_treats_blank_excel_cells_as_missing() {
+    let request = json!({
+        "tool": "summarize_table",
+        "args": {
+            "path": "tests/fixtures/summary-blanks.xlsx",
+            "sheet": "Profile",
+            "columns": ["notes"],
+            "top_k": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 3);
+    // 2026-03-21: 这里校验 Excel 空白单元格会在 CLI 返回中进入缺失统计，目的是稳定支撑问答式质量判断。
+    assert_eq!(output["data"]["summaries"][0]["count"], 1);
+    assert_eq!(output["data"]["summaries"][0]["null_count"], 2);
+    // 2026-03-21: 这里补空白缺失率断言，目的是把 Excel 空白单元格的质量指标稳定输出到 JSON。
+    assert_eq!(output["data"]["summaries"][0]["missing_rate"], 2.0 / 3.0);
+    assert_eq!(output["data"]["summaries"][0]["distinct_count"], 1);
+    assert_eq!(
+        output["data"]["summaries"][0]["top_values"][0]["value"],
+        "done"
+    );
+}
+
+#[test]
+fn summarize_table_treats_placeholder_excel_values_as_missing() {
+    let request = json!({
+        "tool": "summarize_table",
+        "args": {
+            "path": "tests/fixtures/summary-placeholders.xlsx",
+            "sheet": "Profile",
+            "columns": ["notes"],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里校验 Excel 占位缺失值会在 CLI 返回中按缺失处理，目的是避免上层误把它们当有效文本。
+    assert_eq!(output["data"]["summaries"][0]["count"], 1);
+    assert_eq!(output["data"]["summaries"][0]["null_count"], 4);
+    // 2026-03-21: 这里补占位缺失率断言，目的是让上层可以直接判断这列是否大面积缺值。
+    assert_eq!(output["data"]["summaries"][0]["missing_rate"], 0.8);
+    assert_eq!(output["data"]["summaries"][0]["distinct_count"], 1);
+    assert_eq!(
+        output["data"]["summaries"][0]["top_values"][0]["value"],
+        "done"
+    );
+}
+
+#[test]
+fn summarize_table_handles_excel_date_and_dirty_columns_stably() {
+    let request = json!({
+        "tool": "summarize_table",
+        "args": {
+            "path": "tests/fixtures/summary-mixed-dirty.xlsx",
+            "sheet": "Profile",
+            "columns": ["event_date", "dirty_score"],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定日期文本列的缺失统计，目的是保证真实 Excel 输入下也能得到稳定画像。
+    assert_eq!(output["data"]["summaries"][0]["column"], "event_date");
+    assert_eq!(output["data"]["summaries"][0]["count"], 3);
+    assert_eq!(output["data"]["summaries"][0]["null_count"], 2);
+    assert_eq!(output["data"]["summaries"][0]["missing_rate"], 0.4);
+    // 2026-03-21: 这里锁定脏数据列的缺失统计与离散分布，目的是防止真实 Excel 场景下把占位值误当有效值。
+    assert_eq!(output["data"]["summaries"][1]["column"], "dirty_score");
+    assert_eq!(output["data"]["summaries"][1]["count"], 3);
+    assert_eq!(output["data"]["summaries"][1]["null_count"], 2);
+    assert_eq!(output["data"]["summaries"][1]["missing_rate"], 0.4);
+    assert_eq!(output["data"]["summaries"][1]["distinct_count"], 3);
+}
+
+#[test]
+fn summarize_table_summarizes_wide_sheet_without_losing_columns() {
+    let request = json!({
+        "tool": "summarize_table",
+        "args": {
+            "path": "tests/fixtures/summary-wide.xlsx",
+            "sheet": "Wide",
+            "top_k": 1
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里校验超宽表仍能完整输出全部列摘要，目的是避免尾部列在 JSON 编排中被遗漏。
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["summaries"].as_array().unwrap().len(), 40);
+    assert_eq!(output["data"]["summaries"][0]["column"], "col_01");
+    assert_eq!(output["data"]["summaries"][39]["column"], "col_40");
+    // 2026-03-21: 这里锁定尾列缺失率，目的是确保超宽表尾部列的缺失统计仍然正确。
+    assert_eq!(output["data"]["summaries"][39]["null_count"], 1);
+    assert_eq!(output["data"]["summaries"][39]["missing_rate"], 0.5);
+}
+
+#[test]
+fn stat_summary_returns_typed_summary_payload_in_cli() {
+    let request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "columns": ["region", "sales"],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 2
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定统计桥接 Tool 会返回表级概览和分类输出，目的是让后续建模层直接消费稳定 JSON 契约。
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["column_count"], 2);
+    assert_eq!(output["data"]["table_overview"]["numeric_columns"], 1);
+    assert_eq!(output["data"]["table_overview"]["categorical_columns"], 1);
+    assert_eq!(output["data"]["table_overview"]["boolean_columns"], 0);
+    assert!(output["data"]["numeric_summaries"].is_array());
+    assert!(output["data"]["categorical_summaries"].is_array());
+    assert!(output["data"]["boolean_summaries"].is_array());
+    assert!(output["data"]["human_summary"].is_object());
+    // 2026-03-21: 这里锁定数值列会返回中位数和四分位数，目的是让 CLI 层从第一版开始就具备建模前统计桥接能力。
+    assert_eq!(output["data"]["numeric_summaries"][0]["column"], "sales");
+    assert_eq!(output["data"]["numeric_summaries"][0]["median"], 107.5);
+    assert_eq!(output["data"]["numeric_summaries"][0]["q1"], 101.25);
+    assert_eq!(output["data"]["numeric_summaries"][0]["q3"], 113.75);
+    // 2026-03-21: 这里锁定类别列会返回 top_share，目的是让问答界面直接理解主值集中度。
+    assert_eq!(
+        output["data"]["categorical_summaries"][0]["column"],
+        "region"
+    );
+    assert_eq!(output["data"]["categorical_summaries"][0]["top_share"], 0.5);
+}
+
+#[test]
+fn stat_summary_reports_skew_and_distribution_in_cli() {
+    let request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "path": "tests/fixtures/analyze-distribution.xlsx",
+            "sheet": "Metrics",
+            "columns": ["region", "zero_metric", "amount"],
+            "casts": [
+                {
+                    "column": "zero_metric",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定真实 Excel 偏态列的中位数输出，目的是保证 CLI 桥接层在极端值场景下仍然稳定。
+    assert_eq!(
+        output["data"]["numeric_summaries"][0]["column"],
+        "zero_metric"
+    );
+    assert_eq!(output["data"]["numeric_summaries"][0]["zero_ratio"], 0.8);
+    assert_eq!(output["data"]["numeric_summaries"][1]["column"], "amount");
+    assert_eq!(output["data"]["numeric_summaries"][1]["median"], 2.0);
+    assert_eq!(output["data"]["numeric_summaries"][1]["q1"], 2.0);
+    assert_eq!(output["data"]["numeric_summaries"][1]["q3"], 3.0);
+    // 2026-03-21: 这里锁定主类别占比和中文摘要关键点，目的是让问答界面直接展示也有解释力。
+    assert_eq!(
+        output["data"]["categorical_summaries"][0]["column"],
+        "region"
+    );
+    assert_eq!(output["data"]["categorical_summaries"][0]["top_share"], 0.8);
+    assert!(
+        output["data"]["human_summary"]["key_points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message.as_str().unwrap().contains("East"))
+    );
+    assert!(
+        output["data"]["human_summary"]["key_points"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message.as_str().unwrap().contains("amount")
+                && message.as_str().unwrap().contains("长尾"))
+    );
+}
+
+#[test]
+fn append_tables_returns_combined_rows_for_matching_tables() {
+    let request = json!({
+        "tool": "append_tables",
+        "args": {
+            "top": {
+                "path": "tests/fixtures/append-sales-a.xlsx",
+                "sheet": "Sales"
+            },
+            "bottom": {
+                "path": "tests/fixtures/append-sales-b.xlsx",
+                "sheet": "Sales"
+            },
+            "limit": 4
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 4);
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["user_id", "region", "sales"])
+    );
+    assert_eq!(output["data"]["rows"][0]["user_id"], "1");
+    assert_eq!(output["data"]["rows"][2]["user_id"], "3");
+    assert_eq!(output["data"]["rows"][3]["sales"], "60");
+}
+
+#[test]
+fn append_tables_returns_reusable_result_ref_for_follow_up_analysis() {
+    let append_request = json!({
+        "tool": "append_tables",
+        "args": {
+            "top": {
+                "path": "tests/fixtures/append-sales-a.xlsx",
+                "sheet": "Sales"
+            },
+            "bottom": {
+                "path": "tests/fixtures/append-sales-b.xlsx",
+                "sheet": "Sales"
+            },
+            "limit": 4
+        }
+    });
+
+    let append_output = run_cli_with_json(&append_request.to_string());
+    assert_eq!(append_output["status"], "ok");
+    let result_ref = append_output["data"]["result_ref"]
+        .as_str()
+        .expect("append_tables should return result_ref")
+        .to_string();
+
+    let sort_request = json!({
+        "tool": "top_n",
+        "args": {
+            "result_ref": result_ref,
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "sorts": [
+                {
+                    "column": "sales",
+                    "descending": true
+                }
+            ],
+            "n": 1
+        }
+    });
+
+    let sort_output = run_cli_with_json(&sort_request.to_string());
+    // 2026-03-22: 这里锁定纵向追加结果也能继续复用，目的是让“先追加再分析”的基础路径正式成立。
+    assert_eq!(sort_output["status"], "ok");
+    assert_eq!(sort_output["data"]["rows"][0]["sales"], "120");
+}
+
+#[test]
+fn export_csv_writes_result_ref_to_file() {
+    let store = ResultRefStore::workspace_default().unwrap();
+    let result_ref = ResultRefStore::create_result_ref();
+    let output_path = create_test_output_path("export_csv", "csv");
+    let dataframe = DataFrame::new(vec![
+        Series::new("customer_id".into(), ["c001", "c002"]).into(),
+        Series::new("sales".into(), [120_i64, 90_i64]).into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "group_and_aggregate",
+        vec!["table_sales".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+
+    let request = json!({
+        "tool": "export_csv",
+        "args": {
+            "result_ref": result_ref,
+            "output_path": output_path.to_string_lossy()
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert!(std::fs::exists(&output_path).unwrap());
+    let csv_text = std::fs::read_to_string(&output_path).unwrap();
+    // 2026-03-22: 这里锁定导出 CSV 后文件真正落盘，目的是补齐“能算也能交付”的最小出口能力。
+    assert!(csv_text.contains("customer_id,sales"));
+    assert!(csv_text.contains("c001,120"));
+}
+
+#[test]
+fn export_excel_writes_result_ref_to_workbook() {
+    let store = ResultRefStore::workspace_default().unwrap();
+    let result_ref = ResultRefStore::create_result_ref();
+    let output_path = create_test_output_path("export_excel", "xlsx");
+    let dataframe = DataFrame::new(vec![
+        Series::new("customer_id".into(), ["c001", "c002"]).into(),
+        Series::new("priority".into(), ["A", "B"]).into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "derive_columns",
+        vec!["result_previous".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+
+    let request = json!({
+        "tool": "export_excel",
+        "args": {
+            "result_ref": result_ref,
+            "output_path": output_path.to_string_lossy(),
+            "sheet_name": "Report"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert!(std::fs::exists(&output_path).unwrap());
+
+    let mut workbook = open_workbook_auto(&output_path).unwrap();
+    let range = workbook.worksheet_range("Report").unwrap();
+    // 2026-03-22: 这里锁定导出 XLSX 后工作表名和单元格内容可被再次读取，目的是保证普通客户拿到的是标准 Excel 文件。
+    assert_eq!(range.get((0, 0)).unwrap().to_string(), "customer_id");
+    assert_eq!(range.get((1, 0)).unwrap().to_string(), "c001");
+    assert_eq!(range.get((1, 1)).unwrap().to_string(), "A");
+}
+
+#[test]
+fn tool_catalog_includes_compose_workbook_and_export_excel_workbook() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里先锁定目录里暴露 workbook 组装与导出入口，目的是让多 Sheet 交付链路可被上层显式发现。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "compose_workbook")
+    );
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "export_excel_workbook")
+    );
+}
+
+#[test]
+fn compose_workbook_returns_workbook_ref_for_multiple_sources() {
+    let summary_result_ref = create_datetime_result_ref_for_cli();
+    let request = json!({
+        "tool": "compose_workbook",
+        "args": {
+            "worksheets": [
+                {
+                    "sheet_name": "Summary",
+                    "source": {
+                        "result_ref": summary_result_ref
+                    }
+                },
+                {
+                    "sheet_name": "Sales",
+                    "source": {
+                        "path": "tests/fixtures/basic-sales.xlsx",
+                        "sheet": "Sales"
+                    }
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 compose_workbook 会把多来源快照装成 workbook_ref，目的是给后续真正导出提供稳定句柄。
+    assert_eq!(output["data"]["sheet_count"], 2);
+    assert_eq!(output["data"]["sheet_names"], json!(["Summary", "Sales"]));
+    assert!(
+        output["data"]["workbook_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("workbook_")
+    );
+}
+
+#[test]
+fn export_excel_workbook_writes_multiple_sheets_from_workbook_ref() {
+    let output_path = create_test_output_path("export_excel_workbook_cli", "xlsx");
+    let formatted_request = json!({
+        "tool": "format_table_for_export",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "column_order": ["region", "sales", "user_id"],
+            "rename_mappings": [
+                {
+                    "from": "region",
+                    "to": "区域"
+                },
+                {
+                    "from": "sales",
+                    "to": "销售额"
+                },
+                {
+                    "from": "user_id",
+                    "to": "客户ID"
+                }
+            ],
+            "drop_unspecified_columns": true
+        }
+    });
+    let formatted_output = run_cli_with_json(&formatted_request.to_string());
+    assert_eq!(formatted_output["status"], "ok");
+    let formatted_result_ref = formatted_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let compose_request = json!({
+        "tool": "compose_workbook",
+        "args": {
+            "worksheets": [
+                {
+                    "sheet_name": "交付报表",
+                    "source": {
+                        "result_ref": formatted_result_ref
+                    }
+                },
+                {
+                    "sheet_name": "原始数据",
+                    "source": {
+                        "path": "tests/fixtures/basic-sales.xlsx",
+                        "sheet": "Sales"
+                    }
+                }
+            ]
+        }
+    });
+    let compose_output = run_cli_with_json(&compose_request.to_string());
+    assert_eq!(compose_output["status"], "ok");
+    let workbook_ref = compose_output["data"]["workbook_ref"].as_str().unwrap();
+
+    let export_request = json!({
+        "tool": "export_excel_workbook",
+        "args": {
+            "workbook_ref": workbook_ref,
+            "output_path": output_path.to_string_lossy()
+        }
+    });
+    let export_output = run_cli_with_json(&export_request.to_string());
+
+    assert_eq!(export_output["status"], "ok");
+    assert!(std::fs::exists(&output_path).unwrap());
+    let mut workbook = open_workbook_auto(&output_path).unwrap();
+    let report = workbook.worksheet_range("交付报表").unwrap();
+    let raw = workbook.worksheet_range("原始数据").unwrap();
+
+    // 2026-03-22: 这里锁定 compose -> export 的完整 CLI 链路，目的是保证用户能把整理结果和原表一起交付成标准多 Sheet 工作簿。
+    assert_eq!(report.get((0, 0)).unwrap().to_string(), "区域");
+    assert_eq!(report.get((1, 1)).unwrap().to_string(), "120");
+    assert_eq!(raw.get((0, 0)).unwrap().to_string(), "user_id");
+    assert_eq!(raw.get((1, 2)).unwrap().to_string(), "120");
+}
+
+#[test]
+fn join_tables_accepts_nested_table_ref_and_result_ref_inputs() {
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/join-customers.xlsx",
+            "sheet": "Customers"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let store = ResultRefStore::workspace_default().unwrap();
+    let right_result_ref = ResultRefStore::create_result_ref();
+    // 2026-03-22: 这里先手工准备右侧 result_ref，目的是锁定 join_tables 能消费嵌套的中间结果句柄而不是只认 path+sheet。
+    let right_dataframe = DataFrame::new(vec![
+        Series::new("user_id".into(), ["1", "2", "4"]).into(),
+        Series::new("amount".into(), ["100", "80", "60"]).into(),
+    ])
+    .unwrap();
+    let right_record = PersistedResultDataset::from_dataframe(
+        &right_result_ref,
+        "top_n",
+        vec!["result_seed_orders".to_string()],
+        &right_dataframe,
+    )
+    .unwrap();
+    store.save(&right_record).unwrap();
+
+    let join_request = json!({
+        "tool": "join_tables",
+        "args": {
+            "left": {
+                "table_ref": table_ref
+            },
+            "right": {
+                "result_ref": right_result_ref
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only",
+            "limit": 5
+        }
+    });
+
+    let join_output = run_cli_with_json(&join_request.to_string());
+    assert_eq!(join_output["status"], "ok");
+    assert_eq!(join_output["data"]["row_count"], 2);
+    let joined_result_ref = join_output["data"]["result_ref"].as_str().unwrap();
+
+    let joined_record = store.load(joined_result_ref).unwrap();
+    // 2026-03-22: 这里校验新结果会同时记住左右两边来源，目的是给后续链式解释和血缘展示打底。
+    assert!(
+        joined_record
+            .source_refs
+            .iter()
+            .any(|item| item == &table_ref)
+    );
+    assert!(
+        joined_record
+            .source_refs
+            .iter()
+            .any(|item| item == &right_result_ref)
+    );
+}
+
+#[test]
+fn append_tables_accepts_nested_result_ref_and_path_inputs() {
+    let store = ResultRefStore::workspace_default().unwrap();
+    let top_result_ref = ResultRefStore::create_result_ref();
+    // 2026-03-22: 这里先手工准备上侧 result_ref，目的是锁定 append_tables 也能消费嵌套来源句柄。
+    let top_dataframe = DataFrame::new(vec![
+        Series::new("user_id".into(), ["1", "2"]).into(),
+        Series::new("region".into(), ["East", "West"]).into(),
+        Series::new("sales".into(), ["120", "90"]).into(),
+    ])
+    .unwrap();
+    let top_record = PersistedResultDataset::from_dataframe(
+        &top_result_ref,
+        "group_and_aggregate",
+        vec!["result_seed_sales".to_string()],
+        &top_dataframe,
+    )
+    .unwrap();
+    store.save(&top_record).unwrap();
+
+    let append_request = json!({
+        "tool": "append_tables",
+        "args": {
+            "top": {
+                "result_ref": top_result_ref
+            },
+            "bottom": {
+                "path": "tests/fixtures/append-sales-b.xlsx",
+                "sheet": "Sales"
+            },
+            "limit": 5
+        }
+    });
+
+    let append_output = run_cli_with_json(&append_request.to_string());
+    assert_eq!(append_output["status"], "ok");
+    assert_eq!(append_output["data"]["row_count"], 4);
+    let appended_result_ref = append_output["data"]["result_ref"].as_str().unwrap();
+
+    let appended_record = store.load(appended_result_ref).unwrap();
+    // 2026-03-22: 这里校验追加结果会保留上游 result_ref 和原始工作表来源，目的是把多表血缘闭环补完整。
+    assert!(
+        appended_record
+            .source_refs
+            .iter()
+            .any(|item| item == &top_result_ref)
+    );
+    assert!(
+        appended_record
+            .source_refs
+            .iter()
+            .any(|item| item == "tests/fixtures/append-sales-b.xlsx#Sales")
+    );
+}
+
+#[test]
+fn export_csv_accepts_table_ref_directly() {
+    let output_path = create_test_output_path("export_csv_table_ref", "csv");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/title-gap-header.xlsx",
+            "sheet": "Sheet1"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap();
+
+    let export_request = json!({
+        "tool": "export_csv",
+        "args": {
+            "table_ref": table_ref,
+            "output_path": output_path.to_string_lossy()
+        }
+    });
+
+    let export_output = run_cli_with_json(&export_request.to_string());
+    assert_eq!(export_output["status"], "ok");
+    let csv_text = std::fs::read_to_string(&output_path).unwrap();
+    // 2026-03-22: 这里锁定 confirmed table_ref 也能直接导出，目的是去掉“必须先转 result_ref 才能交付”的多余步骤。
+    assert!(csv_text.contains("user_id,sales"));
+    assert!(csv_text.contains("1,120"));
+}
+
+#[test]
+fn export_excel_accepts_path_and_sheet_directly() {
+    let output_path = create_test_output_path("export_excel_path_sheet", "xlsx");
+    let export_request = json!({
+        "tool": "export_excel",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "output_path": output_path.to_string_lossy(),
+            "sheet_name": "DirectExport"
+        }
+    });
+
+    let export_output = run_cli_with_json(&export_request.to_string());
+    assert_eq!(export_output["status"], "ok");
+
+    let mut workbook = open_workbook_auto(&output_path).unwrap();
+    let range = workbook.worksheet_range("DirectExport").unwrap();
+    // 2026-03-22: 这里锁定导出入口对原始 path+sheet 也开放，目的是让用户能从最直接的来源一步导出。
+    assert_eq!(range.get((0, 0)).unwrap().to_string(), "user_id");
+    assert_eq!(range.get((1, 1)).unwrap().to_string(), "East");
+}
+
+#[test]
+fn export_csv_escapes_quotes_commas_and_newlines() {
+    let store = ResultRefStore::workspace_default().unwrap();
+    let result_ref = ResultRefStore::create_result_ref();
+    let output_path = create_test_output_path("export_csv_escape", "csv");
+    // 2026-03-22: 这里构造包含逗号、引号和换行的值，目的是先锁定 CSV 交付在真实业务文本下不会破坏格式。
+    let dataframe = DataFrame::new(vec![
+        Series::new("customer".into(), ["ACME, Inc.", "Line\nBreak"]).into(),
+        Series::new("note".into(), ["said \"hello\"", "plain"]).into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "derive_columns",
+        vec!["result_seed_escape".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+
+    let request = json!({
+        "tool": "export_csv",
+        "args": {
+            "result_ref": result_ref,
+            "output_path": output_path.to_string_lossy()
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    let csv_text = std::fs::read_to_string(&output_path).unwrap();
+    assert!(csv_text.contains("\"ACME, Inc.\""));
+    assert!(csv_text.contains("\"said \"\"hello\"\"\""));
+    assert!(csv_text.contains("\"Line\nBreak\""));
+}
+
+#[test]
+fn append_tables_accepts_reordered_columns_when_names_match() {
+    let request = json!({
+        "tool": "append_tables",
+        "args": {
+            "top": {
+                "path": "tests/fixtures/append-sales-a.xlsx",
+                "sheet": "Sales"
+            },
+            "bottom": {
+                "path": "tests/fixtures/append-sales-reordered.xlsx",
+                "sheet": "Sales"
+            },
+            "limit": 4
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 4);
+    // 2026-03-21: 这里校验 CLI 返回列顺序稳定，目的是让上层 Skill 可以继续按首表 schema 串接后续 Tool。
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["user_id", "region", "sales"])
+    );
+    // 2026-03-21: 这里校验重排列后的返回行，目的是确保 Tool 层也遵循“按列名对齐追加”的新语义。
+    assert_eq!(output["data"]["rows"][2]["user_id"], "3");
+    assert_eq!(output["data"]["rows"][2]["region"], "North");
+    assert_eq!(output["data"]["rows"][2]["sales"], "90");
+}
+
+#[test]
+fn filter_rows_returns_matching_rows_for_target_sheet() {
+    let request = json!({
+        "tool": "filter_rows",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "conditions": [
+                {
+                    "column": "region",
+                    "operator": "equals",
+                    "value": "East"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["row_count"], 1);
+    assert_eq!(output["data"]["rows"][0]["region"], "East");
+}
+
+#[test]
+fn analyze_table_returns_dual_layer_payload() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 2
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里先锁定桥接 Tool 的最小契约，目的是保证后续诊断逻辑扩展时外部协议保持稳定。
+    assert_eq!(output["data"]["row_count"], 2);
+    assert_eq!(output["data"]["column_count"], 3);
+    assert!(output["data"]["table_health"].is_object());
+    assert!(output["data"]["structured_findings"].is_array());
+    assert!(output["data"]["human_summary"].is_object());
+    // 2026-03-21: 这里先要求人类摘要至少包含总评，目的是让问答界面从第一版开始就能直接展示。
+    assert!(output["data"]["human_summary"]["overall"].is_string());
+}
+
+#[test]
+fn analyze_table_reports_quality_risks_in_human_summary() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-quality.xlsx",
+            "sheet": "Profile",
+            "top_k": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定高缺失列和全空列会进入结构化 finding，目的是让 Skill 能据此继续编排清洗动作。
+    assert!(
+        output["data"]["structured_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["code"] == "high_missing_rate" && finding["column"] == "phone")
+    );
+    assert!(
+        output["data"]["structured_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["code"] == "all_missing" && finding["column"] == "notes")
+    );
+    // 2026-03-21: 这里锁定中文摘要会提到质量风险，目的是保证非 IT 用户直接读结果也能知道先做什么。
+    assert_eq!(output["data"]["table_health"]["level"], "risky");
+    assert!(
+        output["data"]["human_summary"]["overall"]
+            .as_str()
+            .unwrap()
+            .contains("先清洗")
+    );
+}
+
+#[test]
+fn analyze_table_detects_duplicate_rows_and_key_risks_in_cli() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-keys.xlsx",
+            "sheet": "Orders",
+            "top_k": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定重复行和候选键风险会进入结构化 finding，目的是让 Skill 能继续推动去重或主键确认。
+    assert!(
+        output["data"]["structured_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["code"] == "duplicate_rows")
+    );
+    assert!(
+        output["data"]["structured_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["code"] == "duplicate_candidate_key"
+                && finding["column"] == "user_id")
+    );
+    assert!(
+        output["data"]["structured_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["code"] == "blank_candidate_key"
+                && finding["column"] == "user_id")
+    );
+}
+
+#[test]
+fn analyze_table_detects_distribution_risks_in_cli() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-distribution.xlsx",
+            "sheet": "Metrics",
+            "casts": [
+                {
+                    "column": "zero_metric",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定类别失衡、零值占比和异常值 finding，目的是让上层可以直接提示用户重点核查分布问题。
+    assert!(
+        output["data"]["structured_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["code"] == "high_category_imbalance"
+                && finding["column"] == "region")
+    );
+    assert!(
+        output["data"]["structured_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["code"] == "high_zero_ratio"
+                && finding["column"] == "zero_metric")
+    );
+    assert!(
+        output["data"]["structured_findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|finding| finding["code"] == "outlier_suspected" && finding["column"] == "amount")
+    );
+}
+
+#[test]
+fn analyze_table_generates_readable_human_summary() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-distribution.xlsx",
+            "sheet": "Metrics",
+            "casts": [
+                {
+                    "column": "zero_metric",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定人类摘要的固定结构，目的是让终端问答界面可以稳定展示总结区。
+    assert!(output["data"]["human_summary"]["overall"].is_string());
+    assert!(output["data"]["human_summary"]["major_issues"].is_array());
+    assert!(output["data"]["human_summary"]["quick_insights"].is_array());
+    assert!(output["data"]["human_summary"]["recommended_next_step"].is_string());
+    // 2026-03-21: 这里锁定下一步建议数组，目的是让 Skill 可以直接把诊断结果转成后续动作建议。
+    assert!(output["data"]["next_actions"].is_array());
+}
+
+#[test]
+fn analyze_table_returns_business_observations_in_cli() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-distribution.xlsx",
+            "sheet": "Metrics",
+            "casts": [
+                {
+                    "column": "zero_metric",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定 CLI 会返回独立 business_observations 数组，目的是让问答编排层不必从 human_summary 里反解析业务提示。
+    assert!(output["data"]["business_observations"].is_array());
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "top_category"
+                && observation["column"] == "region")
+    );
+    // 2026-03-21: 这里补数值范围观察断言，目的是确保桥接层能同时输出少量业务统计和质量诊断。
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "numeric_range"
+                && observation["column"] == "amount")
+    );
+}
+
+#[test]
+fn analyze_table_compresses_major_issues_and_sorts_findings_in_cli() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-quality.xlsx",
+            "sheet": "Profile",
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定高优先级 finding 会稳定排前，目的是让问答层优先看到真正阻塞分析的问题。
+    assert_eq!(
+        output["data"]["structured_findings"][0]["code"],
+        "all_missing"
+    );
+    assert_eq!(output["data"]["structured_findings"][0]["column"], "notes");
+    // 2026-03-21: 这里锁定摘要主问题会压缩同列重复提示，目的是避免 CLI 结果里 phone 连续重复轰炸用户。
+    let phone_issue_count = output["data"]["human_summary"]["major_issues"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|message| message.as_str().unwrap().contains("phone"))
+        .count();
+    assert_eq!(phone_issue_count, 1);
+    // 2026-03-21: 这里锁定 notes 不会再被误报成候选键，目的是修掉列名 contains(\"no\") 的假阳性。
+    assert!(!output["data"]["structured_findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|finding| finding["code"] == "blank_candidate_key" && finding["column"] == "notes"));
+}
+
+#[test]
+fn analyze_table_returns_extended_business_observations_in_cli() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-distribution.xlsx",
+            "sheet": "Metrics",
+            "casts": [
+                {
+                    "column": "zero_metric",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定 dominant_dimension 会独立返回，目的是让上层直接拿到“主分布维度”观察。
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "dominant_dimension"
+                && observation["column"] == "region")
+    );
+    // 2026-03-21: 这里锁定中心统计观察会独立返回，目的是给后续分析建模层一个轻量中心统计桥接。
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| {
+                (observation["type"] == "numeric_center" || observation["type"] == "median_center")
+                    && observation["column"] == "amount"
+            })
+    );
+}
+
+#[test]
+fn analyze_table_uses_median_center_in_cli_for_skewed_column() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-distribution.xlsx",
+            "sheet": "Metrics",
+            "casts": [
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "columns": ["amount"],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定偏态数值列在 CLI 层会输出 median_center，目的是让问答界面也拿到稳健中心统计。
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "median_center"
+                && observation["column"] == "amount"
+                && observation["message"].as_str().unwrap().contains("2"))
+    );
+    // 2026-03-21: 这里锁定同一列不会再保留 numeric_center，目的是避免两套中心统计并存。
+    assert!(
+        !output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "numeric_center"
+                && observation["column"] == "amount")
+    );
+}
+
+#[test]
+fn analyze_table_returns_date_time_and_amount_observations_in_cli() {
+    let request = json!({
+        "tool": "analyze_table",
+        "args": {
+            "path": "tests/fixtures/analyze-observation-enhancement.xlsx",
+            "sheet": "Orders",
+            "casts": [
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 12
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定真实 Excel 日期范围观察，目的是保证问答界面面对日期列时能直接展示覆盖周期。
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "date_range"
+                && observation["column"] == "order_date"
+                && observation["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("2026-03-01")
+                && observation["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("2026-04-01"))
+    );
+    // 2026-03-21: 这里锁定日期集中观察，目的是让用户直观看到记录主要集中在哪个时间段。
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "date_concentration"
+                && observation["column"] == "order_date"
+                && observation["message"].as_str().unwrap().contains("2026-03"))
+    );
+    // 2026-03-21: 这里锁定时间高峰观察，目的是让真实 Excel 场景也能返回“上午/下午”这种直白提示。
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "time_peak_period"
+                && observation["column"] == "order_time"
+                && observation["message"].as_str().unwrap().contains("下午"))
+    );
+    // 2026-03-21: 这里锁定金额典型区间与负金额观察，目的是让业务用户先看懂金额大致分布和异常含义。
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|observation| observation["type"] == "amount_typical_band"
+                && observation["column"] == "amount"
+                && observation["message"].as_str().unwrap().contains("20")
+                && observation["message"].as_str().unwrap().contains("40"))
+    );
+    assert!(
+        output["data"]["business_observations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(
+                |observation| observation["type"] == "amount_negative_presence"
+                    && observation["column"] == "amount"
+            )
+    );
+    // 2026-03-21: 这里锁定金额长尾观察会进入 quick_insights，目的是让终端摘要优先展示更有业务解释力的信号。
+    assert!(
+        output["data"]["human_summary"]["quick_insights"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|message| message.as_str().unwrap().contains("amount")
+                && message.as_str().unwrap().contains("平均值"))
+    );
+}
+
+#[test]
+fn tool_catalog_includes_linear_regression() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-21: 这里锁定能力目录包含 linear_regression，目的是让问答界面能发现分析建模层的新能力。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "linear_regression")
+    );
+}
+
+#[test]
+fn linear_regression_returns_model_payload_in_cli() {
+    let request = json!({
+        "tool": "linear_regression",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "features": ["user_id"],
+            "target": "sales",
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "intercept": true,
+            "missing_strategy": "drop_rows"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定结构化模型结果字段，目的是保证 Skill 可以稳定读取回归结果而不是解析自然语言。
+    assert_eq!(output["data"]["model_kind"], "linear_regression");
+    assert_eq!(output["data"]["problem_type"], "regression");
+    assert_eq!(output["data"]["data_summary"]["feature_count"], 1);
+    assert_eq!(
+        output["data"]["quality_summary"]["primary_metric"]["name"],
+        "r2"
+    );
+    assert_eq!(output["data"]["features"], json!(["user_id"]));
+    assert_eq!(output["data"]["target"], "sales");
+    assert_eq!(output["data"]["coefficients"][0]["feature"], "user_id");
+    assert!(
+        output["data"]["coefficients"][0]["value"]
+            .as_f64()
+            .is_some()
+    );
+    assert!(output["data"]["intercept"].as_f64().is_some());
+    assert!(output["data"]["r2"].as_f64().is_some());
+    assert_eq!(output["data"]["row_count_used"], 4);
+    assert_eq!(output["data"]["dropped_rows"], 0);
+    assert!(output["data"]["assumptions"].as_array().unwrap().len() >= 2);
+    assert!(
+        output["data"]["human_summary"]["overall"]
+            .as_str()
+            .unwrap()
+            .contains("有效样本")
+    );
+}
+
+#[test]
+fn linear_regression_reports_validation_errors_in_cli() {
+    let request = json!({
+        "tool": "linear_regression",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "features": ["user_id"],
+            "target": "region",
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                }
+            ],
+            "missing_strategy": "drop_rows"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "error");
+    // 2026-03-21: 这里锁定直白错误文案，目的是让低 IT 用户在 CLI/问答入口也能立刻知道不能拿文本列做线性回归。
+    assert!(
+        output["error"]
+            .as_str()
+            .unwrap()
+            .contains("目标列 `region` 不是数值列")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_logistic_regression() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-21: 这里锁定能力目录包含 logistic_regression，目的是让问答界面能发现二分类建模能力。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "logistic_regression")
+    );
+}
+
+#[test]
+fn logistic_regression_returns_model_payload_in_cli() {
+    let request = json!({
+        "tool": "logistic_regression",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "features": ["user_id"],
+            "target": "region",
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                }
+            ],
+            "positive_label": "West",
+            "intercept": true,
+            "missing_strategy": "drop_rows"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定逻辑回归结构化输出字段，目的是保证 Skill 可以稳定读取分类模型结果。
+    assert_eq!(output["data"]["model_kind"], "logistic_regression");
+    assert_eq!(output["data"]["problem_type"], "classification");
+    assert_eq!(output["data"]["data_summary"]["feature_count"], 1);
+    assert_eq!(
+        output["data"]["quality_summary"]["primary_metric"]["name"],
+        "training_accuracy"
+    );
+    assert_eq!(output["data"]["features"], json!(["user_id"]));
+    assert_eq!(output["data"]["target"], "region");
+    assert_eq!(output["data"]["positive_label"], "West");
+    assert_eq!(output["data"]["coefficients"][0]["feature"], "user_id");
+    assert!(
+        output["data"]["coefficients"][0]["value"]
+            .as_f64()
+            .is_some()
+    );
+    assert!(output["data"]["intercept"].as_f64().is_some());
+    assert_eq!(output["data"]["row_count_used"], 4);
+    assert_eq!(output["data"]["dropped_rows"], 0);
+    assert_eq!(output["data"]["class_balance"]["positive_count"], 2);
+    assert_eq!(output["data"]["class_balance"]["negative_count"], 2);
+    assert!(output["data"]["training_accuracy"].as_f64().unwrap() >= 0.99);
+    assert!(
+        output["data"]["assumptions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item.as_str().unwrap().contains("不做 AUC"))
+    );
+    assert!(
+        output["data"]["human_summary"]["overall"]
+            .as_str()
+            .unwrap()
+            .contains("有效样本")
+    );
+}
+
+#[test]
+fn logistic_regression_reports_non_binary_target_in_cli() {
+    let request = json!({
+        "tool": "logistic_regression",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "features": ["user_id"],
+            "target": "sales",
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "missing_strategy": "drop_rows"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "error");
+    // 2026-03-21: 这里锁定多取值目标列会被明确拦截，目的是避免用户误把连续值列拿去做逻辑回归。
+    assert!(output["error"].as_str().unwrap().contains("只支持二分类"));
+}
+
+#[test]
+fn logistic_regression_reports_single_class_target_with_actionable_guidance() {
+    let request = json!({
+        "tool": "logistic_regression",
+        "args": {
+            "path": "tests/fixtures/model-single-class.xlsx",
+            "sheet": "Customers",
+            "features": ["score"],
+            "target": "is_churn",
+            "casts": [
+                {
+                    "column": "score",
+                    "target_type": "float64"
+                }
+            ],
+            "positive_label": "yes",
+            "missing_strategy": "drop_rows"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "error");
+    // 2026-03-22: 这里锁定单一类别目标列会返回可执行的中文引导，目的是让低 IT 用户知道下一步该先检查目标列分布或更换目标列。
+    let error = output["error"].as_str().unwrap();
+    assert!(error.contains("只有一个类别"));
+    assert!(error.contains("先看目标列分布") || error.contains("更换目标列"));
+}
+
+#[test]
+fn tool_catalog_includes_cluster_kmeans() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-21: 这里锁定能力目录包含 cluster_kmeans，目的是让问答界面能够发现聚类能力已经进入分析建模层。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "cluster_kmeans")
+    );
+}
+
+#[test]
+fn cluster_kmeans_returns_model_payload_in_cli() {
+    let request = json!({
+        "tool": "cluster_kmeans",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "features": ["user_id", "sales"],
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "cluster_count": 2,
+            "max_iterations": 50,
+            "missing_strategy": "drop_rows"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定聚类 Tool 的统一建模输出，目的是让 Skill 后续可以和回归/分类复用同一解析入口。
+    assert_eq!(output["data"]["model_kind"], "cluster_kmeans");
+    assert_eq!(output["data"]["problem_type"], "clustering");
+    assert_eq!(output["data"]["features"], json!(["user_id", "sales"]));
+    assert_eq!(output["data"]["cluster_count"], 2);
+    assert_eq!(output["data"]["row_count_used"], 4);
+    assert_eq!(output["data"]["dropped_rows"], 0);
+    assert_eq!(output["data"]["data_summary"]["feature_count"], 2);
+    assert_eq!(
+        output["data"]["quality_summary"]["primary_metric"]["name"],
+        "inertia"
+    );
+    assert_eq!(output["data"]["cluster_sizes"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        output["data"]["cluster_centers"].as_array().unwrap().len(),
+        2
+    );
+    assert_eq!(output["data"]["assignments"].as_array().unwrap().len(), 4);
+}
+
+#[test]
+fn cluster_kmeans_reports_invalid_cluster_count_in_cli() {
+    let request = json!({
+        "tool": "cluster_kmeans",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "features": ["user_id", "sales"],
+            "casts": [
+                {
+                    "column": "user_id",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ],
+            "cluster_count": 8,
+            "missing_strategy": "drop_rows"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "error");
+    // 2026-03-21: 这里锁定 K 值错误会透传直白中文，目的是让终端问答入口也能清楚告诉用户为什么不能聚类。
+    assert!(output["error"].as_str().unwrap().contains("分组数"));
+}
+
+#[test]
+fn tool_catalog_includes_decision_assistant() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-21: 这里锁定能力目录包含 decision_assistant，目的是让问答界面发现决策助手层 V1 已可用。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "decision_assistant")
+    );
+}
+
+#[test]
+fn decision_assistant_returns_prioritized_actions_in_cli() {
+    let request = json!({
+        "tool": "decision_assistant",
+        "args": {
+            "path": "tests/fixtures/analyze-distribution.xlsx",
+            "sheet": "Metrics",
+            "casts": [
+                {
+                    "column": "zero_metric",
+                    "target_type": "int64"
+                },
+                {
+                    "column": "amount",
+                    "target_type": "int64"
+                }
+            ],
+            "top_k": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定决策助手的双层输出结构，目的是让用户既能看到阻塞问题，也能看到下一步工具建议。
+    assert_eq!(output["data"]["assistant_kind"], "quality_diagnostic");
+    assert!(output["data"]["blocking_risks"].is_array());
+    assert!(output["data"]["priority_actions"].is_array());
+    assert!(output["data"]["business_highlights"].is_array());
+    assert!(output["data"]["next_tool_suggestions"].is_array());
+    assert!(output["data"]["human_summary"].is_object());
+    // 2026-03-21: 这里锁定在有两个数值列时会建议聚类，目的是让决策助手真正桥接到新加的聚类 Tool。
+    assert!(
+        output["data"]["next_tool_suggestions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|suggestion| suggestion["tool"] == "cluster_kmeans")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_suggest_table_links() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-21: 这里锁定能力目录包含 suggest_table_links，目的是让上层 Skill 能发现 V2 多表工作流入口。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "suggest_table_links")
+    );
+}
+
+#[test]
+fn suggest_table_links_returns_join_candidate_in_cli() {
+    let request = json!({
+        "tool": "suggest_table_links",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-customers.xlsx",
+                "sheet": "Customers"
+            },
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "max_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-21: 这里锁定 CLI 层会返回显性的 user_id 关联候选，目的是让问答界面能直接引导用户确认关联。
+    assert_eq!(output["data"]["candidates"][0]["left_column"], "user_id");
+    assert_eq!(output["data"]["candidates"][0]["right_column"], "user_id");
+    assert_eq!(output["data"]["candidates"][0]["confidence"], "high");
+    assert!(
+        output["data"]["candidates"][0]["question"]
+            .as_str()
+            .unwrap()
+            .contains("是否用")
+    );
+    assert_eq!(
+        output["data"]["candidates"][0]["keep_mode_options"][0]["keep_mode"],
+        "matched_only"
+    );
+    assert!(
+        output["data"]["recommended_next_step"]
+            .as_str()
+            .unwrap()
+            .contains("join_tables")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_normalize_text_columns_and_rename_columns() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-23: 这里先锁定目录中暴露新 Tool，目的是保证上层 Skill 能发现文本标准化与列重命名能力。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "normalize_text_columns")
+    );
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "rename_columns")
+    );
+}
+
+#[test]
+fn normalize_text_columns_returns_result_ref_with_cleaned_preview() {
+    let request = json!({
+        "tool": "normalize_text_columns",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "rules": [
+                {
+                    "column": "region",
+                    "trim": true,
+                    "collapse_whitespace": true,
+                    "lowercase": true,
+                    "replace_pairs": [
+                        {
+                            "from": "east",
+                            "to": "east_zone"
+                        }
+                    ]
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层会返回清洗后的预览和 result_ref，目的是打通后续链式分析入口。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["region"], "east_zone");
+    assert_eq!(output["data"]["rows"][1]["region"], "west");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn normalize_text_columns_rejects_duplicate_rules_in_cli() {
+    let request = json!({
+        "tool": "normalize_text_columns",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "rules": [
+                {
+                    "column": "region",
+                    "trim": true
+                },
+                {
+                    "column": "region",
+                    "lowercase": true
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层会把重复列规则显式报错，目的是避免参数二义性直接落到生产链路。
+    assert_eq!(output["status"], "error");
+    assert!(output["error"].as_str().unwrap().contains("region"));
+}
+
+#[test]
+fn rename_columns_returns_result_ref_with_renamed_columns() {
+    let request = json!({
+        "tool": "rename_columns",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "mappings": [
+                {
+                    "from": "user_id",
+                    "to": "customer_id"
+                },
+                {
+                    "from": "sales",
+                    "to": "revenue"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层会返回新的列结构，目的是让 Skill 可直接复用改名后的 result_ref。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["customer_id", "region", "revenue"])
+    );
+    assert_eq!(output["data"]["rows"][0]["customer_id"], "1");
+    assert_eq!(output["data"]["rows"][1]["revenue"], "95");
+}
+
+#[test]
+fn rename_columns_reports_missing_source_column_in_cli() {
+    let request = json!({
+        "tool": "rename_columns",
+        "args": {
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales",
+            "mappings": [
+                {
+                    "from": "missing_col",
+                    "to": "target"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层缺列报错，目的是让上层尽早暴露字段口径问题。
+    assert_eq!(output["status"], "error");
+    assert!(output["error"].as_str().unwrap().contains("missing_col"));
+}
+
+#[test]
+fn tool_catalog_includes_fill_missing_from_lookup_and_pivot_table() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-23: 这里锁定目录里已经暴露 lookup 回填与透视能力，目的是让上层 Skill 能发现第二批基础 Tool。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "fill_missing_from_lookup")
+    );
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "pivot_table")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_parse_datetime_columns() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-23: 这里锁定目录暴露日期时间标准化入口，目的是让上层 Skill 能发现第二批基础 Tool。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "parse_datetime_columns")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_lookup_values() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-23: 这里锁定目录暴露轻量查值入口，目的是让上层 Skill 能发现 VLOOKUP/XLOOKUP 心智对应的基础 Tool。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "lookup_values")
+    );
+}
+
+#[test]
+fn tool_catalog_includes_window_calculation() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-23: 这里锁定目录暴露窗口计算入口，目的是让上层 Skill 能发现分析桥接层的关键 Tool。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "window_calculation")
+    );
+}
+
+#[test]
+fn fill_missing_from_lookup_accepts_mixed_table_ref_and_result_ref_sources() {
+    let workbook_path = create_test_workbook(
+        "fill_lookup_cli",
+        "fill-lookup.xlsx",
+        &[
+            (
+                "Base",
+                vec![vec!["user_id", "city"], vec!["1", ""], vec!["2", "Urumqi"]],
+            ),
+            (
+                "Lookup",
+                vec![
+                    vec!["user_id", "city"],
+                    vec!["1", "Beijing"],
+                    vec!["2", "Shanghai"],
+                ],
+            ),
+        ],
+    );
+
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Base"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let lookup_request = json!({
+        "tool": "select_columns",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Lookup",
+            "columns": ["user_id", "city"]
+        }
+    });
+    let lookup_output = run_cli_with_json(&lookup_request.to_string());
+    assert_eq!(lookup_output["status"], "ok");
+    let result_ref = lookup_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let fill_request = json!({
+        "tool": "fill_missing_from_lookup",
+        "args": {
+            "base": {
+                "table_ref": table_ref
+            },
+            "lookup": {
+                "result_ref": result_ref
+            },
+            "base_on": "user_id",
+            "lookup_on": "user_id",
+            "fills": [
+                {
+                    "base_column": "city",
+                    "lookup_column": "city"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&fill_request.to_string());
+
+    // 2026-03-23: 这里锁定 mixed source 模式可以直接回填并返回 result_ref，目的是增强多步链式场景稳定性。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["city"], "Beijing");
+    assert_eq!(output["data"]["rows"][1]["city"], "Urumqi");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn fill_missing_from_lookup_accepts_composite_keys_in_cli() {
+    let workbook_path = create_test_workbook(
+        "fill_lookup_composite_cli",
+        "fill-lookup-composite.xlsx",
+        &[
+            (
+                "Base",
+                vec![
+                    vec!["customer_id", "month", "city", "tier"],
+                    vec!["1", "2026-01", "", ""],
+                    vec!["1", "2026-02", "", ""],
+                    vec!["2", "2026-01", "Urumqi", "A"],
+                ],
+            ),
+            (
+                "Lookup",
+                vec![
+                    vec!["customer_id", "month", "city", "tier"],
+                    vec!["1", "2026-01", "Beijing", "A"],
+                    vec!["1", "2026-02", "Shanghai", "B"],
+                    vec!["2", "2026-01", "Shenzhen", "C"],
+                ],
+            ),
+        ],
+    );
+
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Base"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+
+    let lookup_request = json!({
+        "tool": "select_columns",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Lookup",
+            "columns": ["customer_id", "month", "city", "tier"]
+        }
+    });
+    let lookup_output = run_cli_with_json(&lookup_request.to_string());
+    assert_eq!(lookup_output["status"], "ok");
+    let result_ref = lookup_output["data"]["result_ref"].as_str().unwrap().to_string();
+
+    let fill_request = json!({
+        "tool": "fill_missing_from_lookup",
+        "args": {
+            "base": {
+                "table_ref": table_ref
+            },
+            "lookup": {
+                "result_ref": result_ref
+            },
+            "base_keys": ["customer_id", "month"],
+            "lookup_keys": ["customer_id", "month"],
+            "fills": [
+                {
+                    "base_column": "city",
+                    "lookup_column": "city"
+                },
+                {
+                    "base_column": "tier",
+                    "lookup_column": "tier"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&fill_request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层能按“客户 + 月份”复合键回填，目的是把真实业务补主数据场景接到问答链路。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["city"], "Beijing");
+    assert_eq!(output["data"]["rows"][0]["tier"], "A");
+    assert_eq!(output["data"]["rows"][1]["city"], "Shanghai");
+    assert_eq!(output["data"]["rows"][1]["tier"], "B");
+    assert_eq!(output["data"]["rows"][2]["city"], "Urumqi");
+}
+
+#[test]
+fn pivot_table_supports_sum_aggregation_with_casts() {
+    let request = json!({
+        "tool": "pivot_table",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "rows": ["region"],
+            "columns": ["user_id"],
+            "values": ["sales"],
+            "aggregation": "sum",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 pivot 在 CLI 层可直接透视并返回宽表预览，目的是把 Excel 用户熟悉的能力正式接入 Tool 层。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["columns"],
+        json!(["region", "1", "2", "3", "4"])
+    );
+    assert_eq!(output["data"]["rows"][0]["region"], "East");
+    assert_eq!(output["data"]["rows"][0]["1"], "120");
+    assert_eq!(output["data"]["rows"][0]["2"], "80");
+    assert_eq!(output["data"]["rows"][1]["region"], "West");
+    assert_eq!(output["data"]["rows"][1]["3"], "90");
+    assert_eq!(output["data"]["rows"][1]["4"], "60");
+}
+
+#[test]
+fn pivot_table_rejects_multiple_values_columns_in_cli() {
+    let request = json!({
+        "tool": "pivot_table",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "rows": ["region"],
+            "columns": ["user_id"],
+            "values": ["sales", "user_id"],
+            "aggregation": "count"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定第一版 pivot 的多 values 限制，目的是防止用户误以为已经支持复杂透视。
+    assert_eq!(output["status"], "error");
+    assert!(output["error"].as_str().unwrap().contains("单个 values"));
+}
+
+#[test]
+fn pivot_table_export_cli_writes_blank_cells_and_numeric_values() {
+    let pivot_request = json!({
+        "tool": "pivot_table",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "rows": ["region"],
+            "columns": ["user_id"],
+            "values": ["sales"],
+            "aggregation": "sum",
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "float64"
+                }
+            ]
+        }
+    });
+
+    let pivot_output = run_cli_with_json(&pivot_request.to_string());
+
+    // 2026-03-23: 这里先锁定 CLI 预览里缺失透视格要回空字符串，原因是以后用户看结果时不该再看到 null 文本。
+    assert_eq!(pivot_output["status"], "ok");
+    assert_eq!(pivot_output["data"]["rows"][0]["3"], "");
+
+    let result_ref = pivot_output["data"]["result_ref"].as_str().unwrap();
+    let output_path = create_test_output_path("pivot_table_export_cli", "xlsx");
+    let export_request = json!({
+        "tool": "export_excel",
+        "args": {
+            "result_ref": result_ref,
+            "output_path": output_path.to_string_lossy(),
+            "sheet_name": "Pivot"
+        }
+    });
+
+    let export_output = run_cli_with_json(&export_request.to_string());
+    assert_eq!(export_output["status"], "ok");
+
+    let mut workbook = open_workbook_auto(&output_path).unwrap();
+    let range = workbook.worksheet_range("Pivot").unwrap();
+    let east_user3 = range.get((1, 3));
+    let east_user1 = range.get((1, 1)).unwrap();
+    let west_user3 = range.get((2, 3)).unwrap();
+
+    // 2026-03-23: 这里锁定导出后的缺失值为空白、数值为 number，原因是用户需要把导出的表继续拿去做 Excel 统计。
+    assert!(east_user3.is_none() || matches!(east_user3, Some(Data::Empty)));
+    assert!(matches!(east_user1, Data::Float(value) if (*value - 120.0).abs() < 1e-9));
+    assert!(matches!(west_user3, Data::Float(value) if (*value - 90.0).abs() < 1e-9));
+}
+
+#[test]
+fn parse_datetime_columns_returns_result_ref_with_normalized_preview() {
+    let request = json!({
+        "tool": "parse_datetime_columns",
+        "args": {
+            "result_ref": create_datetime_result_ref_for_cli(),
+            "rules": [
+                {
+                    "column": "biz_date",
+                    "target_type": "date"
+                },
+                {
+                    "column": "created_at",
+                    "target_type": "datetime"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层日期时间标准化输出，目的是让后续窗口和趋势分析可直接消费统一时间口径。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["biz_date"], "2026-03-01");
+    assert_eq!(
+        output["data"]["rows"][1]["created_at"],
+        "2026-03-02 09:15:20"
+    );
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn lookup_values_accepts_mixed_table_ref_and_result_ref_sources() {
+    let workbook_path = create_test_workbook(
+        "lookup_values_cli",
+        "lookup-values.xlsx",
+        &[
+            (
+                "Base",
+                vec![
+                    vec!["user_id", "amount"],
+                    vec!["1", "120"],
+                    vec!["2", "95"],
+                    vec!["9", "88"],
+                ],
+            ),
+            (
+                "Lookup",
+                vec![
+                    vec!["user_id", "city", "tier"],
+                    vec!["1", "Beijing", "A"],
+                    vec!["2", "Shanghai", "B"],
+                ],
+            ),
+        ],
+    );
+
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Base"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let lookup_request = json!({
+        "tool": "select_columns",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Lookup",
+            "columns": ["user_id", "city", "tier"]
+        }
+    });
+    let lookup_output = run_cli_with_json(&lookup_request.to_string());
+    assert_eq!(lookup_output["status"], "ok");
+    let result_ref = lookup_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let request = json!({
+        "tool": "lookup_values",
+        "args": {
+            "base": {
+                "table_ref": table_ref
+            },
+            "lookup": {
+                "result_ref": result_ref
+            },
+            "base_on": "user_id",
+            "lookup_on": "user_id",
+            "selects": [
+                {
+                    "lookup_column": "city",
+                    "output_column": "customer_city"
+                },
+                {
+                    "lookup_column": "tier",
+                    "output_column": "customer_tier"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 mixed source 轻量查值链路，目的是验证主表不变行、查值列可直接回传并生成 result_ref。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["customer_city"], "Beijing");
+    assert_eq!(output["data"]["rows"][1]["customer_tier"], "B");
+    assert_eq!(output["data"]["rows"][2]["customer_city"], "");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn lookup_values_accepts_composite_keys_in_cli() {
+    let workbook_path = create_test_workbook(
+        "lookup_values_composite_cli",
+        "lookup-values-composite.xlsx",
+        &[
+            (
+                "Base",
+                vec![
+                    vec!["customer_id", "month", "amount"],
+                    vec!["1", "2026-01", "120"],
+                    vec!["1", "2026-02", "95"],
+                    vec!["2", "2026-01", "88"],
+                ],
+            ),
+            (
+                "Lookup",
+                vec![
+                    vec!["customer_id", "month", "city", "tier"],
+                    vec!["1", "2026-01", "Beijing", "A"],
+                    vec!["1", "2026-02", "Shanghai", "B"],
+                    vec!["2", "2026-01", "Shenzhen", "C"],
+                ],
+            ),
+        ],
+    );
+
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Base"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+
+    let lookup_request = json!({
+        "tool": "select_columns",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Lookup",
+            "columns": ["customer_id", "month", "city", "tier"]
+        }
+    });
+    let lookup_output = run_cli_with_json(&lookup_request.to_string());
+    assert_eq!(lookup_output["status"], "ok");
+    let result_ref = lookup_output["data"]["result_ref"].as_str().unwrap().to_string();
+
+    let request = json!({
+        "tool": "lookup_values",
+        "args": {
+            "base": {
+                "table_ref": table_ref
+            },
+            "lookup": {
+                "result_ref": result_ref
+            },
+            "base_keys": ["customer_id", "month"],
+            "lookup_keys": ["customer_id", "month"],
+            "selects": [
+                {
+                    "lookup_column": "city",
+                    "output_column": "customer_city"
+                },
+                {
+                    "lookup_column": "tier",
+                    "output_column": "customer_tier"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层能按“客户 + 月份”复合键带列，目的是让多期经营分析不再被单键限制住。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["customer_city"], "Beijing");
+    assert_eq!(output["data"]["rows"][1]["customer_city"], "Shanghai");
+    assert_eq!(output["data"]["rows"][2]["customer_city"], "Shenzhen");
+    assert_eq!(output["data"]["rows"][1]["customer_tier"], "B");
+}
+
+#[test]
+fn window_calculation_returns_result_ref_with_partitioned_metrics() {
+    let request = json!({
+        "tool": "window_calculation",
+        "args": {
+            "path": "tests/fixtures/group-sales.xlsx",
+            "sheet": "Sales",
+            "partition_by": ["region"],
+            "order_by": [
+                {
+                    "column": "sales",
+                    "descending": true
+                }
+            ],
+            "calculations": [
+                {
+                    "kind": "row_number",
+                    "output_column": "row_number"
+                },
+                {
+                    "kind": "rank",
+                    "output_column": "dense_rank"
+                },
+                {
+                    "kind": "cumulative_sum",
+                    "source_column": "sales",
+                    "output_column": "running_sales"
+                }
+            ],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 层窗口计算输出，目的是验证排序、分组和累计指标能一并返回并生成 result_ref。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["region"], "East");
+    assert_eq!(output["data"]["rows"][0]["row_number"], "1");
+    assert_eq!(output["data"]["rows"][0]["dense_rank"], "1");
+    assert_eq!(output["data"]["rows"][0]["running_sales"], "120");
+    assert_eq!(output["data"]["rows"][1]["row_number"], "2");
+    assert_eq!(output["data"]["rows"][1]["running_sales"], "200");
+    assert!(
+        output["data"]["result_ref"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+}
+
+#[test]
+fn window_calculation_supports_shift_percent_rank_and_rolling_metrics_in_cli() {
+    let workbook_path = create_test_workbook(
+        "window_advanced_cli",
+        "window-advanced.xlsx",
+        &[(
+            "Sales",
+            vec![
+                vec!["region", "biz_date", "sales", "customer"],
+                vec!["East", "2026-01-03", "80", "C"],
+                vec!["East", "2026-01-01", "100", "A"],
+                vec!["East", "2026-01-02", "100", "B"],
+                vec!["West", "2026-01-01", "60", "W"],
+            ],
+        )],
+    );
+    let request = json!({
+        "tool": "window_calculation",
+        "args": {
+            "path": workbook_path.to_string_lossy(),
+            "sheet": "Sales",
+            "partition_by": ["region"],
+            "order_by": [
+                {
+                    "column": "biz_date",
+                    "descending": false
+                }
+            ],
+            "calculations": [
+                {
+                    "kind": "lag",
+                    "source_column": "customer",
+                    "output_column": "prev_customer",
+                    "offset": 1
+                },
+                {
+                    "kind": "lead",
+                    "source_column": "customer",
+                    "output_column": "next_customer",
+                    "offset": 1
+                },
+                {
+                    "kind": "percent_rank",
+                    "output_column": "percent_rank"
+                },
+                {
+                    "kind": "rolling_sum",
+                    "source_column": "sales",
+                    "output_column": "rolling_sales_2",
+                    "window_size": 2
+                },
+                {
+                    "kind": "rolling_mean",
+                    "source_column": "sales",
+                    "output_column": "rolling_mean_2",
+                    "window_size": 2
+                }
+            ],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-03-23: 这里锁定 CLI 能直达增强窗口能力，目的是让 Skill 在不下沉实现细节的前提下直接复用桥接层分析结果。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["rows"][0]["prev_customer"], "B");
+    assert_eq!(output["data"]["rows"][0]["next_customer"], "");
+    assert_eq!(output["data"]["rows"][0]["percent_rank"], "1");
+    assert_eq!(output["data"]["rows"][0]["rolling_sales_2"], "180");
+    assert_eq!(output["data"]["rows"][0]["rolling_mean_2"], "90");
+
+    assert_eq!(output["data"]["rows"][1]["prev_customer"], "");
+    assert_eq!(output["data"]["rows"][1]["next_customer"], "B");
+    assert_eq!(output["data"]["rows"][1]["percent_rank"], "0");
+    assert_eq!(output["data"]["rows"][1]["rolling_sales_2"], "100");
+    assert_eq!(output["data"]["rows"][1]["rolling_mean_2"], "100");
+}
+
+#[test]
+fn suggest_table_links_accepts_nested_table_ref_and_result_ref_inputs() {
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/join-customers.xlsx",
+            "sheet": "Customers"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let store = ResultRefStore::workspace_default().unwrap();
+    let result_ref = ResultRefStore::create_result_ref();
+    // 2026-03-23: 这里手工构造右侧 result_ref，目的是先锁定关系建议层也能直接消费中间结果句柄。
+    let dataframe = DataFrame::new(vec![
+        Series::new("user_id".into(), ["1", "2", "4"]).into(),
+        Series::new("amount".into(), ["100", "80", "60"]).into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "group_and_aggregate",
+        vec!["result_seed_orders".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+
+    let request = json!({
+        "tool": "suggest_table_links",
+        "args": {
+            "left": {
+                "table_ref": table_ref
+            },
+            "right": {
+                "result_ref": result_ref
+            },
+            "max_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["candidates"][0]["left_column"], "user_id");
+    assert_eq!(output["data"]["candidates"][0]["right_column"], "user_id");
+}
+
+#[test]
+fn tool_catalog_includes_suggest_table_workflow() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里锁定能力目录包含 suggest_table_workflow，目的是让 Skill 能发现多表“先判断动作”入口。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "suggest_table_workflow")
+    );
+}
+
+#[test]
+fn suggest_table_workflow_recommends_append_in_cli() {
+    let request = json!({
+        "tool": "suggest_table_workflow",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/append-sales-a.xlsx",
+                "sheet": "Sales"
+            },
+            "right": {
+                "path": "tests/fixtures/append-sales-reordered.xlsx",
+                "sheet": "Sales"
+            },
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 层会优先推荐追加动作，目的是让问答界面先问“是否上下拼接”而不是误导去关联。
+    assert_eq!(output["data"]["recommended_action"], "append_tables");
+    assert_eq!(output["data"]["append_candidate"]["confidence"], "high");
+    assert!(
+        output["data"]["append_candidate"]["question"]
+            .as_str()
+            .unwrap()
+            .contains("追加")
+    );
+    assert_eq!(
+        output["data"]["suggested_tool_call"]["tool"],
+        "append_tables"
+    );
+    assert_eq!(
+        output["data"]["suggested_tool_call"]["args"]["top"]["sheet"],
+        "Sales"
+    );
+}
+
+#[test]
+fn suggest_table_workflow_recommends_join_in_cli() {
+    let request = json!({
+        "tool": "suggest_table_workflow",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-customers.xlsx",
+                "sheet": "Customers"
+            },
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 层会把显性关联作为下一步动作推荐，目的是让上层直接承接 join 确认问题。
+    assert_eq!(output["data"]["recommended_action"], "join_tables");
+    assert_eq!(
+        output["data"]["link_candidates"][0]["left_column"],
+        "user_id"
+    );
+    assert_eq!(
+        output["data"]["link_candidates"][0]["right_column"],
+        "user_id"
+    );
+    assert_eq!(output["data"]["suggested_tool_call"]["tool"], "join_tables");
+    assert_eq!(
+        output["data"]["suggested_tool_call"]["args"]["left_on"],
+        "user_id"
+    );
+}
+
+#[test]
+fn suggest_table_workflow_preserves_nested_source_payloads_in_tool_call() {
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/join-customers.xlsx",
+            "sheet": "Customers"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let store = ResultRefStore::workspace_default().unwrap();
+    let result_ref = ResultRefStore::create_result_ref();
+    // 2026-03-23: 这里手工准备右侧 result_ref，目的是锁定工作流建议层返回的建议调用不会把句柄退化回 path+sheet。
+    let dataframe = DataFrame::new(vec![
+        Series::new("user_id".into(), ["1", "2", "4"]).into(),
+        Series::new("amount".into(), ["100", "80", "60"]).into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "top_n",
+        vec!["result_seed_orders".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+
+    let request = json!({
+        "tool": "suggest_table_workflow",
+        "args": {
+            "left": {
+                "table_ref": table_ref
+            },
+            "right": {
+                "result_ref": result_ref
+            },
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["recommended_action"], "join_tables");
+    assert_eq!(
+        output["data"]["suggested_tool_call"]["args"]["left"]["table_ref"],
+        table_ref
+    );
+    assert_eq!(
+        output["data"]["suggested_tool_call"]["args"]["right"]["result_ref"],
+        result_ref
+    );
+}
+
+#[test]
+fn tool_catalog_includes_suggest_multi_table_plan() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    // 2026-03-22: 这里锁定能力目录包含 suggest_multi_table_plan，目的是让 Skill 能发现多表顺序建议入口。
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "suggest_multi_table_plan")
+    );
+}
+
+#[test]
+fn suggest_multi_table_plan_builds_append_chain_in_cli() {
+    let request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-reordered.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_c"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 层会给出多步追加链，目的是让问答界面先按顺序合并同结构表。
+    assert_eq!(output["data"]["steps"][0]["action"], "append_tables");
+    assert_eq!(output["data"]["steps"][0]["input_refs"][0], "sales_a");
+    assert!(
+        output["data"]["steps"][0]["question"]
+            .as_str()
+            .unwrap()
+            .contains("追加")
+    );
+    assert_eq!(output["data"]["steps"][1]["input_refs"][0], "step_1_result");
+}
+
+#[test]
+fn suggest_multi_table_plan_builds_join_step_in_cli() {
+    let request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 层会把双表显性关联沉淀成一步 join 计划，目的是让 Skill 直接消费计划步骤。
+    assert_eq!(output["data"]["steps"][0]["action"], "join_tables");
+    assert!(
+        output["data"]["steps"][0]["question"]
+            .as_str()
+            .unwrap()
+            .contains("是否用")
+    );
+    assert_eq!(
+        output["data"]["steps"][0]["suggested_tool_call"]["tool"],
+        "join_tables"
+    );
+    assert_eq!(
+        output["data"]["steps"][0]["suggested_tool_call"]["args"]["left_on"],
+        "user_id"
+    );
+    assert_eq!(
+        output["data"]["steps"][0]["suggested_tool_call"]["args"]["right_on"],
+        "user_id"
+    );
+}
+
+#[test]
+fn suggest_multi_table_plan_builds_append_then_join_chain_in_cli() {
+    let request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    // 2026-03-22: 这里锁定 CLI 混合场景也会先给追加步骤，目的是让问答界面先收口同结构批次表，再进入显性关联。
+    assert_eq!(output["data"]["steps"][0]["action"], "append_tables");
+    assert_eq!(
+        output["data"]["steps"][0]["input_refs"],
+        json!(["sales_a", "sales_b"])
+    );
+    assert_eq!(output["data"]["steps"][0]["result_ref"], "step_1_result");
+    assert!(
+        output["data"]["steps"][0]["question"]
+            .as_str()
+            .unwrap()
+            .contains("追加")
+    );
+    // 2026-03-22: 这里锁定第二步会直接引用 step_1_result 做 join，目的是确保 CLI 返回的建议调用骨架可以被 Skill 原样串接执行。
+    assert_eq!(output["data"]["steps"][1]["action"], "join_tables");
+    assert_eq!(
+        output["data"]["steps"][1]["input_refs"],
+        json!(["customers", "step_1_result"])
+    );
+    assert_eq!(output["data"]["steps"][1]["result_ref"], "step_2_result");
+    assert!(
+        output["data"]["steps"][1]["question"]
+            .as_str()
+            .unwrap()
+            .contains("是否用")
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["tool"],
+        "join_tables"
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["args"]["left"]["path"],
+        "tests/fixtures/join-customers.xlsx"
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["args"]["right"]["result_ref"],
+        "step_1_result"
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["args"]["left_on"],
+        "user_id"
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["args"]["right_on"],
+        "user_id"
+    );
+    assert_eq!(output["data"]["unresolved_refs"], json!(["step_2_result"]));
+}
+
+#[test]
+fn suggest_multi_table_plan_preserves_mixed_source_payloads() {
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "path": "tests/fixtures/join-customers.xlsx",
+            "sheet": "Customers"
+        }
+    });
+    let confirm_output = run_cli_with_json(&confirm_request.to_string());
+    assert_eq!(confirm_output["status"], "ok");
+    let customers_table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let store = ResultRefStore::workspace_default().unwrap();
+    let sales_result_ref = ResultRefStore::create_result_ref();
+    // 2026-03-23: 这里手工准备 sales_a 的 result_ref，目的是锁定多表计划器会把原始来源类型一路保留到建议调用骨架。
+    let sales_dataframe = DataFrame::new(vec![
+        Series::new("region".into(), ["East", "West"]).into(),
+        Series::new("user_id".into(), ["1", "2"]).into(),
+        Series::new("sales".into(), ["120", "90"]).into(),
+    ])
+    .unwrap();
+    let sales_record = PersistedResultDataset::from_dataframe(
+        &sales_result_ref,
+        "append_tables",
+        vec!["result_seed_sales_a".to_string()],
+        &sales_dataframe,
+    )
+    .unwrap();
+    store.save(&sales_record).unwrap();
+
+    let request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "table_ref": customers_table_ref,
+                    "alias": "customers"
+                },
+                {
+                    "result_ref": sales_result_ref,
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["steps"][0]["action"], "append_tables");
+    assert_eq!(
+        output["data"]["steps"][0]["suggested_tool_call"]["args"]["top"]["result_ref"],
+        sales_result_ref
+    );
+    assert_eq!(
+        output["data"]["steps"][0]["suggested_tool_call"]["args"]["bottom"]["path"],
+        "tests/fixtures/append-sales-b.xlsx"
+    );
+    assert_eq!(output["data"]["steps"][1]["action"], "join_tables");
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["args"]["left"]["table_ref"],
+        customers_table_ref
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["args"]["right"]["result_ref"],
+        "step_1_result"
+    );
+}
+
+#[test]
+fn open_workbook_missing_path_returns_utf8_error_message() {
+    let request = json!({
+        "tool": "open_workbook",
+        "args": {}
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "error");
+    // 2026-03-23: 这里先锁定缺少 path 时必须返回正常 UTF-8 中文，目的是防止 dispatcher 里的历史乱码继续向上层扩散。
+    assert_eq!(output["error"], "open_workbook 缺少 path 参数");
+}
+
+#[test]
+fn compose_workbook_missing_worksheets_returns_utf8_error_message() {
+    let request = json!({
+        "tool": "compose_workbook",
+        "args": {}
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "error");
+    // 2026-03-23: 这里锁定 workbook 草稿入口的缺参文案，目的是保证多表导出链路的报错也保持可读中文。
+    assert_eq!(output["error"], "compose_workbook 缺少 worksheets 参数");
+}
+
+#[test]
+fn join_tables_missing_left_returns_utf8_error_message() {
+    let request = json!({
+        "tool": "join_tables",
+        "args": {
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "error");
+    // 2026-03-23: 这里锁定显性关联入口在缺左表来源时的中文提示，目的是让业务用户能直接补齐请求而不是面对乱码。
+    assert_eq!(output["error"], "join_tables 缺少 left 参数");
+}
+
+#[test]
+fn update_session_state_invalid_payload_returns_utf8_parse_error() {
+    let request = json!({
+        "tool": "update_session_state",
+        "args": {
+            "selected_columns": "not-an-array"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "error");
+    // 2026-03-23: 这里锁定参数解析失败时的 UTF-8 中文前缀，目的是覆盖 from_value 失败这条常见错误路径。
+    assert!(
+        output["error"]
+            .as_str()
+            .unwrap()
+            .starts_with("update_session_state 参数解析失败:")
+    );
+}

@@ -1,0 +1,161 @@
+{
+  "status": "needs_confirmation",
+  "data": {
+    "columns": [
+      {
+        "canonical_name": "column_1",
+        "header_path": [
+          "经营单位"
+        ]
+      },
+      {
+        "canonical_name": "column_2",
+        "header_path": [
+          "业务部门"
+        ]
+      },
+      {
+        "canonical_name": "column_3",
+        "header_path": [
+          "客户"
+        ]
+      },
+      {
+        "canonical_name": "column_4",
+        "header_path": [
+          "项目"
+        ]
+      },
+      {
+        "canonical_name": "column_5",
+        "header_path": [
+          "业务分类"
+        ]
+      },
+      {
+        "canonical_name": "column_6",
+        "header_path": [
+          "险种"
+        ]
+      },
+      {
+        "canonical_name": "column_7",
+        "header_path": [
+          "保单号"
+        ]
+      },
+      {
+        "canonical_name": "column_8",
+        "header_path": [
+          "业务类型"
+        ]
+      },
+      {
+        "canonical_name": "column_9",
+        "header_path": [
+          "分出类型"
+        ]
+      },
+      {
+        "canonical_name": "column_10",
+        "header_path": [
+          "确认金额"
+        ]
+      },
+      {
+        "canonical_name": "column_11",
+        "header_path": [
+          "分出比例"
+        ]
+      },
+      {
+        "canonical_name": "column_12",
+        "header_path": [
+          "分入金额"
+        ]
+      },
+      {
+        "canonical_name": "column_13",
+        "header_path": [
+          "分入机构"
+        ]
+      },
+      {
+        "canonical_name": "column_14",
+        "header_path": [
+          "分入部门"
+        ]
+      },
+      {
+        "canonical_name": "column_15",
+        "header_path": [
+          "所属期间"
+        ]
+      },
+      {
+        "canonical_name": "column_16",
+        "header_path": [
+          "省"
+        ]
+      },
+      {
+        "canonical_name": "column_17",
+        "header_path": [
+          "市"
+        ]
+      },
+      {
+        "canonical_name": "column_18",
+        "header_path": [
+          "营销人员编码"
+        ]
+      },
+      {
+        "canonical_name": "column_19",
+        "header_path": [
+          "营销人员姓名"
+        ]
+      },
+      {
+        "canonical_name": "column_20",
+        "header_path": [
+          "全面营销"
+        ]
+      },
+      {
+        "canonical_name": "column_21",
+        "header_path": [
+          "保险公司"
+        ]
+      },
+      {
+        "canonical_name": "column_22",
+        "header_path": [
+          "保费"
+        ]
+      },
+      {
+        "canonical_name": "column_23",
+        "header_path": [
+          "含税收入"
+        ]
+      },
+      {
+        "canonical_name": "column_24",
+        "header_path": [
+          "佣金比例"
+        ]
+      },
+      {
+        "canonical_name": "column_25",
+        "header_path": [
+          "新增/续保"
+        ]
+      }
+    ],
+    "confidence": "medium",
+    "header_row_count": 1,
+    "schema_state": "pending",
+    "sheet": "总部分入-线上"
+  }
+}

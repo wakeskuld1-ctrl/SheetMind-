@@ -1,0 +1,16 @@
+{
+  "tool": "logistic_regression",
+  "args": {
+    "path": "D:\\Excel测试\\新疆客户\\2026文旅体台账.xlsx",
+    "sheet": "旅责险",
+    "features": [
+      "保险金额（人民币）",
+      "总保费（人民币）",
+      "保费"
+    ],
+    "target": "是否全面营销",
+    "positive_label": "是",
+    "intercept": true,
+    "missing_strategy": "drop_rows"
+  }
+}

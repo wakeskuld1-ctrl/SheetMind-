@@ -1,0 +1,486 @@
+{
+  "status": "ok",
+  "data": {
+    "columns": [
+      {
+        "canonical_name": "column_1",
+        "header_path": [
+          "经营单位"
+        ]
+      },
+      {
+        "canonical_name": "column_2",
+        "header_path": [
+          "业务部门"
+        ]
+      },
+      {
+        "canonical_name": "column_3",
+        "header_path": [
+          "委托合同编号"
+        ]
+      },
+      {
+        "canonical_name": "column_4",
+        "header_path": [
+          "客户名称"
+        ]
+      },
+      {
+        "canonical_name": "column_5",
+        "header_path": [
+          "一级业务类别"
+        ]
+      },
+      {
+        "canonical_name": "column_6",
+        "header_path": [
+          "二级业务类别"
+        ]
+      },
+      {
+        "canonical_name": "column_7",
+        "header_path": [
+          "三级业务类别"
+        ]
+      },
+      {
+        "canonical_name": "column_8",
+        "header_path": [
+          "四级业务类别"
+        ]
+      },
+      {
+        "canonical_name": "column_9",
+        "header_path": [
+          "渠道/板块"
+        ]
+      },
+      {
+        "canonical_name": "column_10",
+        "header_path": [
+          "是否全面营销"
+        ]
+      },
+      {
+        "canonical_name": "column_11",
+        "header_path": [
+          "保险公司名称"
+        ]
+      },
+      {
+        "canonical_name": "column_12",
+        "header_path": [
+          "投保人"
+        ]
+      },
+      {
+        "canonical_name": "column_13",
+        "header_path": [
+          "被保险人"
+        ]
+      },
+      {
+        "canonical_name": "column_14",
+        "header_path": [
+          "项目名称"
+        ]
+      },
+      {
+        "canonical_name": "column_15",
+        "header_path": [
+          "签发日期"
+        ]
+      },
+      {
+        "canonical_name": "column_16",
+        "header_path": [
+          "保险起期"
+        ]
+      },
+      {
+        "canonical_name": "column_17",
+        "header_path": [
+          "保险止期"
+        ]
+      },
+      {
+        "canonical_name": "column_18",
+        "header_path": [
+          "险类"
+        ]
+      },
+      {
+        "canonical_name": "column_19",
+        "header_path": [
+          "险种"
+        ]
+      },
+      {
+        "canonical_name": "column_20",
+        "header_path": [
+          "保单性质"
+        ]
+      },
+      {
+        "canonical_name": "column_21",
+        "header_path": [
+          "币种"
+        ]
+      },
+      {
+        "canonical_name": "column_22",
+        "header_path": [
+          "保险金额（原币）"
+        ]
+      },
+      {
+        "canonical_name": "column_23",
+        "header_path": [
+          "保险金额（人民币）"
+        ]
+      },
+      {
+        "canonical_name": "column_24",
+        "header_path": [
+          "总保费（原币）"
+        ]
+      },
+      {
+        "canonical_name": "column_25",
+        "header_path": [
+          "总保费（人民币）"
+        ]
+      },
+      {
+        "canonical_name": "column_26",
+        "header_path": [
+          "保费"
+        ]
+      },
+      {
+        "canonical_name": "column_27",
+        "header_path": [
+          "增值税"
+        ]
+      },
+      {
+        "canonical_name": "column_28",
+        "header_path": [
+          "价税合计"
+        ]
+      },
+      {
+        "canonical_name": "column_29",
+        "header_path": [
+          "承保比例（%）"
+        ]
+      },
+      {
+        "canonical_name": "column_30",
+        "header_path": [
+          "总期次"
+        ]
+      },
+      {
+        "canonical_name": "column_31",
+        "header_path": [
+          "期次"
+        ]
+      },
+      {
+        "canonical_name": "column_32",
+        "header_path": [
+          "保单或批单"
+        ]
+      },
+      {
+        "canonical_name": "column_33",
+        "header_path": [
+          "件数"
+        ]
+      },
+      {
+        "canonical_name": "column_34",
+        "header_path": [
+          "是否含税"
+        ]
+      },
+      {
+        "canonical_name": "column_35",
+        "header_path": [
+          "佣金率(%)"
+        ]
+      },
+      {
+        "canonical_name": "column_36",
+        "header_path": [
+          "佣金（原币）"
+        ]
+      },
+      {
+        "canonical_name": "column_37",
+        "header_path": [
+          "业务收入（人民币）"
+        ]
+      },
+      {
+        "canonical_name": "column_38",
+        "header_path": [
+          "销项税额"
+        ]
+      },
+      {
+        "canonical_name": "column_39",
+        "header_path": [
+          "佣金（人民币）"
+        ]
+      },
+      {
+        "canonical_name": "column_40",
+        "header_path": [
+          "收入明细表编码"
+        ]
+      },
+      {
+        "canonical_name": "column_41",
+        "header_path": [
+          "准凭证号"
+        ]
+      },
+      {
+        "canonical_name": "column_42",
+        "header_path": [
+          "凭证号"
+        ]
+      },
+      {
+        "canonical_name": "column_43",
+        "header_path": [
+          "凭证状态"
+        ]
+      },
+      {
+        "canonical_name": "column_44",
+        "header_path": [
+          "结算单号"
+        ]
+      },
+      {
+        "canonical_name": "column_45",
+        "header_path": [
+          "结算状态"
+        ]
+      },
+      {
+        "canonical_name": "column_46",
+        "header_path": [
+          "到账金额"
+        ]
+      },
+      {
+        "canonical_name": "column_47",
+        "header_path": [
+          "发票号"
+        ]
+      },
+      {
+        "canonical_name": "column_48",
+        "header_path": [
+          "冲正/批单"
+        ]
+      },
+      {
+        "canonical_name": "column_49",
+        "header_path": [
+          "会计月度"
+        ]
+      },
+      {
+        "canonical_name": "column_50",
+        "header_path": [
+          "成功（已审核）日期"
+        ]
+      },
+      {
+        "canonical_name": "column_51",
+        "header_path": [
+          "系统来源"
+        ]
+      },
+      {
+        "canonical_name": "column_52",
+        "header_path": [
+          "医疗机构级别/客户行业/学校学制"
+        ]
+      },
+      {
+        "canonical_name": "column_53",
+        "header_path": [
+          "出单市"
+        ]
+      },
+      {
+        "canonical_name": "column_54",
+        "header_path": [
+          "出单县"
+        ]
+      },
+      {
+        "canonical_name": "column_55",
+        "header_path": [
+          "从业人员工号"
+        ]
+      },
+      {
+        "canonical_name": "column_56",
+        "header_path": [
+          "从业人员姓名"
+        ]
+      },
+      {
+        "canonical_name": "column_57",
+        "header_path": [
+          "执业证书编号"
+        ]
+      },
+      {
+        "canonical_name": "column_58",
+        "header_path": [
+          "录单人员"
+        ]
+      },
+      {
+        "canonical_name": "column_59",
+        "header_path": [
+          "是否代收保费"
+        ]
+      },
+      {
+        "canonical_name": "column_60",
+        "header_path": [
+          "保险产品协议编号"
+        ]
+      },
+      {
+        "canonical_name": "column_61",
+        "header_path": [
+          "协议起期"
+        ]
+      },
+      {
+        "canonical_name": "column_62",
+        "header_path": [
+          "协议止期"
+        ]
+      },
+      {
+        "canonical_name": "column_63",
+        "header_path": [
+          "产品编号"
+        ]
+      },
+      {
+        "canonical_name": "column_64",
+        "header_path": [
+          "产品名称"
+        ]
+      },
+      {
+        "canonical_name": "column_65",
+        "header_path": [
+          "产品类型"
+        ]
+      },
+      {
+        "canonical_name": "column_66",
+        "header_path": [
+          "批次号"
+        ]
+      },
+      {
+        "canonical_name": "column_67",
+        "header_path": [
+          "收入确认时点"
+        ]
+      },
+      {
+        "canonical_name": "column_68",
+        "header_path": [
+          "承保公司"
+        ]
+      },
+      {
+        "canonical_name": "column_69",
+        "header_path": [
+          "承保比例"
+        ]
+      },
+      {
+        "canonical_name": "column_70",
+        "header_path": [
+          "关联业务"
+        ]
+      },
+      {
+        "canonical_name": "column_71",
+        "header_path": [
+          "关联三级分类"
+        ]
+      },
+      {
+        "canonical_name": "column_72",
+        "header_path": [
+          "关联四级分类"
+        ]
+      },
+      {
+        "canonical_name": "column_73",
+        "header_path": [
+          "三类业务"
+        ]
+      },
+      {
+        "canonical_name": "column_74",
+        "header_path": [
+          "应收标记"
+        ]
+      },
+      {
+        "canonical_name": "column_75",
+        "header_path": [
+          "新增/续保"
+        ]
+      },
+      {
+        "canonical_name": "column_76",
+        "header_path": [
+          "备注说明"
+        ]
+      },
+      {
+        "canonical_name": "column_77",
+        "header_path": [
+          "档案移交"
+        ]
+      },
+      {
+        "canonical_name": "column_78",
+        "header_path": [
+          "其他"
+        ]
+      },
+      {
+        "canonical_name": "column_79",
+        "header_path": [
+          "业务人员"
+        ]
+      }
+    ],
+    "row_count": 683,
+    "schema_state": "confirmed",
+    "sheet": "旅责险",
+    "table_id": "table_19696_1774147924673065800",
+    "table_ref": "table_19696_1774147924673065800"
+  }
+}

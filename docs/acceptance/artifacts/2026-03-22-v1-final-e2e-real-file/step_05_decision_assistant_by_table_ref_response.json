@@ -1,0 +1,49 @@
+{
+  "status": "ok",
+  "data": {
+    "assistant_kind": "quality_diagnostic",
+    "blocking_risks": [],
+    "business_highlights": [
+      "column_23 列的取值范围大致在 160000 到 25000000",
+      "column_25 列的取值范围大致在 -4276.80 到 113483.14",
+      "column_26 列的取值范围大致在 -4034.72 到 70890.82",
+      "column_23 列的平均值约为 3876122.18",
+      "column_25 列的平均值约为 8909.59",
+      "column_25 列有明显长尾，高值记录会拉高均值"
+    ],
+    "human_summary": {
+      "immediate_actions": [
+        "再检查分布异常与极端值"
+      ],
+      "overall": "这张表当前没有明显阻塞项，可以优先进入统计分析或建模探索。",
+      "recommended_next_step": "建议优先尝试 `cluster_kmeans`。"
+    },
+    "next_tool_suggestions": [
+      {
+        "reason": "当前至少有两个数值列，可以尝试做分群，观察样本结构是否天然分层。",
+        "status": "ready",
+        "tool": "cluster_kmeans"
+      },
+      {
+        "reason": "当前有多个数值列，可以选择一个数值目标列做线性影响分析。",
+        "status": "ready",
+        "tool": "linear_regression"
+      }
+    ],
+    "priority_actions": [
+      {
+        "priority": "high",
+        "reason": "当前表中已经出现分布失衡、零值堆积或异常值迹象，直接建模容易放大偏差。",
+        "suggested_tools": [
+          "stat_summary",
+          "group_and_aggregate"
+        ],
+        "title": "再检查分布异常与极端值"
+      }
+    ],
+    "table_health": {
+      "level": "warning",
+      "score": 0.7
+    }
+  }
+}

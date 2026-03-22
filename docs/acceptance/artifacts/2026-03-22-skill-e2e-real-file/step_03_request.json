@@ -1,0 +1,7 @@
+{
+  "tool": "apply_header_schema",
+  "args": {
+    "path": "D:\\Excel测试\\新疆客户\\2026文旅体台账.xlsx",
+    "sheet": "旅责险"
+  }
+}

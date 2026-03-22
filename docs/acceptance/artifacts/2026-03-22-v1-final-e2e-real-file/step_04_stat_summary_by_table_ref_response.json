@@ -1,0 +1,65 @@
+{
+  "status": "ok",
+  "data": {
+    "boolean_summaries": [],
+    "categorical_summaries": [],
+    "column_count": 3,
+    "human_summary": {
+      "key_points": [
+        "column_25 列有明显长尾，高值记录会拉高均值"
+      ],
+      "overall": "这张表已经具备基础统计摘要，可进入下一步分析。",
+      "recommended_next_step": "建议先选择目标列和特征列，再进入建模前检查。"
+    },
+    "numeric_summaries": [
+      {
+        "column": "column_23",
+        "count": 683,
+        "max": 25000000.0,
+        "mean": 3876122.1762811127,
+        "median": 4000000.0,
+        "min": 160000.0,
+        "missing_rate": 0.0,
+        "null_count": 0,
+        "q1": 800000.0,
+        "q3": 4000000.0,
+        "sum": 2647391446.4,
+        "zero_ratio": 0.0
+      },
+      {
+        "column": "column_25",
+        "count": 683,
+        "max": 113483.14,
+        "mean": 8909.592547584203,
+        "median": 4005.0,
+        "min": -4276.8,
+        "missing_rate": 0.0,
+        "null_count": 0,
+        "q1": 3136.32,
+        "q3": 6643.17,
+        "sum": 6085251.71000001,
+        "zero_ratio": 0.0
+      },
+      {
+        "column": "column_26",
+        "count": 683,
+        "max": 70890.82,
+        "mean": 3507.7375256222676,
+        "median": 2689.81,
+        "min": -4034.72,
+        "missing_rate": 0.0,
+        "null_count": 0,
+        "q1": 632.975,
+        "q3": 3698.5,
+        "sum": 2395784.730000009,
+        "zero_ratio": 0.0
+      }
+    ],
+    "row_count": 683,
+    "table_overview": {
+      "boolean_columns": 0,
+      "categorical_columns": 0,
+      "numeric_columns": 3
+    }
+  }
+}
