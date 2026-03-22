@@ -50,6 +50,11 @@ description: Use when users interact with this Excel product from a single conve
 - 客户侧正式运行只允许依赖 Rust 二进制，不依赖 Python、pandas、Jupyter、Node 或其他脚本运行时。
 - 本 Skill 不要求用户安装 Python，也不允许把外部脚本环境当成业务主链路的一部分。
 - 如果研发阶段存在校验脚本或临时工具，它们只属于开发辅助，不属于客户交付能力。
+<!-- 2026-03-23: 新增这组约束，原因是 GitHub 首页与试用对话需要进一步避免把源码构建误传给普通用户；目的是把 Rust/cargo 严格收口为研发构建链。 -->
+- 不要要求普通用户安装 Rust。
+- 不要要求普通用户安装 cargo。
+- 不要把 `cargo run` 或 `cargo build` 当成普通用户试用步骤。
+- 如果需要提到 Rust，只能说明底层能力由 Rust 二进制提供，不代表用户要安装 Rust 工具链。
 
 ## 会话状态摘要
 
@@ -117,7 +122,7 @@ description: Use when users interact with this Excel product from a single conve
   - 优先继续复用它
   - 不要重复要求用户再提供 `path + sheet`
   - 不要重复要求确认表头
-  - 优先相信 `get_session_state` 返回的激活句柄，而不是靠上下文猜测
+  - 优先相信 `get_session_state` 返回的当前结果引用，而不是靠上下文猜测
 
 - 如果没有 `active_table_ref`
   - 默认先判断是否需要回到表处理层建立确认态
@@ -236,7 +241,7 @@ description: Use when users interact with this Excel product from a single conve
 - 先复用 `table_ref`，再考虑 `path + sheet`
 - 统一入口，但不合并三层能力
 
-## 2026-03-23 ????
-- ???????????????? Sheet????????????????????
-- ???? ASCII ?????????????????????????????
-- ????????????? Tool ?????????????????/????????????????
+## 2026-03-23 兼容补充
+- 如果已经拿到 `file_ref` 与 `sheets`，后续优先按“第几个 Sheet”继续，不要再要求用户重复输入中文 Sheet 名。
+- 如果需要走 ASCII 临时副本恢复，必须先征求用户确认；在用户确认前，只能说明方案，不能直接复制。
+- 只要系统能定位文件，但 Tool 在中文路径上失败，就先解释为“路径/兼容问题”，不要直接说成文件损坏。

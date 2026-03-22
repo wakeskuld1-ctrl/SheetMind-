@@ -46,6 +46,11 @@ description: Use when users ask to assess whether an Excel sheet is ready for an
 - 客户侧分析建模正式运行只允许依赖 Rust 二进制，不依赖 Python、pandas、Jupyter、Node 或其他脚本运行时。
 - 本 Skill 不要求用户安装 Python，也不允许建议用户改走 Python notebook、pandas 脚本或临时解释器完成统计与建模。
 - 如果研发阶段存在对照脚本或校验工具，它们只属于开发辅助，不属于客户交付链路。
+<!-- 2026-03-23: 新增这组约束，原因是分析建模最容易被误解为需要额外开发环境；目的是明确普通用户只消费预编译二进制能力。 -->
+- 不要要求普通用户安装 Rust。
+- 不要要求普通用户安装 cargo。
+- 不要把 `cargo run` 或 `cargo build` 当成普通用户试用步骤。
+- 如果提到 Rust，只能作为底层实现说明，不能作为用户前置环境要求。
 
 ## 总流程
 

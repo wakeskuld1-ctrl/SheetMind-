@@ -983,6 +983,39 @@ fn get_session_state_exposes_active_handle_summary() {
 }
 
 #[test]
+fn get_session_state_keeps_table_ref_and_active_handle_separately() {
+    let runtime_db = create_test_runtime_db("session_active_handle_split");
+    let update_request = json!({
+        "tool": "update_session_state",
+        "args": {
+            "session_id": "session_active_handle_split",
+            "active_table_ref": "table_confirmed_001",
+            "active_handle_ref": "result_latest_001",
+            "active_handle_kind": "result_ref",
+            "current_stage": "analysis_modeling"
+        }
+    });
+
+    let update_output = run_cli_with_json_and_runtime(&update_request.to_string(), &runtime_db);
+    assert_eq!(update_output["status"], "ok");
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_active_handle_split"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-23: 这里锁定 table_ref 与最新激活句柄分离展示，原因是方案B要求保留稳定回源表句柄，同时暴露当前最新 result_ref；目的是让上层 Skill 不再把两种语义混成一个字段。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["active_table_ref"], "table_confirmed_001");
+    assert_eq!(output["data"]["active_handle_ref"], "result_latest_001");
+    assert_eq!(output["data"]["active_handle"]["ref"], "result_latest_001");
+    assert_eq!(output["data"]["active_handle"]["kind"], "result_ref");
+}
+
+#[test]
 fn apply_header_schema_updates_session_state_and_active_table_ref() {
     let runtime_db = create_test_runtime_db("apply_header_schema_state");
     let confirm_request = json!({
@@ -1068,6 +1101,157 @@ fn stat_summary_with_table_ref_advances_session_stage_to_analysis_modeling() {
 }
 
 #[test]
+fn group_and_aggregate_updates_session_state_to_latest_result_ref() {
+    let runtime_db = create_test_runtime_db("group_state_latest_result");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_group_state_latest_result",
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales"
+        }
+    });
+    let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+
+    let group_request = json!({
+        "tool": "group_and_aggregate",
+        "args": {
+            "session_id": "session_group_state_latest_result",
+            "table_ref": table_ref,
+            "group_by": ["region"],
+            "aggregations": [
+                {
+                    "column": "sales",
+                    "operator": "sum"
+                }
+            ],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+    let group_output = run_cli_with_json_and_runtime(&group_request.to_string(), &runtime_db);
+    assert_eq!(group_output["status"], "ok");
+    let latest_result_ref = group_output["data"]["result_ref"].as_str().unwrap().to_string();
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_group_state_latest_result"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-23: 这里锁定聚合后会话状态会切到最新 result_ref，原因是方案B要求产出型 Tool 自动推进当前激活对象；目的是让上层 Skill 下一步直接接到最新中间结果，而不是继续停在旧 table_ref。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["active_table_ref"], table_ref);
+    assert_eq!(output["data"]["active_handle_ref"], latest_result_ref);
+    assert_eq!(output["data"]["active_handle"]["kind"], "result_ref");
+}
+
+#[test]
+fn append_tables_updates_session_state_to_latest_result_ref() {
+    let runtime_db = create_test_runtime_db("append_state_latest_result");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_append_state_latest_result",
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales"
+        }
+    });
+    let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+
+    let append_request = json!({
+        "tool": "append_tables",
+        "args": {
+            "session_id": "session_append_state_latest_result",
+            "top": {
+                "table_ref": table_ref
+            },
+            "bottom": {
+                "path": "tests/fixtures/append-sales-b.xlsx",
+                "sheet": "Sales"
+            }
+        }
+    });
+    let append_output = run_cli_with_json_and_runtime(&append_request.to_string(), &runtime_db);
+    assert_eq!(append_output["status"], "ok");
+    let latest_result_ref = append_output["data"]["result_ref"].as_str().unwrap().to_string();
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_append_state_latest_result"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-23: 这里锁定追加后会话状态会切到最新 result_ref，原因是多表链式执行不能在成功后还停留在输入句柄；目的是让“先追加再关联”能真正按最新结果往下走。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["active_table_ref"], table_ref);
+    assert_eq!(output["data"]["active_handle_ref"], latest_result_ref);
+    assert_eq!(output["data"]["active_handle"]["kind"], "result_ref");
+}
+
+#[test]
+fn join_tables_updates_session_state_to_latest_result_ref() {
+    let runtime_db = create_test_runtime_db("join_state_latest_result");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_join_state_latest_result",
+            "path": "tests/fixtures/join-customers.xlsx",
+            "sheet": "Customers"
+        }
+    });
+    let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+
+    let join_request = json!({
+        "tool": "join_tables",
+        "args": {
+            "session_id": "session_join_state_latest_result",
+            "left": {
+                "table_ref": table_ref
+            },
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only"
+        }
+    });
+    let join_output = run_cli_with_json_and_runtime(&join_request.to_string(), &runtime_db);
+    assert_eq!(join_output["status"], "ok");
+    let latest_result_ref = join_output["data"]["result_ref"].as_str().unwrap().to_string();
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_join_state_latest_result"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-23: 这里锁定关联后会话状态会切到最新 result_ref，原因是显性关联是多步闭环里的关键中间结果；目的是让后续分析直接消费 join 结果而不是回退到左表。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["active_table_ref"], table_ref);
+    assert_eq!(output["data"]["active_handle_ref"], latest_result_ref);
+    assert_eq!(output["data"]["active_handle"]["kind"], "result_ref");
+}
+
+#[test]
 fn decision_assistant_with_table_ref_advances_session_stage_to_decision_assistant() {
     let runtime_db = create_test_runtime_db("decision_stage");
     let confirm_request = json!({
@@ -1115,6 +1299,76 @@ fn decision_assistant_with_table_ref_advances_session_stage_to_decision_assistan
     assert_eq!(output["data"]["current_stage"], "decision_assistant");
     assert_eq!(output["data"]["schema_status"], "confirmed");
     assert_eq!(output["data"]["active_table_ref"], table_ref);
+}
+
+#[test]
+fn stat_summary_preserves_input_result_ref_and_stable_table_ref() {
+    let runtime_db = create_test_runtime_db("stat_summary_preserve_input_handle");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_stat_summary_preserve_input_handle",
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales"
+        }
+    });
+    let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+
+    let group_request = json!({
+        "tool": "group_and_aggregate",
+        "args": {
+            "session_id": "session_stat_summary_preserve_input_handle",
+            "table_ref": table_ref,
+            "group_by": ["region"],
+            "aggregations": [
+                {
+                    "column": "sales",
+                    "operator": "sum"
+                }
+            ],
+            "casts": [
+                {
+                    "column": "sales",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+    let group_output = run_cli_with_json_and_runtime(&group_request.to_string(), &runtime_db);
+    assert_eq!(group_output["status"], "ok");
+    let latest_result_ref = group_output["data"]["result_ref"].as_str().unwrap().to_string();
+
+    let stat_request = json!({
+        "tool": "stat_summary",
+        "args": {
+            "session_id": "session_stat_summary_preserve_input_handle",
+            "result_ref": latest_result_ref,
+            "casts": [
+                {
+                    "column": "sales_sum",
+                    "target_type": "int64"
+                }
+            ]
+        }
+    });
+    let stat_output = run_cli_with_json_and_runtime(&stat_request.to_string(), &runtime_db);
+    assert_eq!(stat_output["status"], "ok");
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_stat_summary_preserve_input_handle"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-23: 这里锁定纯读取类分析 Tool 不会覆盖稳定 table_ref，原因是方案B要求“当前输入句柄”和“稳定回源 table_ref”并存；目的是让后续继续分析时既知道当前读的是哪个 result_ref，也不会丢掉确认态表来源。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["active_table_ref"], table_ref);
+    assert_eq!(output["data"]["active_handle_ref"], latest_result_ref);
+    assert_eq!(output["data"]["active_handle"]["kind"], "result_ref");
 }
 
 #[test]
@@ -2551,6 +2805,54 @@ fn tool_catalog_includes_compose_workbook_and_export_excel_workbook() {
             .iter()
             .any(|tool| tool == "export_excel_workbook")
     );
+}
+
+#[test]
+fn compose_workbook_updates_session_state_to_workbook_ref() {
+    let runtime_db = create_test_runtime_db("compose_state_workbook_ref");
+    let confirm_request = json!({
+        "tool": "apply_header_schema",
+        "args": {
+            "session_id": "session_compose_state_workbook_ref",
+            "path": "tests/fixtures/basic-sales.xlsx",
+            "sheet": "Sales"
+        }
+    });
+    let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
+    assert_eq!(confirm_output["status"], "ok");
+    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+
+    let compose_request = json!({
+        "tool": "compose_workbook",
+        "args": {
+            "session_id": "session_compose_state_workbook_ref",
+            "worksheets": [
+                {
+                    "sheet_name": "交付报表",
+                    "source": {
+                        "table_ref": table_ref
+                    }
+                }
+            ]
+        }
+    });
+    let compose_output = run_cli_with_json_and_runtime(&compose_request.to_string(), &runtime_db);
+    assert_eq!(compose_output["status"], "ok");
+    let workbook_ref = compose_output["data"]["workbook_ref"].as_str().unwrap().to_string();
+
+    let get_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "session_compose_state_workbook_ref"
+        }
+    });
+    let output = run_cli_with_json_and_runtime(&get_request.to_string(), &runtime_db);
+
+    // 2026-03-23: 这里锁定 compose_workbook 成功后会把当前激活句柄切到 workbook_ref，原因是交付草稿也是链式执行里的最新结果；目的是让后续 export_excel_workbook 直接承接当前状态。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["active_table_ref"], table_ref);
+    assert_eq!(output["data"]["active_handle_ref"], workbook_ref);
+    assert_eq!(output["data"]["active_handle"]["kind"], "workbook_ref");
 }
 
 #[test]

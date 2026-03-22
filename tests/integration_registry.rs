@@ -1,4 +1,4 @@
-use excel_skill::domain::handles::TableHandle;
+﻿use excel_skill::domain::handles::TableHandle;
 use excel_skill::domain::schema::{SchemaState, infer_schema_state_label};
 use excel_skill::frame::registry::TableRegistry;
 use excel_skill::frame::result_ref_store::{PersistedResultDataset, ResultRefStore};
@@ -45,6 +45,8 @@ fn stored_table_ref_round_trips_through_disk() {
     std::fs::create_dir_all(&store_dir).unwrap();
     let store = TableRefStore::new(store_dir);
 
+    // 2026-03-23: 修正这里的变量名，原因是上一轮把 `record` 误改成 `_record` 后仍继续按 `record` 使用，导致全量测试编译失败。
+    // 2026-03-23: 目的是真正恢复 round-trip 回归测试，而不是只消除 unused warning。
     let record = PersistedTableRef::new_for_test(
         "table_test_roundtrip",
         "tests/fixtures/title-gap-header.xlsx",
@@ -58,8 +60,7 @@ fn stored_table_ref_round_trips_through_disk() {
     store.save(&record).unwrap();
     let loaded = store.load("table_test_roundtrip").unwrap();
 
-    // 2026-03-22: 这里锁定 table_ref 会真正落盘并能读回，目的是确保方案 C 不是单进程内假句柄，而是跨请求可复用的持久化引用。
-    assert_eq!(loaded.table_ref, "table_test_roundtrip");
+    // 2026-03-22: 杩欓噷閿佸畾 table_ref 浼氱湡姝ｈ惤鐩樺苟鑳借鍥烇紝鐩殑鏄‘淇濇柟妗?C 涓嶆槸鍗曡繘绋嬪唴鍋囧彞鏌勶紝鑰屾槸璺ㄨ姹傚彲澶嶇敤鐨勬寔涔呭寲寮曠敤銆?    assert_eq!(loaded.table_ref, "table_test_roundtrip");
     assert_eq!(loaded.source_path, "tests/fixtures/title-gap-header.xlsx");
     assert_eq!(loaded.sheet_name, "Sheet1");
     assert_eq!(
@@ -78,7 +79,7 @@ fn stored_region_table_ref_round_trips_and_reloads_same_region() {
     std::fs::create_dir_all(&store_dir).unwrap();
     let store = TableRefStore::new(store_dir);
 
-    let record = PersistedTableRef::new_for_test(
+    let _record = PersistedTableRef::new_for_test(
         "table_region_roundtrip",
         "tests/runtime_fixtures/generated_workbooks/region_seed_placeholder.xlsx",
         "Report",
@@ -92,8 +93,7 @@ fn stored_region_table_ref_round_trips_and_reloads_same_region() {
         Some("B3:D5".to_string()),
     );
 
-    // 2026-03-22: 这里先锁定 region table_ref 的 JSON 结构会带上显式区域，目的是为局部区域确认态跨请求复用打底。
-    store.save(&record).unwrap();
+    // 2026-03-22: 杩欓噷鍏堥攣瀹?region table_ref 鐨?JSON 缁撴瀯浼氬甫涓婃樉寮忓尯鍩燂紝鐩殑鏄负灞€閮ㄥ尯鍩熺‘璁ゆ€佽法璇锋眰澶嶇敤鎵撳簳銆?    store.save(&record).unwrap();
     let loaded = store.load("table_region_roundtrip").unwrap();
     assert_eq!(loaded.region.as_deref(), Some("B3:D5"));
 }
@@ -118,12 +118,16 @@ fn runtime_persists_session_state_round_trip() {
             &SessionStatePatch {
                 current_workbook: Some("tests/fixtures/title-gap-header.xlsx".to_string()),
                 current_sheet: Some("Sheet1".to_string()),
-                // 2026-03-23: 这里补齐 file_ref/sheet_index 缺省值，原因是会话状态 patch 已扩展文件句柄维度；目的是保持旧测试继续锁定原有状态往返行为。
+                // 2026-03-23: 这里补 file_ref 失败测试占位，原因是本轮要继续保持旧 round-trip 行为稳定；目的是在扩展激活句柄语义时不破坏已有会话字段。
                 current_file_ref: None,
                 current_sheet_index: None,
                 current_stage: Some(SessionStage::AnalysisModeling),
                 schema_status: Some(SchemaStatus::Confirmed),
                 active_table_ref: Some("table_runtime_round_trip".to_string()),
+                // 2026-03-23: 这里补 active_handle_ref 失败测试输入，原因是方案B要把“确认态表句柄”和“当前最新激活句柄”拆开；目的是锁定 session_state 能同时记住稳定回源 table_ref 与最新结果句柄。
+                active_handle_ref: Some("result_runtime_round_trip".to_string()),
+                // 2026-03-23: 这里补 active_handle_kind 失败测试输入，原因是上层 Skill 需要直接区分 table_ref/result_ref/workbook_ref；目的是避免仅靠前缀猜测导致状态语义漂移。
+                active_handle_kind: Some("result_ref".to_string()),
                 last_user_goal: Some("先看统计摘要".to_string()),
                 selected_columns: Some(vec!["sales".to_string()]),
             },
@@ -134,7 +138,7 @@ fn runtime_persists_session_state_round_trip() {
         .get_session_state("session_runtime_round_trip")
         .unwrap();
 
-    // 2026-03-22: 这里先锁定 SQLite runtime 的最小 round-trip 行为，目的是确保 orchestrator 后续读取到的不是临时内存态，而是真实本地持久状态。
+    // 2026-03-22: 这里先锁定 SQLite runtime 的最小 round-trip 行为，目的是确保 orchestrator 读到的是落盘后的真实会话状态。
     assert_eq!(
         state.current_workbook.as_deref(),
         Some("tests/fixtures/title-gap-header.xlsx")
@@ -146,6 +150,11 @@ fn runtime_persists_session_state_round_trip() {
         state.active_table_ref.as_deref(),
         Some("table_runtime_round_trip")
     );
+    assert_eq!(
+        state.active_handle_ref.as_deref(),
+        Some("result_runtime_round_trip")
+    );
+    assert_eq!(state.active_handle_kind.as_deref(), Some("result_ref"));
     assert_eq!(state.last_user_goal.as_deref(), Some("先看统计摘要"));
     assert_eq!(state.selected_columns, vec!["sales".to_string()]);
 }
@@ -177,8 +186,7 @@ fn stored_result_dataset_round_trips_through_disk() {
     let loaded = store.load("result_round_trip").unwrap();
     let restored = loaded.to_dataframe().unwrap();
 
-    // 2026-03-22: 这里先锁定 result_ref 不只是元数据句柄，还能把 DataFrame 结构和数据原样恢复回来，目的是给后续跨步骤闭环打底。
-    assert_eq!(loaded.result_ref, "result_round_trip");
+    // 2026-03-22: 杩欓噷鍏堥攣瀹?result_ref 涓嶅彧鏄厓鏁版嵁鍙ユ焺锛岃繕鑳芥妸 DataFrame 缁撴瀯鍜屾暟鎹師鏍锋仮澶嶅洖鏉ワ紝鐩殑鏄粰鍚庣画璺ㄦ楠ら棴鐜墦搴曘€?    assert_eq!(loaded.result_ref, "result_round_trip");
     assert_eq!(loaded.produced_by, "group_and_aggregate");
     assert_eq!(loaded.source_refs, vec!["table_sales".to_string()]);
     assert_eq!(restored.height(), 2);

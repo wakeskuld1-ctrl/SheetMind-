@@ -86,6 +86,10 @@ pub struct SessionState {
     pub current_stage: SessionStage,
     pub schema_status: SchemaStatus,
     pub active_table_ref: Option<String>,
+    // 2026-03-23: 这里新增显式激活句柄引用，原因是 table_ref/result_ref/workbook_ref 已经共享同一条链式执行主路径；目的是让会话状态能准确指向“当前最新结果”而不再复用 active_table_ref 承载多重语义。
+    pub active_handle_ref: Option<String>,
+    // 2026-03-23: 这里新增激活句柄类型，原因是上层 Skill 需要直接知道当前激活对象属于哪类句柄；目的是减少仅靠前缀推断带来的歧义并增强可解释性。
+    pub active_handle_kind: Option<String>,
     pub last_user_goal: Option<String>,
     pub selected_columns: Vec<String>,
 }
@@ -102,6 +106,8 @@ impl SessionState {
             current_stage: SessionStage::Unknown,
             schema_status: SchemaStatus::Unknown,
             active_table_ref: None,
+            active_handle_ref: None,
+            active_handle_kind: None,
             last_user_goal: None,
             selected_columns: Vec::new(),
         }
@@ -120,6 +126,10 @@ pub struct SessionStatePatch {
     pub current_stage: Option<SessionStage>,
     pub schema_status: Option<SchemaStatus>,
     pub active_table_ref: Option<String>,
+    // 2026-03-23: 这里允许 patch 单独更新激活句柄，原因是会产生新 result_ref/workbook_ref 的 Tool 需要只回写最新输出对象；目的是把输入确认态 table_ref 与输出中间句柄解耦。
+    pub active_handle_ref: Option<String>,
+    // 2026-03-23: 这里允许 patch 显式标注句柄类型，原因是会话摘要需要稳定暴露句柄类别；目的是避免 dispatcher 和 runtime 各自重复猜测类型。
+    pub active_handle_kind: Option<String>,
     pub last_user_goal: Option<String>,
     pub selected_columns: Option<Vec<String>>,
 }
@@ -193,7 +203,7 @@ impl LocalMemoryRuntime {
         let connection = self.open_connection()?;
         let row = connection
             .query_row(
-                "SELECT current_workbook, current_sheet, current_file_ref, current_sheet_index, current_stage, schema_status, active_table_ref, last_user_goal, selected_columns_json FROM session_state WHERE session_id = ?1",
+                "SELECT current_workbook, current_sheet, current_file_ref, current_sheet_index, current_stage, schema_status, active_table_ref, active_handle_ref, active_handle_kind, last_user_goal, selected_columns_json FROM session_state WHERE session_id = ?1",
                 [session_id],
                 |row| {
                     let stage = SessionStage::from_db_value(row.get::<_, String>(4)?.as_str())
@@ -201,7 +211,7 @@ impl LocalMemoryRuntime {
                     let schema_status =
                         SchemaStatus::from_db_value(row.get::<_, String>(5)?.as_str())
                             .map_err(to_sql_error)?;
-                    let selected_columns_json: String = row.get(8)?;
+                    let selected_columns_json: String = row.get(10)?;
                     let selected_columns =
                         serde_json::from_str::<Vec<String>>(&selected_columns_json)
                             .map_err(|error| {
@@ -219,7 +229,9 @@ impl LocalMemoryRuntime {
                         current_stage: stage,
                         schema_status,
                         active_table_ref: row.get(6)?,
-                        last_user_goal: row.get(7)?,
+                        active_handle_ref: row.get(7)?,
+                        active_handle_kind: row.get(8)?,
+                        last_user_goal: row.get(9)?,
                         selected_columns,
                     })
                 },
@@ -258,6 +270,12 @@ impl LocalMemoryRuntime {
         if let Some(active_table_ref) = &patch.active_table_ref {
             next_state.active_table_ref = Some(active_table_ref.clone());
         }
+        if let Some(active_handle_ref) = &patch.active_handle_ref {
+            next_state.active_handle_ref = Some(active_handle_ref.clone());
+        }
+        if let Some(active_handle_kind) = &patch.active_handle_kind {
+            next_state.active_handle_kind = Some(active_handle_kind.clone());
+        }
         if let Some(last_user_goal) = &patch.last_user_goal {
             next_state.last_user_goal = Some(last_user_goal.clone());
         }
@@ -286,9 +304,11 @@ impl LocalMemoryRuntime {
                     current_stage,
                     schema_status,
                     active_table_ref,
+                    active_handle_ref,
+                    active_handle_kind,
                     last_user_goal,
                     selected_columns_json
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(session_id) DO UPDATE SET
                     current_workbook = excluded.current_workbook,
                     current_sheet = excluded.current_sheet,
@@ -297,6 +317,8 @@ impl LocalMemoryRuntime {
                     current_stage = excluded.current_stage,
                     schema_status = excluded.schema_status,
                     active_table_ref = excluded.active_table_ref,
+                    active_handle_ref = excluded.active_handle_ref,
+                    active_handle_kind = excluded.active_handle_kind,
                     last_user_goal = excluded.last_user_goal,
                     selected_columns_json = excluded.selected_columns_json,
                     updated_at = CURRENT_TIMESTAMP",
@@ -309,6 +331,8 @@ impl LocalMemoryRuntime {
                     next_state.current_stage.as_str(),
                     next_state.schema_status.as_str(),
                     next_state.active_table_ref,
+                    next_state.active_handle_ref,
+                    next_state.active_handle_kind,
                     next_state.last_user_goal,
                     selected_columns_json,
                 ],
@@ -431,6 +455,8 @@ impl LocalMemoryRuntime {
                     current_stage TEXT NOT NULL,
                     schema_status TEXT NOT NULL,
                     active_table_ref TEXT,
+                    active_handle_ref TEXT,
+                    active_handle_kind TEXT,
                     last_user_goal TEXT,
                     selected_columns_json TEXT NOT NULL,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -490,6 +516,18 @@ impl LocalMemoryRuntime {
         if !columns.iter().any(|column_name| column_name == "current_sheet_index") {
             connection
                 .execute("ALTER TABLE session_state ADD COLUMN current_sheet_index INTEGER", [])
+                .map_err(|error| LocalMemoryError::BootstrapSchema(error.to_string()))?;
+        }
+        if !columns.iter().any(|column_name| column_name == "active_handle_ref") {
+            // 2026-03-23: 这里兼容旧 runtime 库补充 active_handle_ref 列，原因是历史库只保存 active_table_ref；目的是在不清库的前提下给多步链式闭环增加“最新激活句柄”维度。
+            connection
+                .execute("ALTER TABLE session_state ADD COLUMN active_handle_ref TEXT", [])
+                .map_err(|error| LocalMemoryError::BootstrapSchema(error.to_string()))?;
+        }
+        if !columns.iter().any(|column_name| column_name == "active_handle_kind") {
+            // 2026-03-23: 这里兼容旧 runtime 库补充 active_handle_kind 列，原因是上层要区分 table/result/workbook 三类句柄；目的是避免老库升级后状态摘要仍依赖前缀猜测。
+            connection
+                .execute("ALTER TABLE session_state ADD COLUMN active_handle_kind TEXT", [])
                 .map_err(|error| LocalMemoryError::BootstrapSchema(error.to_string()))?;
         }
 

@@ -44,6 +44,11 @@ description: Use when users want a non-technical next-step recommendation on an 
 - 客户侧决策辅助正式运行只允许依赖 Rust 二进制，不依赖 Python、pandas、Jupyter、Node 或其他脚本运行时。
 - 本 Skill 不要求用户安装 Python，也不允许把外部脚本解释器当成下一步建议的一部分。
 - 如果开发阶段存在对照脚本、校验脚本或临时分析工具，它们只属于研发辅助，不属于客户交付链路。
+<!-- 2026-03-23: 新增这组约束，原因是决策层面向最弱 IT 用户，更不能把源码构建当成前提；目的是确保交付表达统一为预编译二进制。 -->
+- 不要要求普通用户安装 Rust。
+- 不要要求普通用户安装 cargo。
+- 不要把 `cargo run` 或 `cargo build` 当成普通用户试用步骤。
+- 如果提到 Rust，只能说明底层能力来自 Rust 二进制，不代表用户需要配置 Rust 开发环境。
 
 ## 总流程
 

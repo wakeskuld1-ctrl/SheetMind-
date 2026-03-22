@@ -304,6 +304,8 @@ struct UpdateSessionStateInput {
     schema_status: Option<SchemaStatus>,
     active_table_ref: Option<String>,
     active_handle_ref: Option<String>,
+    // 2026-03-23: 这里补 active_handle_kind 入参，原因是本轮要把最新激活句柄的类型显式落到 session_state；目的是让 update_session_state 也能参与多步闭环测试与手工调试。
+    active_handle_kind: Option<String>,
     last_user_goal: Option<String>,
     selected_columns: Option<Vec<String>>,
 }
@@ -340,7 +342,12 @@ fn dispatch_update_session_state(args: Value) -> ToolResponse {
         current_sheet_index: payload.current_sheet_index,
         current_stage: payload.current_stage,
         schema_status: payload.schema_status,
-        active_table_ref: payload.active_handle_ref.or(payload.active_table_ref),
+        // 2026-03-23: 这里保留 active_table_ref 的兼容兜底，原因是旧请求可能只传 active_handle_ref；目的是在分离新旧语义后，仍让老请求继续读到旧字段，而新请求在显式传入 active_table_ref 时仍可保留分离语义。
+        active_table_ref: payload
+            .active_table_ref
+            .or_else(|| payload.active_handle_ref.clone()),
+        active_handle_ref: payload.active_handle_ref,
+        active_handle_kind: payload.active_handle_kind,
         last_user_goal: payload.last_user_goal,
         selected_columns: payload.selected_columns,
     };
@@ -367,7 +374,15 @@ fn dispatch_update_session_state(args: Value) -> ToolResponse {
 fn build_session_state_response(state: &crate::runtime::local_memory::SessionState) -> Value {
     let mut payload = json!(state);
     if let Some(object) = payload.as_object_mut() {
-        let active_handle_ref = state.active_table_ref.clone();
+        // 2026-03-23: 这里优先暴露显式激活句柄，原因是方案B要求会话状态直接指向当前最新结果；目的是在保留 active_table_ref 兼容字段的同时，把最新 handle 语义稳定暴露给上层 Skill。
+        let active_handle_ref = state
+            .active_handle_ref
+            .clone()
+            .or_else(|| state.active_table_ref.clone());
+        let active_handle_kind = state
+            .active_handle_kind
+            .clone()
+            .or_else(|| active_handle_ref.as_deref().map(classify_handle_kind).map(str::to_string));
         object.insert(
             "active_handle_ref".to_string(),
             active_handle_ref
@@ -380,9 +395,12 @@ fn build_session_state_response(state: &crate::runtime::local_memory::SessionSta
             active_handle_ref
                 .as_ref()
                 .map(|reference| {
+                    let kind = active_handle_kind
+                        .clone()
+                        .unwrap_or_else(|| classify_handle_kind(reference).to_string());
                     json!({
                         "ref": reference,
-                        "kind": classify_handle_kind(reference),
+                        "kind": kind,
                     })
                 })
                 .unwrap_or(Value::Null),
@@ -725,6 +743,9 @@ fn dispatch_compose_workbook(args: Value) -> ToolResponse {
     };
     if let Err(error) = store.save(&draft) {
         return ToolResponse::error(error.to_string());
+    }
+    if let Err(response) = sync_output_handle_state(&args, &workbook_ref, "workbook_ref", "compose_workbook") {
+        return response;
     }
 
     ToolResponse::ok(json!({
@@ -2133,6 +2154,9 @@ fn respond_with_result_dataset(
         Ok(result_ref) => result_ref,
         Err(response) => return response,
     };
+    if let Err(response) = sync_output_handle_state(args, &result_ref, "result_ref", tool_name) {
+        return response;
+    }
 
     let mut object = match payload {
         Value::Object(object) => object,
@@ -2299,6 +2323,20 @@ fn collect_source_refs(value: &Value, refs: &mut Vec<String>) {
 fn push_unique_source_ref(refs: &mut Vec<String>, candidate: String) {
     if !refs.iter().any(|existing| existing == &candidate) {
         refs.push(candidate);
+    }
+}
+
+// 2026-03-23: 这里递归查找请求里的第一个 table_ref，原因是 append/join 这类多表 Tool 的稳定回源句柄经常嵌套在 top/left/source 里；目的是让产出新 result_ref 后仍能保住最近确认态 table_ref。
+fn first_table_ref_in_value(value: &Value) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            if let Some(table_ref) = map.get("table_ref").and_then(|item| item.as_str()) {
+                return Some(table_ref.to_string());
+            }
+            map.values().find_map(first_table_ref_in_value)
+        }
+        Value::Array(items) => items.iter().find_map(first_table_ref_in_value),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => None,
     }
 }
 
@@ -2471,6 +2509,8 @@ fn sync_confirmed_table_state(
                 current_stage: Some(SessionStage::TableProcessing),
                 schema_status: Some(SchemaStatus::Confirmed),
                 active_table_ref: Some(persisted.table_ref.clone()),
+                active_handle_ref: None,
+                active_handle_kind: None,
                 last_user_goal: Some(user_goal_from_args(args, fallback_goal)),
                 selected_columns: Some(persisted.columns.clone()),
             },
@@ -2502,6 +2542,13 @@ fn sync_loaded_table_state(
 ) -> Result<(), ToolResponse> {
     let runtime = memory_runtime()?;
     let session_id = session_id_from_args(args);
+    let current_state = runtime
+        .get_session_state(&session_id)
+        .map_err(|error| ToolResponse::error(error.to_string()))?;
+    let input_handle_ref = active_handle_ref_from_args(args)
+        .or_else(|| first_table_ref_in_value(args))
+        .or_else(|| current_state.active_handle_ref.clone());
+    let stable_table_ref = first_table_ref_in_value(args).or(current_state.active_table_ref.clone());
     runtime
         .update_session_state(
             &session_id,
@@ -2515,7 +2562,15 @@ fn sync_loaded_table_state(
                 current_sheet_index: current_sheet_index_from_args(args),
                 current_stage: Some(stage.clone()),
                 schema_status: Some(SchemaStatus::Confirmed),
-                active_table_ref: active_handle_ref_from_args(args),
+                // 2026-03-23: 这里保留稳定 table_ref，原因是纯读取类 Tool 不应把确认态回源句柄覆盖成 result_ref；目的是让 session_state 同时记住“稳定来源”和“当前读取对象”。
+                active_table_ref: stable_table_ref,
+                // 2026-03-23: 这里显式同步当前输入句柄，原因是分析/决策类 Tool 需要让上层知道本轮实际消费的是哪个对象；目的是避免读 result_ref 后会话仍错误停留在旧 table_ref。
+                active_handle_ref: input_handle_ref.clone(),
+                // 2026-03-23: 这里同步输入句柄类型，原因是当前读取对象可能是 table_ref 或 result_ref；目的是让状态摘要不用再靠上层重复猜测句柄类别。
+                active_handle_kind: input_handle_ref
+                    .as_deref()
+                    .map(classify_handle_kind)
+                    .map(str::to_string),
                 last_user_goal: Some(user_goal_from_args(args, fallback_goal)),
                 selected_columns: selected_columns_from_args(args),
             },
@@ -2542,6 +2597,53 @@ fn active_handle_ref_from_args(args: &Value) -> Option<String> {
         .and_then(|value| value.as_str())
         .or_else(|| args.get("table_ref").and_then(|value| value.as_str()))
         .map(|value| value.to_string())
+}
+
+// 2026-03-23: 这里统一在产出新句柄后同步会话状态，原因是方案B要求最新 result_ref/workbook_ref 成为当前激活对象；目的是把“成功返回结果”和“更新本地会话摘要”收口到同一个出口。
+fn sync_output_handle_state(
+    args: &Value,
+    handle_ref: &str,
+    handle_kind: &str,
+    tool_name: &str,
+) -> Result<(), ToolResponse> {
+    let runtime = memory_runtime()?;
+    let session_id = session_id_from_args(args);
+    let current_state = runtime
+        .get_session_state(&session_id)
+        .map_err(|error| ToolResponse::error(error.to_string()))?;
+    let stable_table_ref = first_table_ref_in_value(args).or(current_state.active_table_ref.clone());
+
+    runtime
+        .update_session_state(
+            &session_id,
+            &SessionStatePatch {
+                current_workbook: None,
+                current_sheet: None,
+                current_file_ref: None,
+                current_sheet_index: None,
+                current_stage: None,
+                schema_status: None,
+                active_table_ref: stable_table_ref,
+                active_handle_ref: Some(handle_ref.to_string()),
+                active_handle_kind: Some(handle_kind.to_string()),
+                last_user_goal: None,
+                selected_columns: None,
+            },
+        )
+        .map_err(|error| ToolResponse::error(error.to_string()))?;
+    runtime
+        .append_event(
+            &session_id,
+            &EventLogInput {
+                event_type: "active_handle_updated".to_string(),
+                stage: None,
+                tool_name: Some(tool_name.to_string()),
+                status: "ok".to_string(),
+                message: Some(format!("{tool_name} 已同步最新 {handle_kind}")),
+            },
+        )
+        .map_err(|error| ToolResponse::error(error.to_string()))?;
+    Ok(())
 }
 
 // 2026-03-23: ?????? file_ref?????? Tool ??????????????????????????????????????

@@ -42,6 +42,23 @@ The core runtime rule is simple:
 - **No Python installation is required**
 - **No pandas, Jupyter, Node, or external scripting runtime is part of the product path**
 
+<!-- 2026-03-23: 新增这一段，原因是 GitHub 首页仍可能让普通用户误以为需要装 Rust/cargo；目的是把“用户入口”和“开发者构建入口”彻底分开。 -->
+## Delivery Rule / 交付规则
+
+### 中文
+
+- 普通用户只使用预编译二进制，不直接接触源码工程。
+- 普通用户不需要安装 Rust。
+- 普通用户不需要安装 cargo。
+- 普通用户也不需要安装 Python、pandas、Jupyter 或 Node。
+
+### English
+
+- Ordinary users should use a prebuilt binary instead of the source workspace.
+- Ordinary users do not need to install Rust.
+- Ordinary users do not need to install cargo.
+- Ordinary users also do not need Python, pandas, Jupyter, or Node.
+
 ## Why This Exists / 为什么做这个
 
 ### 中文
@@ -192,18 +209,27 @@ The current acceptance evidence shows that V1 can already:
 
 ## Quick Start / 快速开始
 
-### Option A: See the current tool catalog / 查看当前 Tool 目录
+<!-- 2026-03-23: 重写 Quick Start，原因是原先把 cargo 放在首页主入口会让普通用户误解；目的是把“预编译二进制试用”和“开发者构建”明确拆开。 -->
+### Option A: Ordinary user trial / 普通用户试用
+
+If you are a business user or a customer-side trial user, start from the prebuilt binary path instead of the source code path.
+
+- Use the prebuilt executable delivered by the maintainer.
+- Start from the top-level Skill: `skills/excel-orchestrator-v1/SKILL.md`
+- Follow the customer binary trial flow: `docs/acceptance/2026-03-22-customer-binary-trial-guide.md`
+- Binary delivery guide: `docs/acceptance/2026-03-23-binary-delivery-guide.md`
+
+### Option B: Developer build / 开发者构建
+
+This path is only for maintainers, contributors, or local development. It is not a required step for ordinary users.
+
+Inspect the current tool catalog:
 
 ```powershell
 cargo run --quiet
 ```
 
-Expected:
-
-- A JSON payload is printed
-- `tool_catalog` includes `open_workbook`, `apply_header_schema`, `analyze_table`, `decision_assistant`, and more
-
-### Option B: Build the binary / 构建二进制
+Build the release binary:
 
 ```powershell
 cargo build --release
@@ -213,15 +239,16 @@ Expected binary:
 
 - `target/release/excel_skill.exe`
 
-### Option C: Start from the orchestrator Skill / 从总入口 Skill 开始
+### Option C: Skill-first walkthrough / 从总入口 Skill 开始
 
 Recommended top-level Skill:
 
 - `skills/excel-orchestrator-v1/SKILL.md`
 
-Then follow the trial flow documented here:
+Then follow:
 
 - `docs/acceptance/2026-03-22-customer-binary-trial-guide.md`
+- `docs/acceptance/2026-03-23-binary-delivery-guide.md`
 
 ## Current V1 Boundaries / 当前 V1 边界
 
