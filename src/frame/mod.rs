@@ -6,6 +6,8 @@ pub mod loader;
 pub mod region_loader;
 // 2026-03-22: 这里导出中间结果持久化模块，原因是链式分析结果需要跨请求复用；目的是让 result_ref 能稳定回放。
 pub mod result_ref_store;
+// 2026-03-23: ???? chart_ref ????????????? Tool ???????????????? build_chart/export_chart_image ? report_delivery ?????
+pub mod chart_ref_store;
 // 2026-03-23: 这里导出源文件引用持久化模块，原因是需要把“已打开文件 + 第几个 Sheet”沉淀成跨请求可复用入口；目的是避免后续流程重复依赖中文路径与中文 Sheet 名。
 pub mod source_file_ref_store;
 // 2026-03-22: 这里导出 workbook 草稿持久化模块，原因是多 Sheet 导出计划需要跨请求复用；目的是保持导出链路与源文件链路职责分离。

@@ -32,6 +32,10 @@ pub mod window;
 pub mod derive;
 // 2026-03-22: 这里导出报表写出模块，目的是补齐结果导出为 CSV / Excel 的客户交付能力。
 pub mod export;
+// 2026-03-23: 这里导出结果交付模板模块，目的是把“标准汇报 workbook 草稿”从零散 compose/export 调用中独立出来。
+pub mod report_delivery;
+// 2026-03-23: 这里导出独立 SVG 图表渲染模块，原因是 build_chart/export_chart_image 需要脱离 workbook 也能单独交付图表；目的是为纯 Rust 二进制图表导出建立可复用底座。
+pub mod chart_svg;
 // 2026-03-21: 这里导出分组聚合模块，目的是把表处理正式推进到多维分析入口。
 pub mod group;
 // 2026-03-21: 这里导出排序模块，目的是让原表、聚合结果与后续 top_n 共用统一排序底座。

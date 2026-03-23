@@ -89,6 +89,12 @@ impl ToolResponse {
                 "top_n",
                 // 2026-03-22: 这里暴露 workbook 草稿组装入口，目的是让多张结果表先拼成可复用的多 Sheet 输出计划。
                 "compose_workbook",
+                // 2026-03-23: 这里暴露结果交付模板入口，目的是让上层直接生成标准汇报 workbook 草稿，而不是手工串多个输出 Tool。
+                "report_delivery",
+                // 2026-03-23: 这里暴露独立图表草稿入口，目的是把图表构建从 report_delivery 里拆出来，形成可复用的 chart_ref 能力。
+                "build_chart",
+                // 2026-03-23: 这里暴露图表图片导出入口，目的是让独立图表能力先形成客户可见的最小交付闭环。
+                "export_chart_image",
                 "export_csv",
                 "export_excel",
                 // 2026-03-22: 这里暴露多 Sheet 工作簿导出入口，目的是把 workbook_ref 真正落成标准 xlsx 文件。

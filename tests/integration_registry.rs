@@ -1,8 +1,12 @@
 ﻿use excel_skill::domain::handles::TableHandle;
 use excel_skill::domain::schema::{SchemaState, infer_schema_state_label};
 use excel_skill::frame::registry::TableRegistry;
+use excel_skill::frame::chart_ref_store::{
+    ChartDraftStore, PersistedChartDraft, PersistedChartSeriesSpec, PersistedChartType,
+};
 use excel_skill::frame::result_ref_store::{PersistedResultDataset, ResultRefStore};
 use excel_skill::frame::table_ref_store::{PersistedTableRef, TableRefStore};
+use excel_skill::ops::report_delivery::chart_ref_to_report_delivery_chart;
 use excel_skill::runtime::local_memory::{
     LocalMemoryRuntime, SchemaStatus, SessionStage, SessionStatePatch,
 };
@@ -320,4 +324,102 @@ fn stored_result_dataset_round_trips_date_and_datetime_columns() {
         restored.column("created_at").unwrap().dtype(),
         &DataType::Datetime(TimeUnit::Milliseconds, None)
     );
+}
+
+#[test]
+fn chart_draft_roundtrips_through_disk() {
+    let store_dir = std::path::PathBuf::from("tests")
+        .join("runtime_fixtures")
+        .join("chart_ref_store");
+    std::fs::create_dir_all(&store_dir).unwrap();
+    let store = ChartDraftStore::new(store_dir);
+
+    let dataframe = DataFrame::new(vec![
+        Series::new("month".into(), ["Jan", "Feb", "Mar"]).into(),
+        Series::new("revenue".into(), [120_i64, 150_i64, 132_i64]).into(),
+        Series::new("profit".into(), [35_i64, 40_i64, 38_i64]).into(),
+    ])
+    .unwrap();
+
+    let draft = PersistedChartDraft::from_dataframe(
+        "chart_round_trip",
+        "build_chart",
+        vec!["result_monthly_metrics".to_string()],
+        &dataframe,
+        PersistedChartType::Column,
+        Some("Revenue vs Profit".to_string()),
+        "month",
+        vec![
+            PersistedChartSeriesSpec {
+                value_column: "revenue".to_string(),
+                name: Some("Revenue".to_string()),
+            },
+            PersistedChartSeriesSpec {
+                value_column: "profit".to_string(),
+                name: Some("Profit".to_string()),
+            },
+        ],
+    )
+    .unwrap();
+
+    store.save(&draft).unwrap();
+    let loaded = store.load("chart_round_trip").unwrap();
+    let restored = loaded.to_dataframe().unwrap();
+
+    assert_eq!(loaded.chart_ref, "chart_round_trip");
+    assert_eq!(loaded.produced_by, "build_chart");
+    assert_eq!(loaded.source_refs, vec!["result_monthly_metrics".to_string()]);
+    assert_eq!(loaded.chart_type, PersistedChartType::Column);
+    assert_eq!(loaded.title.as_deref(), Some("Revenue vs Profit"));
+    assert_eq!(loaded.category_column, "month");
+    assert_eq!(loaded.series.len(), 2);
+    assert_eq!(restored.height(), 3);
+    assert_eq!(restored.column("revenue").unwrap().i64().unwrap().get(1), Some(150));
+}
+
+#[test]
+fn chart_draft_can_be_mapped_to_report_delivery_chart() {
+    let dataframe = DataFrame::new(vec![
+        Series::new("month".into(), ["Jan", "Feb", "Mar"]).into(),
+        Series::new("revenue".into(), [120_i64, 150_i64, 132_i64]).into(),
+        Series::new("profit".into(), [35_i64, 40_i64, 38_i64]).into(),
+    ])
+    .unwrap();
+    let draft = PersistedChartDraft::from_dataframe_with_layout(
+        "chart_bridge_round_trip",
+        "build_chart",
+        vec!["result_monthly_metrics".to_string()],
+        &dataframe,
+        PersistedChartType::Column,
+        Some("Revenue vs Profit".to_string()),
+        "month",
+        Some("Month".to_string()),
+        Some("Amount".to_string()),
+        true,
+        720,
+        420,
+        vec![
+            PersistedChartSeriesSpec {
+                value_column: "revenue".to_string(),
+                name: Some("Revenue".to_string()),
+            },
+            PersistedChartSeriesSpec {
+                value_column: "profit".to_string(),
+                name: Some("Profit".to_string()),
+            },
+        ],
+    )
+    .unwrap();
+
+    // 2026-03-24: 这里先锁定 chart_ref 草稿能稳定桥接成 report_delivery 图表规格，原因是方案 A 的核心是统一两条图表通路；目的是避免桥接逻辑继续散落在 dispatcher 里。
+    let chart = chart_ref_to_report_delivery_chart(&draft);
+
+    assert_eq!(chart.chart_ref.as_deref(), Some("chart_bridge_round_trip"));
+    assert_eq!(chart.source_refs, vec!["result_monthly_metrics".to_string()]);
+    assert_eq!(chart.title.as_deref(), Some("Revenue vs Profit"));
+    assert_eq!(chart.category_column, "month");
+    assert_eq!(chart.x_axis_name.as_deref(), Some("Month"));
+    assert_eq!(chart.y_axis_name.as_deref(), Some("Amount"));
+    assert_eq!(chart.show_legend, true);
+    assert_eq!(chart.series.len(), 2);
 }

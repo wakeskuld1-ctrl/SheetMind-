@@ -1,3 +1,4 @@
+﻿use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
@@ -10,29 +11,113 @@ use crate::frame::result_ref_store::{
     PersistedResultColumn, PersistedResultDataset, ResultRefStoreError,
 };
 
-// 2026-03-22: 这里定义 workbook 草稿输入 sheet，目的是把 dispatcher 组装好的多表快照统一压成可持久化结构前的最小中间形态。
 pub struct WorkbookSheetInput {
     pub sheet_name: String,
     pub source_refs: Vec<String>,
     pub dataframe: DataFrame,
+    pub title: Option<String>,
+    pub subtitle: Option<String>,
+    pub data_start_row: u32,
 }
 
-// 2026-03-22: 这里定义持久化的 workbook sheet，目的是让多 Sheet 导出可以脱离原始来源直接重放。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersistedWorkbookChartType {
+    Column,
+    Line,
+    Pie,
+    Scatter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PersistedWorkbookLegendPosition {
+    Top,
+    Bottom,
+    Left,
+    Right,
+    TopRight,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedWorkbookChartSeriesSpec {
+    pub value_column: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistedWorkbookChartSpec {
+    #[serde(default)]
+    pub chart_ref: Option<String>,
+    #[serde(default)]
+    pub source_refs: Vec<String>,
+    pub chart_type: PersistedWorkbookChartType,
+    pub target_sheet_name: String,
+    pub data_sheet_name: String,
+    pub category_column: String,
+    pub value_column: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub series: Vec<PersistedWorkbookChartSeriesSpec>,
+    #[serde(default)]
+    pub show_legend: bool,
+    #[serde(default)]
+    pub legend_position: Option<PersistedWorkbookLegendPosition>,
+    #[serde(default)]
+    pub chart_style: Option<u8>,
+    #[serde(default)]
+    pub x_axis_name: Option<String>,
+    #[serde(default)]
+    pub y_axis_name: Option<String>,
+    #[serde(default = "default_chart_anchor_row")]
+    pub anchor_row: u32,
+    #[serde(default = "default_chart_anchor_col")]
+    pub anchor_col: u16,
+}
+
+fn default_chart_anchor_row() -> u32 {
+    1
+}
+
+fn default_chart_anchor_col() -> u16 {
+    0
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistedWorkbookSheet {
     pub sheet_name: String,
     #[serde(default)]
     pub source_refs: Vec<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub subtitle: Option<String>,
+    #[serde(default)]
+    pub data_start_row: u32,
     pub row_count: usize,
     pub columns: Vec<PersistedResultColumn>,
 }
 
 impl PersistedWorkbookSheet {
-    // 2026-03-22: 这里从 DataFrame 构造 sheet 快照，目的是让 compose_workbook 把每张表直接冻结成可导出的本地草稿。
+    // 2026-03-22: 这里从 DataFrame 快照单张 sheet，原因是 compose_workbook / report_delivery 都需要先冻结中间结果；目的是让导出层只面对稳定的本地草稿结构。
     pub fn from_dataframe(
         sheet_name: &str,
         source_refs: Vec<String>,
         dataframe: &DataFrame,
+    ) -> Result<Self, WorkbookRefStoreError> {
+        Self::from_dataframe_with_layout(sheet_name, source_refs, dataframe, None, None, 0)
+    }
+
+    // 2026-03-23: 这里补充 sheet 级标题与起始行布局，原因是结果交付模板第二阶段需要在数据表上方保留汇报标题区；目的是让 workbook 草稿能稳定表达“展示布局”和“数据内容”。
+    pub fn from_dataframe_with_layout(
+        sheet_name: &str,
+        source_refs: Vec<String>,
+        dataframe: &DataFrame,
+        title: Option<String>,
+        subtitle: Option<String>,
+        data_start_row: u32,
     ) -> Result<Self, WorkbookRefStoreError> {
         let dataset = PersistedResultDataset::from_dataframe(
             "__workbook_sheet__",
@@ -45,12 +130,15 @@ impl PersistedWorkbookSheet {
         Ok(Self {
             sheet_name: sheet_name.to_string(),
             source_refs,
+            title,
+            subtitle,
+            data_start_row,
             row_count: dataset.row_count,
             columns: dataset.columns,
         })
     }
 
-    // 2026-03-22: 这里把 sheet 快照恢复成 DataFrame，目的是让导出层可以直接消费 compose_workbook 的落盘结果。
+    // 2026-03-22: 这里把持久化 sheet 恢复回 DataFrame，原因是导出阶段仍复用统一写单元格逻辑；目的是避免 workbook 草稿和结果集走两套数据恢复路径。
     pub fn to_dataframe(&self) -> Result<DataFrame, WorkbookRefStoreError> {
         PersistedResultDataset {
             result_ref: "__workbook_sheet__".to_string(),
@@ -64,24 +152,33 @@ impl PersistedWorkbookSheet {
     }
 }
 
-// 2026-03-22: 这里定义持久化的 workbook 草稿，目的是把多 Sheet 输出计划提升成可跨请求复用的稳定句柄。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersistedWorkbookDraft {
     pub workbook_ref: String,
     pub worksheets: Vec<PersistedWorkbookSheet>,
+    #[serde(default)]
+    pub charts: Vec<PersistedWorkbookChartSpec>,
 }
 
 impl PersistedWorkbookDraft {
-    // 2026-03-22: 这里从多张 sheet 输入构造 workbook 草稿，目的是集中校验 sheet 名并把数据快照一次性落盘。
     pub fn from_sheet_inputs(
         workbook_ref: &str,
         worksheets: Vec<WorkbookSheetInput>,
+    ) -> Result<Self, WorkbookRefStoreError> {
+        Self::from_sheet_inputs_with_charts(workbook_ref, worksheets, vec![])
+    }
+
+    // 2026-03-23: 这里扩展 workbook 草稿支持图表元数据，原因是结果交付层第二轮需要把“真实图表”作为草稿的一部分持久化；目的是让 report_delivery -> workbook_ref -> export_excel_workbook 形成闭环。
+    pub fn from_sheet_inputs_with_charts(
+        workbook_ref: &str,
+        worksheets: Vec<WorkbookSheetInput>,
+        charts: Vec<PersistedWorkbookChartSpec>,
     ) -> Result<Self, WorkbookRefStoreError> {
         if worksheets.is_empty() {
             return Err(WorkbookRefStoreError::EmptyWorksheets);
         }
 
-        let mut seen = std::collections::BTreeSet::<String>::new();
+        let mut seen = BTreeSet::<String>::new();
         let mut persisted = Vec::<PersistedWorkbookSheet>::with_capacity(worksheets.len());
         for worksheet in worksheets {
             if worksheet.sheet_name.trim().is_empty() {
@@ -94,21 +191,121 @@ impl PersistedWorkbookDraft {
                     worksheet.sheet_name.clone(),
                 ));
             }
-            persisted.push(PersistedWorkbookSheet::from_dataframe(
+            persisted.push(PersistedWorkbookSheet::from_dataframe_with_layout(
                 &worksheet.sheet_name,
                 worksheet.source_refs,
                 &worksheet.dataframe,
+                worksheet.title,
+                worksheet.subtitle,
+                worksheet.data_start_row,
             )?);
         }
+
+        validate_chart_specs(&persisted, &charts)?;
 
         Ok(Self {
             workbook_ref: workbook_ref.to_string(),
             worksheets: persisted,
+            charts,
         })
     }
 }
 
-// 2026-03-22: 这里定义 workbook 草稿存储错误，目的是把快照、恢复和文件读写错误统一翻译成可读中文信息。
+fn validate_chart_specs(
+    worksheets: &[PersistedWorkbookSheet],
+    charts: &[PersistedWorkbookChartSpec],
+) -> Result<(), WorkbookRefStoreError> {
+    let available_columns = worksheets
+        .iter()
+        .map(|worksheet| {
+            let columns = worksheet
+                .columns
+                .iter()
+                .map(|column| column.name.clone())
+                .collect::<BTreeSet<_>>();
+            (worksheet.sheet_name.clone(), columns)
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for chart in charts {
+        if chart.target_sheet_name.trim().is_empty() {
+            return Err(WorkbookRefStoreError::InvalidChartSpec(
+                "chart.target_sheet_name 不能为空".to_string(),
+            ));
+        }
+        if chart.data_sheet_name.trim().is_empty() {
+            return Err(WorkbookRefStoreError::InvalidChartSpec(
+                "chart.data_sheet_name 不能为空".to_string(),
+            ));
+        }
+
+        if !available_columns.contains_key(&chart.target_sheet_name) {
+            return Err(WorkbookRefStoreError::MissingChartSheet(
+                chart.target_sheet_name.clone(),
+            ));
+        }
+        let Some(data_columns) = available_columns.get(&chart.data_sheet_name) else {
+            return Err(WorkbookRefStoreError::MissingChartSheet(
+                chart.data_sheet_name.clone(),
+            ));
+        };
+
+        if !data_columns.contains(&chart.category_column) {
+            return Err(WorkbookRefStoreError::MissingChartColumn {
+                sheet_name: chart.data_sheet_name.clone(),
+                column_name: chart.category_column.clone(),
+            });
+        }
+        let series = normalized_chart_series(chart);
+        if series.is_empty() {
+            return Err(WorkbookRefStoreError::InvalidChartSpec(
+                "chart.series 至少需要一个数值列".to_string(),
+            ));
+        }
+        if chart.chart_type == PersistedWorkbookChartType::Pie && series.len() != 1 {
+            return Err(WorkbookRefStoreError::InvalidChartSpec(
+                "pie 图暂时只支持单个数值列".to_string(),
+            ));
+        }
+        for series_item in series {
+            if !data_columns.contains(&series_item.value_column) {
+                return Err(WorkbookRefStoreError::MissingChartColumn {
+                    sheet_name: chart.data_sheet_name.clone(),
+                    column_name: series_item.value_column.clone(),
+                });
+            }
+        }
+        if !chart.value_column.trim().is_empty() && !data_columns.contains(&chart.value_column) {
+            return Err(WorkbookRefStoreError::MissingChartColumn {
+                sheet_name: chart.data_sheet_name.clone(),
+                column_name: chart.value_column.clone(),
+            });
+        }
+        if let Some(style) = chart.chart_style {
+            if !(1..=48).contains(&style) {
+                return Err(WorkbookRefStoreError::InvalidChartSpec(
+                    "chart_style 必须在 1 到 48 之间".to_string(),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn normalized_chart_series(chart: &PersistedWorkbookChartSpec) -> Vec<PersistedWorkbookChartSeriesSpec> {
+    if !chart.series.is_empty() {
+        return chart.series.clone();
+    }
+    if chart.value_column.trim().is_empty() {
+        return vec![];
+    }
+    vec![PersistedWorkbookChartSeriesSpec {
+        value_column: chart.value_column.clone(),
+        name: None,
+    }]
+}
+
 #[derive(Debug, Error)]
 pub enum WorkbookRefStoreError {
     #[error("compose_workbook 至少需要一张 worksheet")]
@@ -117,6 +314,12 @@ pub enum WorkbookRefStoreError {
     InvalidSheetName(String),
     #[error("compose_workbook 存在重复 sheet_name: {0}")]
     DuplicateSheetName(String),
+    #[error("workbook 图表配置不合法: {0}")]
+    InvalidChartSpec(String),
+    #[error("workbook 图表引用的 sheet 不存在: {0}")]
+    MissingChartSheet(String),
+    #[error("workbook 图表引用的列不存在: {sheet_name}.{column_name}")]
+    MissingChartColumn { sheet_name: String, column_name: String },
     #[error("无法为 workbook 草稿创建存储目录: {0}")]
     CreateStoreDir(String),
     #[error("无法保存 workbook_ref `{workbook_ref}`: {message}")]
@@ -135,19 +338,16 @@ pub enum WorkbookRefStoreError {
     RestoreWorkbook(ResultRefStoreError),
 }
 
-// 2026-03-22: 这里定义 workbook_ref 存储入口，目的是给 compose/export 提供独立于 result_ref 的工作簿级句柄管理。
 #[derive(Debug, Clone)]
 pub struct WorkbookDraftStore {
     root_dir: PathBuf,
 }
 
 impl WorkbookDraftStore {
-    // 2026-03-22: 这里允许用显式目录创建 workbook store，目的是让测试与生产都能复用同一套持久化逻辑。
     pub fn new(root_dir: PathBuf) -> Self {
         Self { root_dir }
     }
 
-    // 2026-03-22: 这里提供默认 workbook 草稿目录，目的是让 compose/export 两个 Tool 共享稳定的落盘位置。
     pub fn workspace_default() -> Result<Self, WorkbookRefStoreError> {
         let current_dir = std::env::current_dir()
             .map_err(|error| WorkbookRefStoreError::CreateStoreDir(error.to_string()))?;
@@ -158,7 +358,6 @@ impl WorkbookDraftStore {
         ))
     }
 
-    // 2026-03-22: 这里统一生成 workbook_ref，目的是把多 Sheet 草稿和单表 result_ref 做清晰区分。
     pub fn create_workbook_ref() -> String {
         let timestamp = UNIX_EPOCH
             .elapsed()
@@ -167,7 +366,7 @@ impl WorkbookDraftStore {
         format!("workbook_{}_{}", std::process::id(), timestamp)
     }
 
-    // 2026-03-22: 这里保存 workbook 草稿，目的是让 compose_workbook 与 export_excel_workbook 之间通过稳定句柄衔接。
+    // 2026-03-22: 这里统一保存 workbook 草稿，原因是 compose/export/report_delivery 都通过 workbook_ref 串联；目的是把多 Sheet 与图表元数据一起落盘，便于后续复放与审计。
     pub fn save(&self, draft: &PersistedWorkbookDraft) -> Result<(), WorkbookRefStoreError> {
         fs::create_dir_all(&self.root_dir)
             .map_err(|error| WorkbookRefStoreError::CreateStoreDir(error.to_string()))?;
@@ -185,7 +384,6 @@ impl WorkbookDraftStore {
         })
     }
 
-    // 2026-03-22: 这里读取 workbook 草稿，目的是让导出动作只依赖 workbook_ref 就能重放多 Sheet 快照。
     pub fn load(
         &self,
         workbook_ref: &str,
@@ -202,7 +400,6 @@ impl WorkbookDraftStore {
         })
     }
 
-    // 2026-03-22: 这里统一拼接 workbook 草稿文件路径，目的是保证所有入口遵守同一命名规则。
     fn file_path(&self, workbook_ref: &str) -> PathBuf {
         self.root_dir.join(format!("{workbook_ref}.json"))
     }
