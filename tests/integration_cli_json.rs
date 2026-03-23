@@ -3865,6 +3865,53 @@ fn report_delivery_export_writes_sheet_titles_before_data() {
 }
 
 #[test]
+fn report_delivery_export_merges_title_rows_across_table_width() {
+    let output_path = create_test_output_path("report_delivery_merge_title_cli", "xlsx");
+    let summary_result_ref = create_ascii_summary_result_ref_for_cli();
+    let analysis_result_ref = create_chart_analysis_result_ref_for_cli();
+    let report_request = json!({
+        "tool": "report_delivery",
+        "args": {
+            "report_name": "Merged Delivery",
+            "report_subtitle": "Merged Subtitle",
+            "summary": {
+                "sheet_name": "Summary",
+                "source": {
+                    "result_ref": summary_result_ref
+                }
+            },
+            "analysis": {
+                "sheet_name": "Analysis",
+                "source": {
+                    "result_ref": analysis_result_ref
+                }
+            },
+            "include_chart_sheet": false
+        }
+    });
+    let report_output = run_cli_with_json(&report_request.to_string());
+    assert_eq!(report_output["status"], "ok");
+    let workbook_ref = report_output["data"]["workbook_ref"].as_str().unwrap();
+
+    let export_request = json!({
+        "tool": "export_excel_workbook",
+        "args": {
+            "workbook_ref": workbook_ref,
+            "output_path": output_path.to_string_lossy()
+        }
+    });
+    let export_output = run_cli_with_json(&export_request.to_string());
+    assert_eq!(export_output["status"], "ok");
+
+    let sheet_xml = read_zip_entry_text(&output_path, "xl/worksheets/sheet1.xml");
+
+    // 2026-03-24: 这里先锁定 report_delivery 标题区会横向合并，原因是只把标题写在 A1/A2 仍然更像普通数据表；目的是把交付页进一步推向汇报稿视觉结构。
+    assert!(sheet_xml.contains("<mergeCells"));
+    assert!(sheet_xml.contains("ref=\"A1:B1\""));
+    assert!(sheet_xml.contains("ref=\"A2:B2\""));
+}
+
+#[test]
 fn report_delivery_applies_inline_export_format_rules_to_sections() {
     let output_path = create_test_output_path("report_delivery_inline_format_cli", "xlsx");
     let report_request = json!({

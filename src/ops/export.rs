@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 use polars::prelude::{AnyValue, DataFrame};
-use rust_xlsxwriter::{Chart, ChartLegendPosition, ChartType, Format, Workbook, Worksheet};
+use rust_xlsxwriter::{Chart, ChartLegendPosition, ChartType, Format, FormatAlign, Workbook, Worksheet};
 use thiserror::Error;
 
 use crate::frame::loader::LoadedTable;
@@ -124,23 +124,26 @@ pub fn export_excel_workbook(
             .set_name(&worksheet_snapshot.sheet_name)
             .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
         let cell_formats = build_export_cell_formats();
+        let last_title_col = dataframe.width().saturating_sub(1) as u16;
 
         if let Some(title) = worksheet_snapshot.title.as_ref() {
             if !title.trim().is_empty() {
-                // 2026-03-23: 这里在模板页顶部写主标题，原因是结果交付层第二阶段要让客户打开页面就看到汇报语义；目的是让 summary / analysis 页不再像裸数据表。
-                let title_format = Format::new().set_bold().set_font_size(16);
-                worksheet
-                    .write_string_with_format(0, 0, title.as_str(), &title_format)
+                // 2026-03-24: 这里把标题区横向合并到整张数据表宽度，原因是只写在 A1 更像普通数据表；目的是把 report_delivery 页进一步拉近“汇报稿”观感。
+                write_sheet_banner(worksheet, 0, last_title_col, title, &cell_formats.title_format)
                     .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
             }
         }
         if let Some(subtitle) = worksheet_snapshot.subtitle.as_ref() {
             if !subtitle.trim().is_empty() {
-                // 2026-03-23: 这里补充副标题行，原因是交付页需要承接阶段说明或上下文；目的是把报告语义与数据表头分层展示。
-                let subtitle_format = Format::new().set_font_size(11);
-                worksheet
-                    .write_string_with_format(1, 0, subtitle.as_str(), &subtitle_format)
-                    .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
+                // 2026-03-24: 这里把副标题和标题保持同样的横向结构，原因是标题区需要形成稳定视觉块；目的是避免副标题仍孤零零落在 A2。
+                write_sheet_banner(
+                    worksheet,
+                    1,
+                    last_title_col,
+                    subtitle,
+                    &cell_formats.subtitle_format,
+                )
+                .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
             }
         }
 
@@ -449,6 +452,8 @@ struct ExportCellFormats {
     integer_format: Format,
     float_format: Format,
     wrapped_text_format: Format,
+    title_format: Format,
+    subtitle_format: Format,
 }
 
 // 2026-03-24: 这里集中构造导出默认格式，原因是单表导出和 workbook 导出都要复用同一套“更像报表”的默认样式；目的是在不引入新协议的前提下提升交付成品感。
@@ -457,6 +462,13 @@ fn build_export_cell_formats() -> ExportCellFormats {
         integer_format: Format::new().set_num_format("#,##0"),
         float_format: Format::new().set_num_format("#,##0.00"),
         wrapped_text_format: Format::new().set_text_wrap(),
+        title_format: Format::new()
+            .set_bold()
+            .set_font_size(16)
+            .set_align(FormatAlign::Center),
+        subtitle_format: Format::new()
+            .set_font_size(11)
+            .set_align(FormatAlign::Center),
     }
 }
 
@@ -487,6 +499,22 @@ fn apply_auto_column_widths(
 // 2026-03-24: 这里用保守规则判断是否启用长文本换行，原因是说明列通常不适合无限拉宽；目的是在默认列宽和可读性之间先取得一个稳定平衡。
 fn should_wrap_text(value: &str) -> bool {
     value.contains('\n') || display_width(value) > 32
+}
+
+// 2026-03-24: 这里统一输出标题区横幅，原因是标题和副标题都需要支持“单列写入”和“多列横向合并”两种场景；目的是减少 workbook 导出层的重复分支。
+fn write_sheet_banner(
+    worksheet: &mut Worksheet,
+    row: u32,
+    last_col: u16,
+    value: &str,
+    format: &Format,
+) -> Result<(), rust_xlsxwriter::XlsxError> {
+    if last_col == 0 {
+        worksheet.write_string_with_format(row, 0, value, format)?;
+    } else {
+        worksheet.merge_range(row, 0, row, last_col, value, format)?;
+    }
+    Ok(())
 }
 
 // 2026-03-24: 这里集中写冻结窗格规则，原因是单表导出与 workbook 导出都共享“冻结到首个数据行前”的体验要求；目的是让标题区和表头在长表滚动时保持可见。
