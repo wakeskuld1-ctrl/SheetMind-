@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-// 2026-03-23: 这里统一解析 CLI 本地运行时根目录，目的是让 SQLite 和各类句柄存储共享同一套路径约定。
+// Resolve the shared runtime root used by local persistence stores.
 pub fn workspace_runtime_dir() -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("EXCEL_SKILL_RUNTIME_DIR") {
         return Ok(PathBuf::from(path));
