@@ -110,6 +110,14 @@ impl ToolResponse {
                 "summarize_table",
                 "analyze_table",
                 "stat_summary",
+                // 2026-03-25: 这里暴露相关性分析入口，原因是统计诊断层开始补“目标列与候选特征列的关系排序”；目的是让上层 Skill 可以先推荐“看哪些字段最相关”。
+                "correlation_analysis",
+                // 2026-03-25: 这里暴露异常值检测入口，原因是统计诊断层第二批要先把可疑极端记录显式标出来；目的是让上层 Skill 能推荐“先看异常值”。
+                "outlier_detection",
+                // 2026-03-25: 这里暴露分布分析入口，原因是统计诊断层第二批还需要补“看分布形态”的观察能力；目的是让上层 Skill 能推荐“再看分布是否偏态”。
+                "distribution_analysis",
+                // 2026-03-25: 这里暴露趋势分析入口，原因是统计诊断层要进一步回答时间上的整体走向；目的是让上层 Skill 可以自然推荐“再看趋势”。
+                "trend_analysis",
                 "linear_regression",
                 "logistic_regression",
                 "cluster_kmeans",

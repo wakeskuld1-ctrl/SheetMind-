@@ -19,13 +19,17 @@ use crate::frame::result_ref_store::{PersistedResultDataset, ResultRefStore};
 use crate::frame::source_file_ref_store::{PersistedSourceFileRef, SourceFileRefStore};
 use crate::frame::table_ref_store::{PersistedTableRef, TableRefStore};
 use crate::frame::workbook_ref_store::{
-    PersistedWorkbookDraft, WorkbookDraftStore, WorkbookSheetInput,
+    PersistedWorkbookColumnConditionalFormatRule, PersistedWorkbookColumnNumberFormatRule,
+    PersistedWorkbookDraft, PersistedWorkbookSheetExportOptions, PersistedWorkbookSheetKind,
+    WorkbookDraftStore, WorkbookSheetInput,
 };
 use crate::ops::analyze::analyze_table;
 use crate::ops::append::append_tables;
 use crate::ops::cast::{CastColumnSpec, cast_column_types, summarize_column_types};
 use crate::ops::chart_svg::render_chart_svg;
 use crate::ops::cluster_kmeans::cluster_kmeans;
+use crate::ops::correlation_analysis::correlation_analysis;
+use crate::ops::distribution_analysis::distribution_analysis;
 use crate::ops::decision_assistant::decision_assistant;
 use crate::ops::deduplicate_by_key::{DeduplicateKeep, OrderSpec, deduplicate_by_key};
 use crate::ops::derive::{DerivationSpec, derive_columns};
@@ -43,6 +47,7 @@ use crate::ops::lookup_values::{LookupSelect, lookup_values_by_keys};
 use crate::ops::model_prep::MissingStrategy;
 use crate::ops::multi_table_plan::suggest_multi_table_plan;
 use crate::ops::normalize_text::{NormalizeTextRule, normalize_text_columns};
+use crate::ops::outlier_detection::{OutlierDetectionMethod, outlier_detection};
 use crate::ops::parse_datetime::{ParseDateTimeRule, parse_datetime_columns};
 use crate::ops::pivot::{PivotAggregation, pivot_table};
 use crate::ops::preview::preview_table;
@@ -59,6 +64,7 @@ use crate::ops::summary::summarize_table;
 use crate::ops::table_links::suggest_table_links;
 use crate::ops::table_workflow::suggest_table_workflow;
 use crate::ops::top_n::top_n_rows;
+use crate::ops::trend_analysis::trend_analysis;
 use crate::ops::window::{WindowCalculation, WindowOrderSpec, window_calculation};
 use crate::runtime::local_memory::{
     EventLogInput, LocalMemoryRuntime, SchemaStatus, SessionStage, SessionStatePatch,
@@ -116,6 +122,10 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "summarize_table" => dispatch_summarize_table(request.args),
         "analyze_table" => dispatch_analyze_table(request.args),
         "stat_summary" => dispatch_stat_summary(request.args),
+        "correlation_analysis" => dispatch_correlation_analysis(request.args),
+        "outlier_detection" => dispatch_outlier_detection(request.args),
+        "distribution_analysis" => dispatch_distribution_analysis(request.args),
+        "trend_analysis" => dispatch_trend_analysis(request.args),
         "linear_regression" => dispatch_linear_regression(request.args),
         "logistic_regression" => dispatch_logistic_regression(request.args),
         "cluster_kmeans" => dispatch_cluster_kmeans(request.args),
@@ -716,6 +726,8 @@ fn dispatch_top_n(args: Value) -> ToolResponse {
 #[derive(Debug, Deserialize)]
 struct ComposeWorkbookWorksheetArg {
     sheet_name: String,
+    #[serde(default)]
+    format: Option<ExportFormatOptions>,
     source: NestedTableSource,
 }
 
@@ -847,10 +859,25 @@ fn dispatch_compose_workbook(args: Value) -> ToolResponse {
             Ok(OperationLoad::Loaded(loaded)) => loaded,
             Err(response) => return response,
         };
+        // 2026-03-24: 这里让 compose_workbook 直接复用导出整理规则，原因是基础多表组装入口也需要承接列整理与条件格式声明；目的是避免用户必须绕行 report_delivery 才能拿到完整交付能力。
+        let loaded = match apply_report_delivery_section_format(loaded, worksheet_arg.format.as_ref())
+        {
+            Ok(loaded) => loaded,
+            Err(response) => return response,
+        };
+        // 2026-03-24: 这里提前冻结 compose_workbook 的 sheet 级导出意图，原因是 workbook_ref 需要把条件格式与数字格式一起带到最终导出层；目的是让低层入口与高层模板入口能力对齐。
+        let export_options = match build_sheet_export_options(&loaded, worksheet_arg.format.as_ref())
+        {
+            Ok(options) => options,
+            Err(error) => return ToolResponse::error(error.to_string()),
+        };
         sheet_inputs.push(WorkbookSheetInput {
             sheet_name: worksheet_arg.sheet_name,
             source_refs: source_refs_from_nested_source(&worksheet_arg.source),
             dataframe: loaded.dataframe,
+            // 2026-03-24: 这里把 compose_workbook 生成的普通结果页默认标成数据页，原因是导出层需要稳定套用数据页规则；目的是避免 export 再反推页面用途。
+            sheet_kind: PersistedWorkbookSheetKind::DataSheet,
+            export_options,
             title: None,
             subtitle: None,
             data_start_row: 0,
@@ -946,6 +973,24 @@ fn dispatch_report_delivery(args: Value) -> ToolResponse {
     let report_name = delivery_args
         .report_name
         .unwrap_or_else(|| "标准分析汇报".to_string());
+    // 2026-03-24: 这里先把段级导出意图单独算出来，原因是 dispatch_report_delivery 返回 ToolResponse，不能在 struct literal 里直接用 `?`；
+    // 目的是保持错误出口稳定，同时避免对 loaded 发生先 move 后借用。
+    let summary_export_options = match build_sheet_export_options(
+        &summary_loaded,
+        delivery_args.summary.format.as_ref(),
+    ) {
+        Ok(options) => options,
+        Err(error) => return ToolResponse::error(error.to_string()),
+    };
+    // 2026-03-24: 这里同样提前计算 analysis 段的导出意图，原因是要让 currency / percent 规则在 move dataframe 之前完成校验；
+    // 目的是保证 report_delivery 草稿组装时既能通过编译，也能保留列级格式元数据。
+    let analysis_export_options = match build_sheet_export_options(
+        &analysis_loaded,
+        delivery_args.analysis.format.as_ref(),
+    ) {
+        Ok(options) => options,
+        Err(error) => return ToolResponse::error(error.to_string()),
+    };
     let draft = match build_report_delivery_draft(
         &workbook_ref,
         ReportDeliveryRequest {
@@ -958,6 +1003,7 @@ fn dispatch_report_delivery(args: Value) -> ToolResponse {
                     .unwrap_or_else(|| "摘要页".to_string()),
                 source_refs: summary_source_refs,
                 dataframe: summary_loaded.dataframe,
+                export_options: summary_export_options,
             },
             analysis: ReportDeliverySection {
                 sheet_name: delivery_args
@@ -966,6 +1012,7 @@ fn dispatch_report_delivery(args: Value) -> ToolResponse {
                     .unwrap_or_else(|| "分析结果页".to_string()),
                 source_refs: analysis_source_refs,
                 dataframe: analysis_loaded.dataframe,
+                export_options: analysis_export_options,
             },
             include_chart_sheet: delivery_args.include_chart_sheet,
             chart_sheet_name: delivery_args
@@ -1014,6 +1061,163 @@ fn apply_report_delivery_section_format(
         return Ok(loaded);
     };
     format_table_for_export(&loaded, format).map_err(|error| ToolResponse::error(error.to_string()))
+}
+
+// 2026-03-24: 这里把可跨请求持久化的导出意图从段内 format 中抽出来，原因是列整理先落到 DataFrame，而数字格式等规则还要进入 workbook_ref；
+// 目的是让 export_excel_workbook 直接消费稳定草稿，而不是回看上层请求体。
+fn build_sheet_export_options(
+    loaded: &LoadedTable,
+    format: Option<&ExportFormatOptions>,
+) -> Result<
+    Option<PersistedWorkbookSheetExportOptions>,
+    crate::ops::format_table_for_export::FormatTableForExportError,
+> {
+    let Some(format) = format else {
+        return Ok(None);
+    };
+
+    let number_formats = normalize_sheet_number_formats(loaded, &format.number_formats)?;
+    let conditional_formats =
+        normalize_sheet_conditional_formats(loaded, &format.conditional_formats)?;
+    if number_formats.is_empty() && conditional_formats.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(PersistedWorkbookSheetExportOptions {
+        number_formats,
+        conditional_formats,
+    }))
+}
+
+// 2026-03-24: 这里校验数字格式规则仍然指向格式整理后的可见列，原因是列顺序和列名可能已在 format_table_for_export 中被调整；
+// 目的是避免 workbook 草稿写入无效列规则，直到导出阶段才报晚错。
+fn normalize_sheet_number_formats(
+    loaded: &LoadedTable,
+    rules: &[PersistedWorkbookColumnNumberFormatRule],
+) -> Result<
+    Vec<PersistedWorkbookColumnNumberFormatRule>,
+    crate::ops::format_table_for_export::FormatTableForExportError,
+> {
+    let mut normalized = Vec::with_capacity(rules.len());
+    for rule in rules {
+        if loaded.dataframe.column(&rule.column).is_err() {
+            return Err(
+                crate::ops::format_table_for_export::FormatTableForExportError::MissingColumn(
+                    rule.column.clone(),
+                ),
+            );
+        }
+        normalized.push(rule.clone());
+    }
+    Ok(normalized)
+}
+
+// 2026-03-24: 这里校验条件格式规则仍然指向整理后的可见列，原因是 report_delivery 段内可能已经做过重命名或裁剪；目的是避免导出阶段才发现规则挂在不存在的列上。
+fn normalize_sheet_conditional_formats(
+    loaded: &LoadedTable,
+    rules: &[PersistedWorkbookColumnConditionalFormatRule],
+) -> Result<
+    Vec<PersistedWorkbookColumnConditionalFormatRule>,
+    crate::ops::format_table_for_export::FormatTableForExportError,
+> {
+    let mut normalized = Vec::with_capacity(rules.len());
+    for rule in rules {
+        let column = if requires_single_conditional_column(rule) {
+            Some(resolve_conditional_column(loaded, &rule.column)?)
+        } else {
+            None
+        };
+        // 2026-03-24: 这里在进入 workbook 草稿前先校验条件格式参数，原因是阈值类规则缺少 threshold 或挂到非数值列上时，导出阶段报错会过晚；目的是把错误前移到 Tool 调用边界。
+        match rule.kind {
+            crate::frame::workbook_ref_store::PersistedWorkbookConditionalFormatKind::NegativeRed
+            | crate::frame::workbook_ref_store::PersistedWorkbookConditionalFormatKind::NullWarning
+            | crate::frame::workbook_ref_store::PersistedWorkbookConditionalFormatKind::DuplicateWarn => {}
+            crate::frame::workbook_ref_store::PersistedWorkbookConditionalFormatKind::HighValueHighlight
+            | crate::frame::workbook_ref_store::PersistedWorkbookConditionalFormatKind::PercentLowWarn => {
+                let threshold = rule.threshold.as_ref().ok_or_else(|| {
+                    crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                        format!("conditional_format `{}` 缺少 threshold", rule.column),
+                    )
+                })?;
+                threshold.parse::<f64>().map_err(|_| {
+                    crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                        format!("conditional_format `{}` 的 threshold 不是合法数字", rule.column),
+                    )
+                })?;
+                if !column.expect("column checked").dtype().is_primitive_numeric() {
+                    return Err(
+                        crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                            format!("conditional_format `{}` 只能用于数值列", rule.column),
+                        ),
+                    );
+                }
+            }
+            crate::frame::workbook_ref_store::PersistedWorkbookConditionalFormatKind::BetweenWarn => {
+                let min_threshold = rule.min_threshold.as_ref().ok_or_else(|| {
+                    crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                        format!("conditional_format `{}` 缺少 min_threshold", rule.column),
+                    )
+                })?;
+                let max_threshold = rule.max_threshold.as_ref().ok_or_else(|| {
+                    crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                        format!("conditional_format `{}` 缺少 max_threshold", rule.column),
+                    )
+                })?;
+                min_threshold.parse::<f64>().map_err(|_| {
+                    crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                        format!("conditional_format `{}` 的 min_threshold 不是合法数字", rule.column),
+                    )
+                })?;
+                max_threshold.parse::<f64>().map_err(|_| {
+                    crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                        format!("conditional_format `{}` 的 max_threshold 不是合法数字", rule.column),
+                    )
+                })?;
+                if !column.expect("column checked").dtype().is_primitive_numeric() {
+                    return Err(
+                        crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                            format!("conditional_format `{}` 只能用于数值列", rule.column),
+                        ),
+                    );
+                }
+            }
+            crate::frame::workbook_ref_store::PersistedWorkbookConditionalFormatKind::CompositeDuplicateWarn => {
+                if rule.columns.len() < 2 {
+                    return Err(
+                        crate::ops::format_table_for_export::FormatTableForExportError::BuildFrame(
+                            "composite_duplicate_warn 至少需要两个 columns".to_string(),
+                        ),
+                    );
+                }
+                for column_name in &rule.columns {
+                    let _ = resolve_conditional_column(loaded, column_name)?;
+                }
+            }
+        }
+        normalized.push(rule.clone());
+    }
+    Ok(normalized)
+}
+
+// 2026-03-25: 这里把“是否需要单列入口”单独判断，原因是复合键判重会改走多列校验分支；目的是让单列规则和多列规则的边界更清晰。
+fn requires_single_conditional_column(rule: &PersistedWorkbookColumnConditionalFormatRule) -> bool {
+    !matches!(
+        rule.kind,
+        crate::frame::workbook_ref_store::PersistedWorkbookConditionalFormatKind::CompositeDuplicateWarn
+    )
+}
+
+// 2026-03-25: 这里统一解析条件格式引用列，原因是多个规则分支都需要做同一套缺列校验；目的是避免错误文案和校验边界分散。
+fn resolve_conditional_column<'a>(
+    loaded: &'a LoadedTable,
+    column_name: &str,
+) -> Result<&'a polars::prelude::Column, crate::ops::format_table_for_export::FormatTableForExportError>
+{
+    loaded.dataframe.column(column_name).map_err(|_| {
+        crate::ops::format_table_for_export::FormatTableForExportError::MissingColumn(
+            column_name.to_string(),
+        )
+    })
 }
 
 fn resolve_report_delivery_charts(
@@ -2083,6 +2287,171 @@ fn dispatch_stat_summary(args: Value) -> ToolResponse {
                     Err(error) => ToolResponse::error(error.to_string()),
                 }
             }
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+fn dispatch_correlation_analysis(args: Value) -> ToolResponse {
+    let Some(target_column) = args.get("target_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("correlation_analysis 缺少 target_column 参数");
+    };
+    let feature_columns = string_array(&args, "feature_columns");
+    let casts = match parse_casts(&args, "casts", "correlation_analysis") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match load_table_for_analysis(&args, "correlation_analysis") {
+        Ok(OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => {
+                match correlation_analysis(&prepared_loaded, target_column, &feature_columns) {
+                    Ok(result) => {
+                        if let Err(response) = sync_loaded_table_state(
+                            &args,
+                            &prepared_loaded,
+                            SessionStage::AnalysisModeling,
+                            "查看相关性分析",
+                            "correlation_analysis",
+                            "analysis_completed",
+                        ) {
+                            return response;
+                        }
+                        ToolResponse::ok(json!(result))
+                    }
+                    Err(error) => ToolResponse::error(error.to_string()),
+                }
+            }
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+fn dispatch_outlier_detection(args: Value) -> ToolResponse {
+    let columns = string_array(&args, "columns");
+    let method = match args.get("method") {
+        Some(value) => match serde_json::from_value::<OutlierDetectionMethod>(value.clone()) {
+            Ok(method) => method,
+            Err(error) => {
+                return ToolResponse::error(format!(
+                    "outlier_detection 的 method 参数解析失败: {error}"
+                ));
+            }
+        },
+        None => OutlierDetectionMethod::Iqr,
+    };
+    let casts = match parse_casts(&args, "casts", "outlier_detection") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match load_table_for_analysis(&args, "outlier_detection") {
+        Ok(OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match outlier_detection(&prepared_loaded, &columns, method) {
+                Ok((flagged_loaded, result)) => {
+                    if let Err(response) = sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "查看异常值诊断",
+                        "outlier_detection",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    respond_with_result_dataset(
+                        "outlier_detection",
+                        &args,
+                        &flagged_loaded,
+                        json!({
+                            "method": result.method,
+                            "row_count": result.row_count,
+                            "outlier_summaries": result.outlier_summaries,
+                            "human_summary": result.human_summary,
+                            "columns": preview_table(&flagged_loaded.dataframe, 20).map(|preview| preview.columns).unwrap_or_default(),
+                            "rows": preview_table(&flagged_loaded.dataframe, 20).map(|preview| preview.rows).unwrap_or_default()
+                        }),
+                    )
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+fn dispatch_distribution_analysis(args: Value) -> ToolResponse {
+    let Some(column) = args.get("column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("distribution_analysis 缺少 column 参数");
+    };
+    let bins = args.get("bins").and_then(|value| value.as_u64()).unwrap_or(10) as usize;
+    let casts = match parse_casts(&args, "casts", "distribution_analysis") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match load_table_for_analysis(&args, "distribution_analysis") {
+        Ok(OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match distribution_analysis(&prepared_loaded, column, bins) {
+                Ok(result) => {
+                    if let Err(response) = sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "查看分布分析",
+                        "distribution_analysis",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    ToolResponse::ok(json!(result))
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+fn dispatch_trend_analysis(args: Value) -> ToolResponse {
+    let Some(time_column) = args.get("time_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("trend_analysis 缺少 time_column 参数");
+    };
+    let Some(value_column) = args.get("value_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("trend_analysis 缺少 value_column 参数");
+    };
+    let casts = match parse_casts(&args, "casts", "trend_analysis") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match load_table_for_analysis(&args, "trend_analysis") {
+        Ok(OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match trend_analysis(&prepared_loaded, time_column, value_column)
+            {
+                Ok(result) => {
+                    if let Err(response) = sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "查看趋势分析",
+                        "trend_analysis",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    ToolResponse::ok(json!(result))
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
             Err(error) => ToolResponse::error(error),
         },
         Err(response) => response,
