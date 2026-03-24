@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::frame::result_ref_store::{PersistedResultDataset, ResultRefStoreError};
+use crate::runtime_paths::workspace_runtime_dir;
 
 // 2026-03-23: 这里定义可持久化的图表类型，原因是独立 chart_ref 需要脱离 report_delivery 存储；目的是让图表构建与图表交付形成独立闭环。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -200,11 +201,8 @@ impl ChartDraftStore {
 
     // 2026-03-23: 这里提供默认 chart_ref 落盘目录，原因是 build_chart/export_chart_image 要共享同一位置；目的是保持句柄存储规则稳定。
     pub fn workspace_default() -> Result<Self, ChartRefStoreError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|error| ChartRefStoreError::CreateStoreDir(error.to_string()))?;
-        Ok(Self::new(
-            current_dir.join(".excel_skill_runtime").join("chart_refs"),
-        ))
+        let runtime_dir = workspace_runtime_dir().map_err(ChartRefStoreError::CreateStoreDir)?;
+        Ok(Self::new(runtime_dir.join("chart_refs")))
     }
 
     // 2026-03-23: 这里统一生成 chart_ref，原因是需要和 table_ref/result_ref/workbook_ref 明确区分；目的是便于调试与会话状态展示。
@@ -220,10 +218,11 @@ impl ChartDraftStore {
         fs::create_dir_all(&self.root_dir)
             .map_err(|error| ChartRefStoreError::CreateStoreDir(error.to_string()))?;
         let path = self.path_for(&draft.chart_ref);
-        let content = serde_json::to_vec_pretty(draft).map_err(|error| ChartRefStoreError::SaveChart {
-            chart_ref: draft.chart_ref.clone(),
-            message: error.to_string(),
-        })?;
+        let content =
+            serde_json::to_vec_pretty(draft).map_err(|error| ChartRefStoreError::SaveChart {
+                chart_ref: draft.chart_ref.clone(),
+                message: error.to_string(),
+            })?;
         fs::write(&path, content).map_err(|error| ChartRefStoreError::SaveChart {
             chart_ref: draft.chart_ref.clone(),
             message: error.to_string(),

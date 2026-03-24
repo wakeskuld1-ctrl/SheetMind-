@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -10,15 +10,13 @@ use crate::domain::schema::{ConfidenceLevel, HeaderInference, infer_schema_state
 use crate::excel::header_inference::infer_header_schema;
 use crate::excel::reader::{list_sheets, open_workbook};
 use crate::excel::sheet_range::inspect_sheet_range;
-use crate::frame::loader::{LoadedTable, load_confirmed_table, load_table_from_table_ref};
 use crate::frame::chart_ref_store::{
     ChartDraftStore, PersistedChartDraft, PersistedChartSeriesSpec, PersistedChartType,
 };
+use crate::frame::loader::{LoadedTable, load_confirmed_table, load_table_from_table_ref};
 use crate::frame::region_loader::load_table_region;
 use crate::frame::result_ref_store::{PersistedResultDataset, ResultRefStore};
-use crate::frame::source_file_ref_store::{
-    PersistedSourceFileRef, SourceFileRefStore,
-};
+use crate::frame::source_file_ref_store::{PersistedSourceFileRef, SourceFileRefStore};
 use crate::frame::table_ref_store::{PersistedTableRef, TableRefStore};
 use crate::frame::workbook_ref_store::{
     PersistedWorkbookDraft, WorkbookDraftStore, WorkbookSheetInput,
@@ -48,13 +46,12 @@ use crate::ops::normalize_text::{NormalizeTextRule, normalize_text_columns};
 use crate::ops::parse_datetime::{ParseDateTimeRule, parse_datetime_columns};
 use crate::ops::pivot::{PivotAggregation, pivot_table};
 use crate::ops::preview::preview_table;
+use crate::ops::rename::{RenameColumnMapping, rename_columns};
 use crate::ops::report_delivery::{
     ReportDeliveryChart, ReportDeliveryChartSeries, ReportDeliveryChartType,
-    ReportDeliveryLegendPosition,
-    ReportDeliveryRequest, ReportDeliverySection, build_report_delivery_draft,
-    chart_ref_to_report_delivery_chart,
+    ReportDeliveryLegendPosition, ReportDeliveryRequest, ReportDeliverySection,
+    build_report_delivery_draft, chart_ref_to_report_delivery_chart,
 };
-use crate::ops::rename::{RenameColumnMapping, rename_columns};
 use crate::ops::select::select_columns;
 use crate::ops::sort::{SortSpec, sort_rows};
 use crate::ops::stat_summary::stat_summary;
@@ -130,7 +127,7 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
 fn dispatch_open_workbook(args: Value) -> ToolResponse {
     let Some(path) = args.get("path").and_then(|value| value.as_str()) else {
         // 2026-03-23: 杩欓噷鏀跺彛 open_workbook 缂哄弬鎶ラ敊锛屽師鍥犳槸鍘嗗彶涔辩爜瀵艰嚧 UTF-8 鏂囨鍥炲綊澶辫触锛涚洰鐨勬槸淇濊瘉 CLI 瀵规櫘閫氱敤鎴疯緭鍑虹ǔ瀹氬彲璇荤殑涓枃鎻愮ず銆?
-        return ToolResponse::error("open_workbook 缂哄皯 path 鍙傛暟");
+        return ToolResponse::error("open_workbook 缺少 path 参数");
     };
 
     match open_workbook(path) {
@@ -142,7 +139,7 @@ fn dispatch_open_workbook(args: Value) -> ToolResponse {
 
 fn dispatch_list_sheets(args: Value) -> ToolResponse {
     let Some(path) = args.get("path").and_then(|value| value.as_str()) else {
-        return ToolResponse::error("list_sheets 缂哄皯 path 鍙傛暟");
+        return ToolResponse::error("list_sheets 缺少 path 参数");
     };
 
     match list_sheets(path) {
@@ -174,7 +171,7 @@ fn dispatch_load_table_region(args: Value) -> ToolResponse {
         Err(response) => return response,
     };
     let Some(region) = args.get("range").and_then(|value| value.as_str()) else {
-        return ToolResponse::error("load_table_region 缂哄皯 range 鍙傛暟");
+        return ToolResponse::error("load_table_region 缺少 range 参数");
     };
     let header_row_count = args
         .get("header_row_count")
@@ -203,11 +200,9 @@ fn dispatch_load_table_region(args: Value) -> ToolResponse {
             if let Err(error) = store.save(&persisted) {
                 return ToolResponse::error(error.to_string());
             }
-            if let Err(response) = sync_confirmed_table_state(
-                &args,
-                &persisted,
-                "鏌ョ湅鍖哄煙鍔犺浇缁撴灉",
-            ) {
+            if let Err(response) =
+                sync_confirmed_table_state(&args, &persisted, "鏌ョ湅鍖哄煙鍔犺浇缁撴灉")
+            {
                 return response;
             }
 
@@ -343,7 +338,7 @@ fn dispatch_update_session_state(args: Value) -> ToolResponse {
     let payload = match serde_json::from_value::<UpdateSessionStateInput>(args.clone()) {
         Ok(payload) => payload,
         Err(error) => {
-            return ToolResponse::error(format!("update_session_state 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+            return ToolResponse::error(format!("update_session_state 参数解析失败: {error}"));
         }
     };
     let runtime = match memory_runtime() {
@@ -396,10 +391,12 @@ fn build_session_state_response(state: &crate::runtime::local_memory::SessionSta
             .active_handle_ref
             .clone()
             .or_else(|| state.active_table_ref.clone());
-        let active_handle_kind = state
-            .active_handle_kind
-            .clone()
-            .or_else(|| active_handle_ref.as_deref().map(classify_handle_kind).map(str::to_string));
+        let active_handle_kind = state.active_handle_kind.clone().or_else(|| {
+            active_handle_ref
+                .as_deref()
+                .map(classify_handle_kind)
+                .map(str::to_string)
+        });
         object.insert(
             "active_handle_ref".to_string(),
             active_handle_ref
@@ -490,7 +487,9 @@ fn dispatch_filter_rows(args: Value) -> ToolResponse {
     let conditions = match serde_json::from_value::<Vec<FilterCondition>>(conditions_value.clone())
     {
         Ok(conditions) => conditions,
-        Err(error) => return ToolResponse::error(format!("filter_rows 鏉′欢瑙ｆ瀽澶辫触: {error}")),
+        Err(error) => {
+            return ToolResponse::error(format!("filter_rows 鏉′欢瑙ｆ瀽澶辫触: {error}"));
+        }
     };
 
     match load_table_for_tool(&args, "filter_rows") {
@@ -582,7 +581,9 @@ fn dispatch_group_and_aggregate(args: Value) -> ToolResponse {
         match serde_json::from_value::<Vec<AggregationSpec>>(aggregations_value.clone()) {
             Ok(aggregations) => aggregations,
             Err(error) => {
-                return ToolResponse::error(format!("group_and_aggregate 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+                return ToolResponse::error(format!(
+                    "group_and_aggregate 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+                ));
             }
         };
     let casts = match parse_casts(&args, "casts", "group_and_aggregate") {
@@ -815,16 +816,14 @@ struct ExportChartImageArgs {
     output_path: String,
 }
 
-
 fn default_true() -> bool {
     true
 }
 
-
 // 2026-03-22: 杩欓噷鎺ュ叆 workbook 鑽夌缁勮鍒嗗彂锛岀洰鐨勬槸鎶婂寮犺〃蹇収瑁呴厤鎴愪竴涓彲澶嶇敤鐨勫 Sheet 浜や粯鍙ユ焺銆?
 fn dispatch_compose_workbook(args: Value) -> ToolResponse {
     let Some(worksheets_value) = args.get("worksheets") else {
-        return ToolResponse::error("compose_workbook 缂哄皯 worksheets 鍙傛暟");
+        return ToolResponse::error("compose_workbook 缺少 worksheets 参数");
     };
     let worksheet_args = match serde_json::from_value::<Vec<ComposeWorkbookWorksheetArg>>(
         worksheets_value.clone(),
@@ -832,7 +831,7 @@ fn dispatch_compose_workbook(args: Value) -> ToolResponse {
         Ok(worksheet_args) => worksheet_args,
         Err(error) => {
             return ToolResponse::error(format!(
-                "compose_workbook 鐨?worksheets 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+                "compose_workbook 的 worksheets 参数解析失败: {error}"
             ));
         }
     };
@@ -848,15 +847,15 @@ fn dispatch_compose_workbook(args: Value) -> ToolResponse {
             Ok(OperationLoad::Loaded(loaded)) => loaded,
             Err(response) => return response,
         };
-            sheet_inputs.push(WorkbookSheetInput {
-                sheet_name: worksheet_arg.sheet_name,
-                source_refs: source_refs_from_nested_source(&worksheet_arg.source),
-                dataframe: loaded.dataframe,
-                title: None,
-                subtitle: None,
-                data_start_row: 0,
-            });
-        }
+        sheet_inputs.push(WorkbookSheetInput {
+            sheet_name: worksheet_arg.sheet_name,
+            source_refs: source_refs_from_nested_source(&worksheet_arg.source),
+            dataframe: loaded.dataframe,
+            title: None,
+            subtitle: None,
+            data_start_row: 0,
+        });
+    }
 
     let workbook_ref = WorkbookDraftStore::create_workbook_ref();
     let draft = match PersistedWorkbookDraft::from_sheet_inputs(&workbook_ref, sheet_inputs) {
@@ -870,7 +869,9 @@ fn dispatch_compose_workbook(args: Value) -> ToolResponse {
     if let Err(error) = store.save(&draft) {
         return ToolResponse::error(error.to_string());
     }
-    if let Err(response) = sync_output_handle_state(&args, &workbook_ref, "workbook_ref", "compose_workbook") {
+    if let Err(response) =
+        sync_output_handle_state(&args, &workbook_ref, "workbook_ref", "compose_workbook")
+    {
         return response;
     }
 
@@ -1012,8 +1013,7 @@ fn apply_report_delivery_section_format(
     let Some(format) = format else {
         return Ok(loaded);
     };
-    format_table_for_export(&loaded, format)
-        .map_err(|error| ToolResponse::error(error.to_string()))
+    format_table_for_export(&loaded, format).map_err(|error| ToolResponse::error(error.to_string()))
 }
 
 fn resolve_report_delivery_charts(
@@ -1107,11 +1107,12 @@ fn dispatch_build_chart(args: Value) -> ToolResponse {
         }
     };
 
-    let loaded = match load_nested_table_source_from_parsed(&chart_args.source, "build_chart", "source") {
-        Ok(OperationLoad::NeedsConfirmation(response)) => return response,
-        Ok(OperationLoad::Loaded(loaded)) => loaded,
-        Err(response) => return response,
-    };
+    let loaded =
+        match load_nested_table_source_from_parsed(&chart_args.source, "build_chart", "source") {
+            Ok(OperationLoad::NeedsConfirmation(response)) => return response,
+            Ok(OperationLoad::Loaded(loaded)) => loaded,
+            Err(response) => return response,
+        };
 
     let mut series = chart_args
         .series
@@ -1191,7 +1192,11 @@ fn dispatch_export_chart_image(args: Value) -> ToolResponse {
     if export_args.output_path.trim().is_empty() {
         return ToolResponse::error("export_chart_image 缺少 output_path 参数");
     }
-    if !export_args.output_path.to_ascii_lowercase().ends_with(".svg") {
+    if !export_args
+        .output_path
+        .to_ascii_lowercase()
+        .ends_with(".svg")
+    {
         // 2026-03-24: 这里把导出格式继续收口为 SVG，原因是当前纯 Rust 二进制链路里 SVG 最稳定；目的是先保证图表交付闭环，不引入额外运行时依赖。
         return ToolResponse::error("export_chart_image 目前只支持导出 svg");
     }
@@ -1314,16 +1319,16 @@ fn dispatch_export_excel_workbook(args: Value) -> ToolResponse {
 
 fn dispatch_join_tables(args: Value) -> ToolResponse {
     let Some(left_value) = args.get("left") else {
-        return ToolResponse::error("join_tables 缂哄皯 left 鍙傛暟");
+        return ToolResponse::error("join_tables 缺少 left 参数");
     };
     let Some(right_value) = args.get("right") else {
-        return ToolResponse::error("join_tables 缂哄皯 right 鍙傛暟");
+        return ToolResponse::error("join_tables 缺少 right 参数");
     };
     let Some(left_on) = args.get("left_on").and_then(|value| value.as_str()) else {
-        return ToolResponse::error("join_tables 缂哄皯 left_on 鍙傛暟");
+        return ToolResponse::error("join_tables 缺少 left_on 参数");
     };
     let Some(right_on) = args.get("right_on").and_then(|value| value.as_str()) else {
-        return ToolResponse::error("join_tables 缂哄皯 right_on 鍙傛暟");
+        return ToolResponse::error("join_tables 缺少 right_on 参数");
     };
     let limit = args
         .get("limit")
@@ -1396,7 +1401,9 @@ fn dispatch_normalize_text_columns(args: Value) -> ToolResponse {
     let rules = match serde_json::from_value::<Vec<NormalizeTextRule>>(rules_value.clone()) {
         Ok(rules) => rules,
         Err(error) => {
-            return ToolResponse::error(format!("normalize_text_columns 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+            return ToolResponse::error(format!(
+                "normalize_text_columns 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+            ));
         }
     };
 
@@ -1420,7 +1427,9 @@ fn dispatch_parse_datetime_columns(args: Value) -> ToolResponse {
     let rules = match serde_json::from_value::<Vec<ParseDateTimeRule>>(rules_value.clone()) {
         Ok(rules) => rules,
         Err(error) => {
-            return ToolResponse::error(format!("parse_datetime_columns 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+            return ToolResponse::error(format!(
+                "parse_datetime_columns 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+            ));
         }
     };
 
@@ -1458,7 +1467,9 @@ fn dispatch_lookup_values(args: Value) -> ToolResponse {
     };
     let selects = match serde_json::from_value::<Vec<LookupSelect>>(selects_value.clone()) {
         Ok(selects) => selects,
-        Err(error) => return ToolResponse::error(format!("lookup_values 鍙傛暟瑙ｆ瀽澶辫触: {error}")),
+        Err(error) => {
+            return ToolResponse::error(format!("lookup_values 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+        }
     };
 
     match load_nested_table_source(base_value, "lookup_values", "base") {
@@ -1512,7 +1523,9 @@ fn dispatch_window_calculation(args: Value) -> ToolResponse {
         match serde_json::from_value::<Vec<WindowCalculation>>(calculations_value.clone()) {
             Ok(calculations) => calculations,
             Err(error) => {
-                return ToolResponse::error(format!("window_calculation 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+                return ToolResponse::error(format!(
+                    "window_calculation 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+                ));
             }
         };
     let casts = match parse_casts(&args, "casts", "window_calculation") {
@@ -1622,7 +1635,9 @@ fn dispatch_deduplicate_by_key(args: Value) -> ToolResponse {
         Some(value) => match serde_json::from_value::<Vec<OrderSpec>>(value.clone()) {
             Ok(order_by) => order_by,
             Err(error) => {
-                return ToolResponse::error(format!("deduplicate_by_key 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+                return ToolResponse::error(format!(
+                    "deduplicate_by_key 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+                ));
             }
         },
         None => Vec::new(),
@@ -1631,7 +1646,9 @@ fn dispatch_deduplicate_by_key(args: Value) -> ToolResponse {
         Some(value) => match serde_json::from_value::<DeduplicateKeep>(value.clone()) {
             Ok(keep) => keep,
             Err(error) => {
-                return ToolResponse::error(format!("deduplicate_by_key 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+                return ToolResponse::error(format!(
+                    "deduplicate_by_key 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+                ));
             }
         },
         None => DeduplicateKeep::First,
@@ -1659,7 +1676,9 @@ fn dispatch_format_table_for_export(args: Value) -> ToolResponse {
     let options = match serde_json::from_value::<ExportFormatOptions>(args.clone()) {
         Ok(options) => options,
         Err(error) => {
-            return ToolResponse::error(format!("format_table_for_export 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+            return ToolResponse::error(format!(
+                "format_table_for_export 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+            ));
         }
     };
 
@@ -1686,15 +1705,11 @@ fn dispatch_fill_missing_from_lookup(args: Value) -> ToolResponse {
     let Some(lookup_value) = args.get("lookup") else {
         return ToolResponse::error("fill_missing_from_lookup 缂哄皯 lookup 鍙傛暟");
     };
-    let base_keys = match parse_lookup_key_args(
-        &args,
-        "base_on",
-        "base_keys",
-        "fill_missing_from_lookup",
-    ) {
-        Ok(keys) => keys,
-        Err(response) => return response,
-    };
+    let base_keys =
+        match parse_lookup_key_args(&args, "base_on", "base_keys", "fill_missing_from_lookup") {
+            Ok(keys) => keys,
+            Err(response) => return response,
+        };
     let lookup_keys = match parse_lookup_key_args(
         &args,
         "lookup_on",
@@ -1710,7 +1725,9 @@ fn dispatch_fill_missing_from_lookup(args: Value) -> ToolResponse {
     let fills = match serde_json::from_value::<Vec<FillLookupRule>>(fills_value.clone()) {
         Ok(fills) => fills,
         Err(error) => {
-            return ToolResponse::error(format!("fill_missing_from_lookup 鍙傛暟瑙ｆ瀽澶辫触: {error}"));
+            return ToolResponse::error(format!(
+                "fill_missing_from_lookup 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+            ));
         }
     };
 
@@ -2335,7 +2352,9 @@ fn parse_nested_table_source(
     field_name: &str,
 ) -> Result<NestedTableSource, ToolResponse> {
     serde_json::from_value::<NestedTableSource>(value.clone()).map_err(|error| {
-        ToolResponse::error(format!("{tool} 鐨?{field_name} 鍙傛暟瑙ｆ瀽澶辫触: {error}"))
+        ToolResponse::error(format!(
+            "{tool} 鐨?{field_name} 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+        ))
     })
 }
 
@@ -2676,7 +2695,9 @@ fn parse_lookup_key_args(
 
     if let Some(value) = single_value {
         if value.trim().is_empty() {
-            return Err(ToolResponse::error(format!("{tool} 缂哄皯 {single_field} 鍙傛暟")));
+            return Err(ToolResponse::error(format!(
+                "{tool} 缂哄皯 {single_field} 鍙傛暟"
+            )));
         }
         return Ok(vec![value.to_string()]);
     }
@@ -2689,12 +2710,16 @@ fn parse_lookup_key_args(
             .filter(|value| !value.is_empty())
             .collect::<Vec<_>>();
         if keys.is_empty() {
-            return Err(ToolResponse::error(format!("{tool} 缂哄皯 {multi_field} 鍙傛暟")));
+            return Err(ToolResponse::error(format!(
+                "{tool} 缂哄皯 {multi_field} 鍙傛暟"
+            )));
         }
         return Ok(keys);
     }
 
-    Err(ToolResponse::error(format!("{tool} 缂哄皯 {single_field} 鍙傛暟")))
+    Err(ToolResponse::error(format!(
+        "{tool} 缂哄皯 {single_field} 鍙傛暟"
+    )))
 }
 
 fn parse_casts(args: &Value, field: &str, tool: &str) -> Result<Vec<CastColumnSpec>, ToolResponse> {
@@ -2711,7 +2736,9 @@ fn parse_missing_strategy(args: &Value, tool: &str) -> Result<MissingStrategy, T
     match args.get("missing_strategy") {
         Some(strategy_value) => serde_json::from_value::<MissingStrategy>(strategy_value.clone())
             .map_err(|error| {
-                ToolResponse::error(format!("{tool} 鐨?missing_strategy 鍙傛暟瑙ｆ瀽澶辫触: {error}"))
+                ToolResponse::error(format!(
+                    "{tool} 鐨?missing_strategy 鍙傛暟瑙ｆ瀽澶辫触: {error}"
+                ))
             }),
         None => Ok(MissingStrategy::DropRows),
     }
@@ -3025,7 +3052,8 @@ fn sync_loaded_table_state(
     let input_handle_ref = active_handle_ref_from_args(args)
         .or_else(|| first_table_ref_in_value(args))
         .or_else(|| current_state.active_handle_ref.clone());
-    let stable_table_ref = first_table_ref_in_value(args).or(current_state.active_table_ref.clone());
+    let stable_table_ref =
+        first_table_ref_in_value(args).or(current_state.active_table_ref.clone());
     runtime
         .update_session_state(
             &session_id,
@@ -3089,7 +3117,8 @@ fn sync_output_handle_state(
     let current_state = runtime
         .get_session_state(&session_id)
         .map_err(|error| ToolResponse::error(error.to_string()))?;
-    let stable_table_ref = first_table_ref_in_value(args).or(current_state.active_table_ref.clone());
+    let stable_table_ref =
+        first_table_ref_in_value(args).or(current_state.active_table_ref.clone());
 
     runtime
         .update_session_state(
@@ -3151,4 +3180,3 @@ fn current_workbook_for_session(args: &Value, fallback_path: &str) -> String {
     };
     record.original_path
 }
-

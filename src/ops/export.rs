@@ -1,15 +1,21 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use polars::prelude::{AnyValue, DataFrame};
-use rust_xlsxwriter::{Chart, ChartLegendPosition, ChartType, Format, FormatAlign, Workbook, Worksheet};
+use rust_xlsxwriter::{
+    Chart, ChartLegendPosition, ChartType, Format, FormatAlign, Workbook, Worksheet,
+};
 use thiserror::Error;
 
 use crate::frame::loader::LoadedTable;
 use crate::frame::workbook_ref_store::{
     PersistedWorkbookChartSeriesSpec, PersistedWorkbookChartSpec, PersistedWorkbookChartType,
     PersistedWorkbookDraft, PersistedWorkbookLegendPosition,
+};
+use crate::ops::excel_chart_writer::{
+    WorksheetBinding as ChartWorksheetBinding,
+    insert_charts_into_workbook as write_charts_to_workbook,
 };
 
 #[derive(Debug, Error)]
@@ -82,8 +88,9 @@ pub fn export_excel(
         let mut wrapped_row = false;
         for (column_index, column) in loaded.dataframe.get_columns().iter().enumerate() {
             // 2026-03-23: 这里按真实单元格类型写 Excel，原因是导出的结果表还要继续被客户求和、透视和排序；目的是避免所有值都退化成文本。
-            wrapped_row |= write_excel_cell(worksheet, column, row_index, column_index, &cell_formats)
-                .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
+            wrapped_row |=
+                write_excel_cell(worksheet, column, row_index, column_index, &cell_formats)
+                    .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
         }
         // 2026-03-24: 这里在单表导出时为长文本行补一个保守行高，原因是仅有 wrapText 仍可能让首屏看起来过扁；目的是让说明列在 Excel 里打开后更接近可读状态。
         if wrapped_row {
@@ -93,8 +100,13 @@ pub fn export_excel(
         }
     }
     // 2026-03-24: 这里给单表导出补自动筛选，原因是业务用户导出后最常见动作就是按列筛选；目的是把基础可用性直接沉到底层导出能力。
-    apply_autofilter(worksheet, 0, loaded.dataframe.height(), loaded.dataframe.width())
-        .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
+    apply_autofilter(
+        worksheet,
+        0,
+        loaded.dataframe.height(),
+        loaded.dataframe.width(),
+    )
+    .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
     // 2026-03-24: 这里在单表导出时冻结表头行，原因是客户查看长表时需要始终保留字段上下文；目的是让基础导出也具备最小可读性。
     apply_freeze_panes(worksheet, 0).map_err(|error| ExportError::WriteExcel(error.to_string()))?;
     // 2026-03-24: 这里在单表导出后统一补显式列宽，原因是默认宽度对长列名和中文字段不友好；目的是让导出的单表开箱即读，不必客户再手工拖列宽。
@@ -113,7 +125,7 @@ pub fn export_excel_workbook(
     ensure_parent_dir(output_path)?;
 
     let mut workbook = Workbook::new();
-    let mut worksheet_bindings = BTreeMap::<String, WorksheetBinding>::new();
+    let mut worksheet_bindings = BTreeMap::<String, ChartWorksheetBinding>::new();
 
     for worksheet_snapshot in &draft.worksheets {
         let dataframe = worksheet_snapshot
@@ -129,8 +141,14 @@ pub fn export_excel_workbook(
         if let Some(title) = worksheet_snapshot.title.as_ref() {
             if !title.trim().is_empty() {
                 // 2026-03-24: 这里把标题区横向合并到整张数据表宽度，原因是只写在 A1 更像普通数据表；目的是把 report_delivery 页进一步拉近“汇报稿”观感。
-                write_sheet_banner(worksheet, 0, last_title_col, title, &cell_formats.title_format)
-                    .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
+                write_sheet_banner(
+                    worksheet,
+                    0,
+                    last_title_col,
+                    title,
+                    &cell_formats.title_format,
+                )
+                .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
             }
         }
         if let Some(subtitle) = worksheet_snapshot.subtitle.as_ref() {
@@ -168,7 +186,7 @@ pub fn export_excel_workbook(
                     header_row + 1,
                     &cell_formats,
                 )
-                    .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
+                .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
             }
             if wrapped_row {
                 worksheet
@@ -177,13 +195,8 @@ pub fn export_excel_workbook(
             }
         }
         // 2026-03-24: 这里给 workbook 内每张表统一加自动筛选，原因是 compose_workbook / report_delivery 都是面向交付的结果表；目的是让用户打开即能筛，不用手动再点一遍。
-        apply_autofilter(
-            worksheet,
-            header_row,
-            dataframe.height(),
-            dataframe.width(),
-        )
-        .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
+        apply_autofilter(worksheet, header_row, dataframe.height(), dataframe.width())
+            .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
         // 2026-03-24: 这里按各 sheet 的标题区与表头位置统一冻结窗格，原因是 report_delivery 与 compose_workbook 都需要在滚动时保留表头；目的是把冻结规则沉到公共交付层而不是散落在模板逻辑里。
         apply_freeze_panes(worksheet, header_row)
             .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
@@ -193,7 +206,7 @@ pub fn export_excel_workbook(
 
         worksheet_bindings.insert(
             worksheet_snapshot.sheet_name.clone(),
-            WorksheetBinding {
+            ChartWorksheetBinding {
                 row_count: dataframe.height(),
                 header_row,
                 column_indices,
@@ -201,25 +214,18 @@ pub fn export_excel_workbook(
         );
     }
 
-    for chart_spec in &draft.charts {
-        insert_chart_into_workbook(&mut workbook, &worksheet_bindings, chart_spec)?;
-    }
+    write_charts_to_workbook(&mut workbook, &worksheet_bindings, &draft.charts)
+        .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
 
     workbook
         .save(output_path)
         .map_err(|error| ExportError::WriteExcel(error.to_string()))
 }
 
-#[derive(Debug)]
-struct WorksheetBinding {
-    row_count: usize,
-    header_row: u32,
-    column_indices: BTreeMap<String, usize>,
-}
-
+#[allow(dead_code)]
 fn insert_chart_into_workbook(
     workbook: &mut Workbook,
-    worksheet_bindings: &BTreeMap<String, WorksheetBinding>,
+    worksheet_bindings: &BTreeMap<String, ChartWorksheetBinding>,
     chart_spec: &PersistedWorkbookChartSpec,
 ) -> Result<(), ExportError> {
     let Some(data_binding) = worksheet_bindings.get(&chart_spec.data_sheet_name) else {
@@ -249,7 +255,8 @@ fn insert_chart_into_workbook(
         chart.set_style(style);
     }
     for series_spec in normalized_chart_series(chart_spec) {
-        let Some(&series_value_col) = data_binding.column_indices.get(&series_spec.value_column) else {
+        let Some(&series_value_col) = data_binding.column_indices.get(&series_spec.value_column)
+        else {
             return Err(ExportError::WriteExcel(format!(
                 "图表数值列不存在: {}.{}",
                 chart_spec.data_sheet_name, series_spec.value_column
@@ -317,7 +324,10 @@ fn insert_chart_into_workbook(
     Ok(())
 }
 
-fn normalized_chart_series(chart_spec: &PersistedWorkbookChartSpec) -> Vec<PersistedWorkbookChartSeriesSpec> {
+#[allow(dead_code)]
+fn normalized_chart_series(
+    chart_spec: &PersistedWorkbookChartSpec,
+) -> Vec<PersistedWorkbookChartSeriesSpec> {
     if !chart_spec.series.is_empty() {
         return chart_spec.series.clone();
     }
@@ -327,6 +337,7 @@ fn normalized_chart_series(chart_spec: &PersistedWorkbookChartSpec) -> Vec<Persi
     }]
 }
 
+#[allow(dead_code)]
 fn map_chart_type(chart_type: &PersistedWorkbookChartType) -> ChartType {
     match chart_type {
         PersistedWorkbookChartType::Column => ChartType::Column,
@@ -336,6 +347,7 @@ fn map_chart_type(chart_type: &PersistedWorkbookChartType) -> ChartType {
     }
 }
 
+#[allow(dead_code)]
 fn map_legend_position(position: &PersistedWorkbookLegendPosition) -> ChartLegendPosition {
     match position {
         PersistedWorkbookLegendPosition::Top => ChartLegendPosition::Top,
@@ -346,6 +358,7 @@ fn map_legend_position(position: &PersistedWorkbookLegendPosition) -> ChartLegen
     }
 }
 
+#[allow(dead_code)]
 fn ensure_parent_dir(output_path: &str) -> Result<(), ExportError> {
     let path = Path::new(output_path);
     let Some(parent) = path.parent() else {
@@ -436,14 +449,21 @@ fn write_excel_cell_with_row_offset(
                 .str_value(row_index)
                 .map_err(|error| rust_xlsxwriter::XlsxError::ParameterError(error.to_string()))?;
             if should_wrap_text(value.as_ref()) {
-                worksheet.write_string_with_format(row, col, value.as_ref(), &formats.wrapped_text_format)?;
+                worksheet.write_string_with_format(
+                    row,
+                    col,
+                    value.as_ref(),
+                    &formats.wrapped_text_format,
+                )?;
                 Ok(true)
             } else {
                 worksheet.write_string(row, col, value.as_ref())?;
                 Ok(false)
             }
         }
-        Err(error) => Err(rust_xlsxwriter::XlsxError::ParameterError(error.to_string())),
+        Err(error) => Err(rust_xlsxwriter::XlsxError::ParameterError(
+            error.to_string(),
+        )),
     }
 }
 

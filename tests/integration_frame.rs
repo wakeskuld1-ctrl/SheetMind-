@@ -1,12 +1,12 @@
-﻿use calamine::{Reader, open_workbook_auto};
+use calamine::{Reader, open_workbook_auto};
 use excel_skill::domain::handles::TableHandle;
 use excel_skill::excel::header_inference::infer_header_schema;
-use excel_skill::frame::loader::{LoadedTable, load_confirmed_table, load_table_from_table_ref};
-use excel_skill::frame::region_loader::load_table_region;
-use excel_skill::frame::registry::TableRegistry;
 use excel_skill::frame::chart_ref_store::{
     PersistedChartDraft, PersistedChartSeriesSpec, PersistedChartType,
 };
+use excel_skill::frame::loader::{LoadedTable, load_confirmed_table, load_table_from_table_ref};
+use excel_skill::frame::region_loader::load_table_region;
+use excel_skill::frame::registry::TableRegistry;
 use excel_skill::frame::table_ref_store::PersistedTableRef;
 use excel_skill::frame::workbook_ref_store::{
     PersistedWorkbookDraft, WorkbookDraftStore, WorkbookSheetInput,
@@ -14,6 +14,7 @@ use excel_skill::frame::workbook_ref_store::{
 use excel_skill::ops::analyze::analyze_table;
 use excel_skill::ops::append::append_tables;
 use excel_skill::ops::cast::{CastColumnSpec, CastTargetType, cast_column_types};
+use excel_skill::ops::chart_svg::render_chart_svg;
 use excel_skill::ops::cluster_kmeans::cluster_kmeans;
 use excel_skill::ops::decision_assistant::decision_assistant;
 use excel_skill::ops::deduplicate_by_key::{
@@ -23,7 +24,6 @@ use excel_skill::ops::derive::{
     CaseWhenRule, DateBucketRule, DerivationSpec, DeriveCondition, DeriveConditionGroup,
     DeriveOperator, DerivePredicate, LogicalMode, derive_columns,
 };
-use excel_skill::ops::chart_svg::render_chart_svg;
 use excel_skill::ops::distinct_rows::{DistinctKeep, distinct_rows};
 use excel_skill::ops::export::export_excel_workbook;
 use excel_skill::ops::fill_lookup::{
@@ -49,10 +49,10 @@ use excel_skill::ops::parse_datetime::{
 };
 use excel_skill::ops::pivot::{PivotAggregation, pivot_table};
 use excel_skill::ops::preview::preview_table;
+use excel_skill::ops::rename::{RenameColumnMapping, rename_columns};
 use excel_skill::ops::report_delivery::{
     ReportDeliveryRequest, ReportDeliverySection, build_report_delivery_draft,
 };
-use excel_skill::ops::rename::{RenameColumnMapping, rename_columns};
 use excel_skill::ops::select::select_columns;
 use excel_skill::ops::sort::{SortSpec, sort_rows};
 use excel_skill::ops::stat_summary::stat_summary;
@@ -902,7 +902,10 @@ fn format_table_for_export_reorders_and_renames_columns() {
     let preview = preview_table(&formatted.dataframe, formatted.dataframe.height()).unwrap();
 
     // 2026-03-22: 杩欓噷閿佸畾瀵煎嚭鍓嶆暣鐞嗗悗鐨勬渶缁堝垪甯冨眬锛岀洰鐨勬槸璁╁悗缁?workbook 缁勮灞傛秷璐圭ǔ瀹氥€侀潰鍚戝鎴风殑琛ㄥご缁撴瀯銆?
-    assert_eq!(formatted.handle.columns(), &["鍖哄煙", "閿€鍞", "瀹㈡埛ID"]);
+    assert_eq!(
+        formatted.handle.columns(),
+        &["鍖哄煙", "閿€鍞", "瀹㈡埛ID"]
+    );
     assert_eq!(preview.rows[0]["鍖哄煙"], "East");
     assert_eq!(preview.rows[0]["閿€鍞"], "120");
     assert_eq!(preview.rows[1]["瀹㈡埛ID"], "2");
@@ -992,9 +995,9 @@ fn workbook_draft_roundtrip_preserves_multiple_sheets() {
                     Series::new("閿€鍞".into(), vec![Some("120"), Some("95")]).into(),
                 ])
                 .unwrap(),
-            title: None,
-            subtitle: None,
-            data_start_row: 0,
+                title: None,
+                subtitle: None,
+                data_start_row: 0,
             },
             WorkbookSheetInput {
                 sheet_name: "鏄庣粏".to_string(),
@@ -1004,9 +1007,9 @@ fn workbook_draft_roundtrip_preserves_multiple_sheets() {
                     Series::new("浜у搧".into(), vec![Some("A"), Some("B")]).into(),
                 ])
                 .unwrap(),
-            title: None,
-            subtitle: None,
-            data_start_row: 0,
+                title: None,
+                subtitle: None,
+                data_start_row: 0,
             },
         ],
     )
@@ -1040,9 +1043,9 @@ fn export_excel_workbook_writes_all_sheets_from_draft() {
                     Series::new("sales".into(), vec![Some("120"), Some("95")]).into(),
                 ])
                 .unwrap(),
-            title: None,
-            subtitle: None,
-            data_start_row: 0,
+                title: None,
+                subtitle: None,
+                data_start_row: 0,
             },
             WorkbookSheetInput {
                 sheet_name: "Detail".to_string(),
@@ -1052,9 +1055,9 @@ fn export_excel_workbook_writes_all_sheets_from_draft() {
                     Series::new("product".into(), vec![Some("A"), Some("B")]).into(),
                 ])
                 .unwrap(),
-            title: None,
-            subtitle: None,
-            data_start_row: 0,
+                title: None,
+                subtitle: None,
+                data_start_row: 0,
             },
         ],
     )
@@ -1085,7 +1088,14 @@ fn report_delivery_builds_standard_template_draft() {
                 sheet_name: "\u{6458}\u{8981}\u{9875}".to_string(),
                 source_refs: vec!["result_summary".to_string()],
                 dataframe: DataFrame::new(vec![
-                    Series::new("\u{6307}\u{6807}".into(), vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}"), Some("\u{603b}\u{6536}\u{5165}")]).into(),
+                    Series::new(
+                        "\u{6307}\u{6807}".into(),
+                        vec![
+                            Some("\u{603b}\u{5ba2}\u{6237}\u{6570}"),
+                            Some("\u{603b}\u{6536}\u{5165}"),
+                        ],
+                    )
+                    .into(),
                     Series::new("\u{503c}".into(), vec![Some("2"), Some("215")]).into(),
                 ])
                 .unwrap(),
@@ -1112,11 +1122,20 @@ fn report_delivery_builds_standard_template_draft() {
 
     assert_eq!(draft.worksheets.len(), 3);
     assert_eq!(draft.worksheets[0].sheet_name, "\u{6458}\u{8981}\u{9875}");
-    assert_eq!(draft.worksheets[1].sheet_name, "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}");
+    assert_eq!(
+        draft.worksheets[1].sheet_name,
+        "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}"
+    );
     assert_eq!(draft.worksheets[2].sheet_name, "\u{56fe}\u{8868}\u{9875}");
-    assert_eq!(summary_sheet.get_column_names(), &["\u{6307}\u{6807}", "\u{503c}"]);
+    assert_eq!(
+        summary_sheet.get_column_names(),
+        &["\u{6307}\u{6807}", "\u{503c}"]
+    );
     assert_eq!(analysis_sheet.get_column_names(), &["user_id", "sales"]);
-    assert_eq!(chart_sheet.get_column_names(), &["\u{6a21}\u{5757}", "\u{72b6}\u{6001}", "\u{8bf4}\u{660e}"]);
+    assert_eq!(
+        chart_sheet.get_column_names(),
+        &["\u{6a21}\u{5757}", "\u{72b6}\u{6001}", "\u{8bf4}\u{660e}"]
+    );
     assert_eq!(draft.charts.len(), 0);
 }
 
@@ -1132,7 +1151,11 @@ fn report_delivery_can_build_template_without_chart_sheet() {
                 sheet_name: "\u{6458}\u{8981}\u{9875}".to_string(),
                 source_refs: vec!["result_summary".to_string()],
                 dataframe: DataFrame::new(vec![
-                    Series::new("\u{6307}\u{6807}".into(), vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}")]).into(),
+                    Series::new(
+                        "\u{6307}\u{6807}".into(),
+                        vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}")],
+                    )
+                    .into(),
                     Series::new("\u{503c}".into(), vec![Some("2")]).into(),
                 ])
                 .unwrap(),
@@ -1155,7 +1178,10 @@ fn report_delivery_can_build_template_without_chart_sheet() {
 
     assert_eq!(draft.worksheets.len(), 2);
     assert_eq!(draft.worksheets[0].sheet_name, "\u{6458}\u{8981}\u{9875}");
-    assert_eq!(draft.worksheets[1].sheet_name, "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}");
+    assert_eq!(
+        draft.worksheets[1].sheet_name,
+        "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}"
+    );
     assert_eq!(draft.charts.len(), 0);
 }
 
@@ -1171,7 +1197,11 @@ fn report_delivery_builds_chart_specs_for_analysis_sheet() {
                 sheet_name: "\u{6458}\u{8981}\u{9875}".to_string(),
                 source_refs: vec!["result_summary".to_string()],
                 dataframe: DataFrame::new(vec![
-                    Series::new("\u{6307}\u{6807}".into(), vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}")]).into(),
+                    Series::new(
+                        "\u{6307}\u{6807}".into(),
+                        vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}")],
+                    )
+                    .into(),
                     Series::new("\u{503c}".into(), vec![Some("3")]).into(),
                 ])
                 .unwrap(),
@@ -1188,6 +1218,8 @@ fn report_delivery_builds_chart_specs_for_analysis_sheet() {
             include_chart_sheet: true,
             chart_sheet_name: "\u{56fe}\u{8868}\u{9875}".to_string(),
             charts: vec![excel_skill::ops::report_delivery::ReportDeliveryChart {
+                chart_ref: None,
+                source_refs: vec![],
                 chart_type: excel_skill::ops::report_delivery::ReportDeliveryChartType::Column,
                 title: Some("\u{533a}\u{57df}\u{6536}\u{5165}\u{67f1}\u{72b6}\u{56fe}".to_string()),
                 category_column: "region".to_string(),
@@ -1206,11 +1238,20 @@ fn report_delivery_builds_chart_specs_for_analysis_sheet() {
     .unwrap();
 
     assert_eq!(draft.charts.len(), 1);
-    assert_eq!(draft.charts[0].target_sheet_name, "\u{56fe}\u{8868}\u{9875}");
-    assert_eq!(draft.charts[0].data_sheet_name, "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}");
+    assert_eq!(
+        draft.charts[0].target_sheet_name,
+        "\u{56fe}\u{8868}\u{9875}"
+    );
+    assert_eq!(
+        draft.charts[0].data_sheet_name,
+        "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}"
+    );
     assert_eq!(draft.charts[0].category_column, "region");
     assert_eq!(draft.charts[0].value_column, "sales");
-    assert_eq!(draft.charts[0].title.as_deref(), Some("\u{533a}\u{57df}\u{6536}\u{5165}\u{67f1}\u{72b6}\u{56fe}"));
+    assert_eq!(
+        draft.charts[0].title.as_deref(),
+        Some("\u{533a}\u{57df}\u{6536}\u{5165}\u{67f1}\u{72b6}\u{56fe}")
+    );
 }
 
 #[test]
@@ -1225,7 +1266,11 @@ fn report_delivery_builds_multi_series_chart_specs() {
                 sheet_name: "\u{6458}\u{8981}\u{9875}".to_string(),
                 source_refs: vec!["result_summary".to_string()],
                 dataframe: DataFrame::new(vec![
-                    Series::new("\u{6307}\u{6807}".into(), vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}")]).into(),
+                    Series::new(
+                        "\u{6307}\u{6807}".into(),
+                        vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}")],
+                    )
+                    .into(),
                     Series::new("\u{503c}".into(), vec![Some("3")]).into(),
                 ])
                 .unwrap(),
@@ -1243,8 +1288,12 @@ fn report_delivery_builds_multi_series_chart_specs() {
             include_chart_sheet: true,
             chart_sheet_name: "\u{56fe}\u{8868}\u{9875}".to_string(),
             charts: vec![excel_skill::ops::report_delivery::ReportDeliveryChart {
+                chart_ref: None,
+                source_refs: vec![],
                 chart_type: excel_skill::ops::report_delivery::ReportDeliveryChartType::Column,
-                title: Some("\u{8425}\u{6536}\u{4e0e}\u{5229}\u{6da6}\u{67f1}\u{72b6}\u{56fe}".to_string()),
+                title: Some(
+                    "\u{8425}\u{6536}\u{4e0e}\u{5229}\u{6da6}\u{67f1}\u{72b6}\u{56fe}".to_string(),
+                ),
                 category_column: "month".to_string(),
                 value_column: String::new(),
                 series: vec![
@@ -1273,7 +1322,10 @@ fn report_delivery_builds_multi_series_chart_specs() {
     assert_eq!(draft.charts[0].series.len(), 2);
     assert_eq!(draft.charts[0].series[0].value_column, "revenue");
     assert_eq!(draft.charts[0].series[1].value_column, "profit");
-    assert_eq!(draft.charts[0].series[1].name.as_deref(), Some("\u{5229}\u{6da6}"));
+    assert_eq!(
+        draft.charts[0].series[1].name.as_deref(),
+        Some("\u{5229}\u{6da6}")
+    );
 }
 
 #[test]
@@ -1288,7 +1340,11 @@ fn report_delivery_auto_layouts_multiple_charts_into_grid() {
                 sheet_name: "\u{6458}\u{8981}\u{9875}".to_string(),
                 source_refs: vec!["result_summary".to_string()],
                 dataframe: DataFrame::new(vec![
-                    Series::new("\u{6307}\u{6807}".into(), vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}")]).into(),
+                    Series::new(
+                        "\u{6307}\u{6807}".into(),
+                        vec![Some("\u{603b}\u{5ba2}\u{6237}\u{6570}")],
+                    )
+                    .into(),
                     Series::new("\u{503c}".into(), vec![Some("3")]).into(),
                 ])
                 .unwrap(),
@@ -1307,6 +1363,8 @@ fn report_delivery_auto_layouts_multiple_charts_into_grid() {
             chart_sheet_name: "\u{56fe}\u{8868}\u{9875}".to_string(),
             charts: vec![
                 excel_skill::ops::report_delivery::ReportDeliveryChart {
+                    chart_ref: None,
+                    source_refs: vec![],
                     chart_type: excel_skill::ops::report_delivery::ReportDeliveryChartType::Column,
                     title: Some("\u{8425}\u{6536}\u{67f1}\u{72b6}\u{56fe}".to_string()),
                     category_column: "month".to_string(),
@@ -1321,6 +1379,8 @@ fn report_delivery_auto_layouts_multiple_charts_into_grid() {
                     anchor_col: None,
                 },
                 excel_skill::ops::report_delivery::ReportDeliveryChart {
+                    chart_ref: None,
+                    source_refs: vec![],
                     chart_type: excel_skill::ops::report_delivery::ReportDeliveryChartType::Line,
                     title: Some("\u{5229}\u{6da6}\u{6298}\u{7ebf}\u{56fe}".to_string()),
                     category_column: "month".to_string(),
@@ -1760,7 +1820,6 @@ fn pivot_table_builds_mean_values_for_repeated_cells() {
     assert_eq!(preview.rows[0]["Jan"], "90");
     assert_eq!(preview.rows[0]["Feb"], "60");
 }
-
 
 #[test]
 fn parse_datetime_columns_normalizes_date_and_datetime_strings() {
@@ -2604,7 +2663,11 @@ fn derive_columns_supports_condition_groups_date_bucket_and_template() {
             ],
         ),
         dataframe: DataFrame::new(vec![
-            Series::new("customer_id".into(), vec![Some("C001"), Some("C002"), Some("C003")]).into(),
+            Series::new(
+                "customer_id".into(),
+                vec![Some("C001"), Some("C002"), Some("C003")],
+            )
+            .into(),
             Series::new("sales".into(), vec![120_i64, 95_i64, 60_i64]).into(),
             Series::new("visits".into(), vec![3_i64, 5_i64, 1_i64]).into(),
             Series::new(
@@ -2612,7 +2675,11 @@ fn derive_columns_supports_condition_groups_date_bucket_and_template() {
                 vec![Some("2026-01-15"), Some("2026-04-10"), Some("2026-08-01")],
             )
             .into(),
-            Series::new("region".into(), vec![Some("East"), Some("West"), Some("North")]).into(),
+            Series::new(
+                "region".into(),
+                vec![Some("East"), Some("West"), Some("North")],
+            )
+            .into(),
         ])
         .unwrap(),
     };
@@ -2982,8 +3049,14 @@ fn join_tables_aligns_integer_and_float_keys_without_manual_casts() {
         .unwrap(),
     };
 
-    let joined = join_tables(&left, &right, "user_id", "user_id", JoinKeepMode::MatchedOnly)
-        .unwrap();
+    let joined = join_tables(
+        &left,
+        &right,
+        "user_id",
+        "user_id",
+        JoinKeepMode::MatchedOnly,
+    )
+    .unwrap();
     let preview = preview_table(&joined.dataframe, joined.dataframe.height()).unwrap();
 
     // 2026-03-23: 杩欓噷閿佸畾鏁存暟閿笌娴偣閿細鎸夊悓涓€鏁板€艰涔夊尮閰嶏紝鐩殑鏄噺灏戞樉鎬у叧鑱斿墠杩樿棰濆 casts 鐨勮礋鎷呫€?
@@ -4286,7 +4359,11 @@ fn model_prep_builds_binary_classification_dataset_from_text_labels() {
     let dataframe = DataFrame::new(vec![
         Series::new("age".into(), vec![18.0_f64, 22.0, 38.0, 45.0]).into(),
         Series::new("score".into(), vec![10.0_f64, 15.0, 50.0, 60.0]).into(),
-        Series::new("result".into(), vec!["澶辫触", "澶辫触", "鎴愬姛", "鎴愬姛"]).into(),
+        Series::new(
+            "result".into(),
+            vec!["澶辫触", "澶辫触", "鎴愬姛", "鎴愬姛"],
+        )
+        .into(),
     ])
     .unwrap();
     let loaded = LoadedTable {
@@ -5026,4 +5103,3 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_for_mixed_tables() {
     );
     assert_eq!(result.unresolved_refs, vec!["step_2_result"]);
 }
-

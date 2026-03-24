@@ -1,9 +1,9 @@
-﻿use excel_skill::domain::handles::TableHandle;
+use excel_skill::domain::handles::TableHandle;
 use excel_skill::domain::schema::{SchemaState, infer_schema_state_label};
-use excel_skill::frame::registry::TableRegistry;
 use excel_skill::frame::chart_ref_store::{
     ChartDraftStore, PersistedChartDraft, PersistedChartSeriesSpec, PersistedChartType,
 };
+use excel_skill::frame::registry::TableRegistry;
 use excel_skill::frame::result_ref_store::{PersistedResultDataset, ResultRefStore};
 use excel_skill::frame::table_ref_store::{PersistedTableRef, TableRefStore};
 use excel_skill::ops::report_delivery::chart_ref_to_report_delivery_chart;
@@ -242,11 +242,18 @@ fn stored_result_dataset_round_trips_dense_nulls_and_all_null_columns() {
     .unwrap();
 
     store.save(&record).unwrap();
-    let restored = store.load("result_dense_nulls").unwrap().to_dataframe().unwrap();
+    let restored = store
+        .load("result_dense_nulls")
+        .unwrap()
+        .to_dataframe()
+        .unwrap();
 
     assert_eq!(restored.height(), 3);
     assert_eq!(restored.width(), 4);
-    assert_eq!(restored.column("score").unwrap().i64().unwrap().get(1), None);
+    assert_eq!(
+        restored.column("score").unwrap().i64().unwrap().get(1),
+        None
+    );
     assert_eq!(restored.column("note").unwrap().null_count(), 3);
     assert_eq!(restored.column("tag").unwrap().str().unwrap().get(1), None);
 }
@@ -276,7 +283,11 @@ fn stored_result_dataset_preserves_non_finite_float_values() {
     .unwrap();
 
     store.save(&record).unwrap();
-    let restored = store.load("result_non_finite").unwrap().to_dataframe().unwrap();
+    let restored = store
+        .load("result_non_finite")
+        .unwrap()
+        .to_dataframe()
+        .unwrap();
     let values = restored.column("score").unwrap().f64().unwrap();
 
     assert!(values.get(0).unwrap().is_nan());
@@ -319,7 +330,10 @@ fn stored_result_dataset_round_trips_date_and_datetime_columns() {
         .to_dataframe()
         .unwrap();
 
-    assert_eq!(restored.column("biz_date").unwrap().dtype(), &DataType::Date);
+    assert_eq!(
+        restored.column("biz_date").unwrap().dtype(),
+        &DataType::Date
+    );
     assert_eq!(
         restored.column("created_at").unwrap().dtype(),
         &DataType::Datetime(TimeUnit::Milliseconds, None)
@@ -368,13 +382,19 @@ fn chart_draft_roundtrips_through_disk() {
 
     assert_eq!(loaded.chart_ref, "chart_round_trip");
     assert_eq!(loaded.produced_by, "build_chart");
-    assert_eq!(loaded.source_refs, vec!["result_monthly_metrics".to_string()]);
+    assert_eq!(
+        loaded.source_refs,
+        vec!["result_monthly_metrics".to_string()]
+    );
     assert_eq!(loaded.chart_type, PersistedChartType::Column);
     assert_eq!(loaded.title.as_deref(), Some("Revenue vs Profit"));
     assert_eq!(loaded.category_column, "month");
     assert_eq!(loaded.series.len(), 2);
     assert_eq!(restored.height(), 3);
-    assert_eq!(restored.column("revenue").unwrap().i64().unwrap().get(1), Some(150));
+    assert_eq!(
+        restored.column("revenue").unwrap().i64().unwrap().get(1),
+        Some(150)
+    );
 }
 
 #[test]
@@ -415,7 +435,10 @@ fn chart_draft_can_be_mapped_to_report_delivery_chart() {
     let chart = chart_ref_to_report_delivery_chart(&draft);
 
     assert_eq!(chart.chart_ref.as_deref(), Some("chart_bridge_round_trip"));
-    assert_eq!(chart.source_refs, vec!["result_monthly_metrics".to_string()]);
+    assert_eq!(
+        chart.source_refs,
+        vec!["result_monthly_metrics".to_string()]
+    );
     assert_eq!(chart.title.as_deref(), Some("Revenue vs Profit"));
     assert_eq!(chart.category_column, "month");
     assert_eq!(chart.x_axis_name.as_deref(), Some("Month"));

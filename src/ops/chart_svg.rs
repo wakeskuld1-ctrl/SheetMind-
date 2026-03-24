@@ -1,4 +1,4 @@
-﻿use std::f64::consts::PI;
+use std::f64::consts::PI;
 use std::fmt::Write as _;
 
 use polars::prelude::{AnyValue, Column, DataFrame};
@@ -19,9 +19,13 @@ pub enum ChartSvgError {
     MissingCategoryColumn(String),
     #[error("\u{56fe}\u{8868}\u{7f3a}\u{5c11}\u{6570}\u{503c}\u{5217}: {0}")]
     MissingValueColumn(String),
-    #[error("\u{6563}\u{70b9}\u{56fe}\u{7684} X \u{8f74}\u{5217}\u{5fc5}\u{987b}\u{662f}\u{6570}\u{503c}\u{5217}: {0}")]
+    #[error(
+        "\u{6563}\u{70b9}\u{56fe}\u{7684} X \u{8f74}\u{5217}\u{5fc5}\u{987b}\u{662f}\u{6570}\u{503c}\u{5217}: {0}"
+    )]
     InvalidScatterXColumn(String),
-    #[error("\u{56fe}\u{8868}\u{6570}\u{503c}\u{5217}\u{6ca1}\u{6709}\u{53ef}\u{7528}\u{6570}\u{503c}: {0}")]
+    #[error(
+        "\u{56fe}\u{8868}\u{6570}\u{503c}\u{5217}\u{6ca1}\u{6709}\u{53ef}\u{7528}\u{6570}\u{503c}: {0}"
+    )]
     MissingNumericValues(String),
 }
 
@@ -40,12 +44,7 @@ struct PlotArea {
 }
 
 const SERIES_COLORS: [&str; 6] = [
-    "#2563eb",
-    "#dc2626",
-    "#16a34a",
-    "#ea580c",
-    "#7c3aed",
-    "#0891b2",
+    "#2563eb", "#dc2626", "#16a34a", "#ea580c", "#7c3aed", "#0891b2",
 ];
 
 pub fn render_chart_svg(draft: &PersistedChartDraft) -> Result<String, ChartSvgError> {
@@ -64,7 +63,11 @@ pub fn render_chart_svg(draft: &PersistedChartDraft) -> Result<String, ChartSvgE
         .column(&draft.category_column)
         .map_err(|_| ChartSvgError::MissingCategoryColumn(draft.category_column.clone()))?;
     let title = draft.title.as_deref().unwrap_or("Untitled Chart");
-    let plot = build_plot_area(draft.width as f64, draft.height as f64, draft.chart_type.clone());
+    let plot = build_plot_area(
+        draft.width as f64,
+        draft.height as f64,
+        draft.chart_type.clone(),
+    );
 
     let mut svg = String::new();
     write!(
@@ -146,7 +149,11 @@ fn render_column_chart(
     for (category_index, category) in categories.iter().enumerate() {
         let group_left = plot.left + group_width * category_index as f64;
         for (series_index, series_item) in series.iter().enumerate() {
-            let value = series_item.values.get(category_index).copied().unwrap_or(0.0);
+            let value = series_item
+                .values
+                .get(category_index)
+                .copied()
+                .unwrap_or(0.0);
             let bar_height = plot.height * (value / max_value);
             let x = group_left + inner_gap + series_index as f64 * bar_width;
             let y = plot.top + plot.height - bar_height;
@@ -335,7 +342,13 @@ fn render_scatter_chart(
 
     for (series_index, series_item) in series.iter().enumerate() {
         for (point_index, value) in series_item.values.iter().enumerate() {
-            let x = scale_linear(x_values[point_index], min_x, max_x, plot.left, plot.left + plot.width);
+            let x = scale_linear(
+                x_values[point_index],
+                min_x,
+                max_x,
+                plot.left,
+                plot.left + plot.width,
+            );
             let y = scale_linear(*value, min_y, max_y, plot.top + plot.height, plot.top);
             write!(
                 svg,
@@ -367,7 +380,10 @@ fn render_axes(svg: &mut String, draft: &PersistedChartDraft, plot: &PlotArea) {
     )
     .unwrap();
 
-    let x_axis_name = draft.x_axis_name.as_deref().unwrap_or(&draft.category_column);
+    let x_axis_name = draft
+        .x_axis_name
+        .as_deref()
+        .unwrap_or(&draft.category_column);
     let y_axis_name = draft
         .y_axis_name
         .as_deref()
@@ -517,7 +533,10 @@ fn collect_numeric_series(
         let values = collect_numeric_column(column)
             .map_err(|_| ChartSvgError::MissingNumericValues(item.value_column.clone()))?;
         output.push(ChartSeriesData {
-            name: item.name.clone().unwrap_or_else(|| item.value_column.clone()),
+            name: item
+                .name
+                .clone()
+                .unwrap_or_else(|| item.value_column.clone()),
             values,
         });
     }

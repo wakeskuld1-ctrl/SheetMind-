@@ -115,12 +115,13 @@ pub fn lookup_values_by_keys(
     for select in selects {
         let values = (0..base.dataframe.height())
             .map(|row_index| {
-                let matched_value = read_composite_key(&base.dataframe, base_keys, row_index, "base")?
-                    .and_then(|key| lookup_index.get(&key))
-                    .and_then(|row| row.get(&select.lookup_column))
-                    .cloned()
-                    .flatten()
-                    .unwrap_or_default();
+                let matched_value =
+                    read_composite_key(&base.dataframe, base_keys, row_index, "base")?
+                        .and_then(|key| lookup_index.get(&key))
+                        .and_then(|row| row.get(&select.lookup_column))
+                        .cloned()
+                        .flatten()
+                        .unwrap_or_default();
                 Ok(Some(matched_value))
             })
             .collect::<Result<Vec<Option<String>>, LookupValuesError>>()?;
@@ -191,7 +192,8 @@ fn build_lookup_index(
     let key_column_name = lookup_keys.join(" + ");
 
     for row_index in 0..lookup.dataframe.height() {
-        let Some(key) = read_composite_key(&lookup.dataframe, lookup_keys, row_index, "lookup")? else {
+        let Some(key) = read_composite_key(&lookup.dataframe, lookup_keys, row_index, "lookup")?
+        else {
             continue;
         };
         if index.contains_key(&key) {
@@ -230,12 +232,13 @@ fn read_composite_key(
 ) -> Result<Option<String>, LookupValuesError> {
     let mut parts = Vec::<String>::with_capacity(key_columns.len());
     for key_column in key_columns {
-        let column = dataframe
-            .column(key_column)
-            .map_err(|_| LookupValuesError::MissingColumn {
-                side,
-                column: (*key_column).to_string(),
-            })?;
+        let column =
+            dataframe
+                .column(key_column)
+                .map_err(|_| LookupValuesError::MissingColumn {
+                    side,
+                    column: (*key_column).to_string(),
+                })?;
         let Some(value) = read_optional_string(column, row_index, side)?
             .map(|item| item.trim().to_string())
             .filter(|item| !item.is_empty())

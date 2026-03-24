@@ -1,4 +1,4 @@
-﻿use polars::prelude::{DataFrame, NamedFrom, Series};
+use polars::prelude::{DataFrame, NamedFrom, Series};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -157,7 +157,9 @@ pub fn build_report_delivery_draft(
             source_refs: request.summary.source_refs,
             dataframe: request.summary.dataframe,
             title: Some(request.report_name.clone()),
-            subtitle: report_subtitle.clone().or_else(|| Some("摘要页".to_string())),
+            subtitle: report_subtitle
+                .clone()
+                .or_else(|| Some("摘要页".to_string())),
             data_start_row: 2,
         },
         WorkbookSheetInput {
@@ -165,7 +167,9 @@ pub fn build_report_delivery_draft(
             source_refs: request.analysis.source_refs,
             dataframe: request.analysis.dataframe,
             title: Some(request.report_name.clone()),
-            subtitle: report_subtitle.clone().or_else(|| Some("分析结果页".to_string())),
+            subtitle: report_subtitle
+                .clone()
+                .or_else(|| Some("分析结果页".to_string())),
             data_start_row: 2,
         },
     ];
@@ -246,10 +250,12 @@ fn normalize_chart_series(
         return chart
             .series
             .iter()
-            .map(|series| crate::frame::workbook_ref_store::PersistedWorkbookChartSeriesSpec {
-                value_column: series.value_column.clone(),
-                name: series.name.clone(),
-            })
+            .map(
+                |series| crate::frame::workbook_ref_store::PersistedWorkbookChartSeriesSpec {
+                    value_column: series.value_column.clone(),
+                    name: series.name.clone(),
+                },
+            )
             .collect();
     }
 

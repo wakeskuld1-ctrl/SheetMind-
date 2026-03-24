@@ -36,6 +36,7 @@ pub mod export;
 pub mod report_delivery;
 // 2026-03-23: 这里导出独立 SVG 图表渲染模块，原因是 build_chart/export_chart_image 需要脱离 workbook 也能单独交付图表；目的是为纯 Rust 二进制图表导出建立可复用底座。
 pub mod chart_svg;
+mod excel_chart_writer;
 // 2026-03-21: 这里导出分组聚合模块，目的是把表处理正式推进到多维分析入口。
 pub mod group;
 // 2026-03-21: 这里导出排序模块，目的是让原表、聚合结果与后续 top_n 共用统一排序底座。

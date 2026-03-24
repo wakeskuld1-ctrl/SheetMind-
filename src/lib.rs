@@ -6,6 +6,7 @@ pub mod excel;
 pub mod frame;
 // 2026-03-21: 这里暴露 DataFrame 原子操作模块，目的是让 Tool 层调用稳定、可测试的计算操作。
 pub mod ops;
+pub mod runtime_paths;
 // 2026-03-22: 这里暴露本地运行时记忆模块，目的是把会话状态从 Skill 协议层下沉到独立的本地持久层。
 pub mod runtime;
 // 2026-03-21: 这里暴露 Tool 模块，目的是让 CLI 只负责收发 JSON，而具体分发规则由独立模块维护。

@@ -67,10 +67,7 @@ pub enum WindowCalculationError {
         window_size: usize,
     },
     #[error("window_calculation 的 `{column}` 不是数值列，无法执行 {kind}")]
-    NonNumericSource {
-        column: String,
-        kind: &'static str,
-    },
+    NonNumericSource { column: String, kind: &'static str },
     #[error("window_calculation 无法读取列 `{column}` 第 {row_index} 行的值: {message}")]
     ReadValue {
         column: String,
@@ -128,10 +125,7 @@ pub fn window_calculation(
 }
 
 // 2026-03-23: 这里统一校验输入列存在性，原因是缺列时尽早失败比在扫描中途报错更好定位；目的是给 Skill 层一个稳定的前置门禁。
-fn ensure_column_exists(
-    dataframe: &DataFrame,
-    column: &str,
-) -> Result<(), WindowCalculationError> {
+fn ensure_column_exists(dataframe: &DataFrame, column: &str) -> Result<(), WindowCalculationError> {
     if dataframe.column(column).is_err() {
         return Err(WindowCalculationError::MissingColumn(column.to_string()));
     }
@@ -337,13 +331,13 @@ fn apply_partition_calculation(
             }
         }
         WindowCalculationKind::CumulativeSum => {
-            let source_column = calculation
-                .source_column
-                .as_deref()
-                .ok_or(WindowCalculationError::MissingSourceColumn {
+            let source_column = calculation.source_column.as_deref().ok_or(
+                WindowCalculationError::MissingSourceColumn {
                     kind: "cumulative_sum",
-                })?;
-            let numeric_values = read_numeric_partition(sorted, source_column, partition_start, partition_end)?;
+                },
+            )?;
+            let numeric_values =
+                read_numeric_partition(sorted, source_column, partition_start, partition_end)?;
             let mut running_sum = 0.0_f64;
             for (offset, original_index) in original_indexes.iter().enumerate() {
                 running_sum += numeric_values[offset];
@@ -355,7 +349,8 @@ fn apply_partition_calculation(
                 .source_column
                 .as_deref()
                 .ok_or(WindowCalculationError::MissingSourceColumn { kind: "lag" })?;
-            let source_values = read_string_partition(sorted, source_column, partition_start, partition_end)?;
+            let source_values =
+                read_string_partition(sorted, source_column, partition_start, partition_end)?;
             let offset = calculation.offset.unwrap_or(1);
             for (index, original_index) in original_indexes.iter().enumerate() {
                 values[*original_index] = index
@@ -369,7 +364,8 @@ fn apply_partition_calculation(
                 .source_column
                 .as_deref()
                 .ok_or(WindowCalculationError::MissingSourceColumn { kind: "lead" })?;
-            let source_values = read_string_partition(sorted, source_column, partition_start, partition_end)?;
+            let source_values =
+                read_string_partition(sorted, source_column, partition_start, partition_end)?;
             let offset = calculation.offset.unwrap_or(1);
             for (index, original_index) in original_indexes.iter().enumerate() {
                 values[*original_index] = source_values
@@ -393,18 +389,19 @@ fn apply_partition_calculation(
             }
         }
         WindowCalculationKind::RollingSum => {
-            let source_column = calculation
-                .source_column
-                .as_deref()
-                .ok_or(WindowCalculationError::MissingSourceColumn {
+            let source_column = calculation.source_column.as_deref().ok_or(
+                WindowCalculationError::MissingSourceColumn {
                     kind: "rolling_sum",
-                })?;
-            let window_size = calculation
-                .window_size
-                .ok_or(WindowCalculationError::MissingWindowSize {
-                    kind: "rolling_sum",
-                })?;
-            let numeric_values = read_numeric_partition(sorted, source_column, partition_start, partition_end)?;
+                },
+            )?;
+            let window_size =
+                calculation
+                    .window_size
+                    .ok_or(WindowCalculationError::MissingWindowSize {
+                        kind: "rolling_sum",
+                    })?;
+            let numeric_values =
+                read_numeric_partition(sorted, source_column, partition_start, partition_end)?;
             let prefix_sums = build_prefix_sums(&numeric_values);
             for (offset, original_index) in original_indexes.iter().enumerate() {
                 let window_start = (offset + 1).saturating_sub(window_size);
@@ -413,18 +410,19 @@ fn apply_partition_calculation(
             }
         }
         WindowCalculationKind::RollingMean => {
-            let source_column = calculation
-                .source_column
-                .as_deref()
-                .ok_or(WindowCalculationError::MissingSourceColumn {
+            let source_column = calculation.source_column.as_deref().ok_or(
+                WindowCalculationError::MissingSourceColumn {
                     kind: "rolling_mean",
-                })?;
-            let window_size = calculation
-                .window_size
-                .ok_or(WindowCalculationError::MissingWindowSize {
-                    kind: "rolling_mean",
-                })?;
-            let numeric_values = read_numeric_partition(sorted, source_column, partition_start, partition_end)?;
+                },
+            )?;
+            let window_size =
+                calculation
+                    .window_size
+                    .ok_or(WindowCalculationError::MissingWindowSize {
+                        kind: "rolling_mean",
+                    })?;
+            let numeric_values =
+                read_numeric_partition(sorted, source_column, partition_start, partition_end)?;
             let prefix_sums = build_prefix_sums(&numeric_values);
             for (offset, original_index) in original_indexes.iter().enumerate() {
                 let window_start = (offset + 1).saturating_sub(window_size);

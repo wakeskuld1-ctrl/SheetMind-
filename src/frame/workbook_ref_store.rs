@@ -1,4 +1,4 @@
-﻿use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
@@ -10,6 +10,7 @@ use thiserror::Error;
 use crate::frame::result_ref_store::{
     PersistedResultColumn, PersistedResultDataset, ResultRefStoreError,
 };
+use crate::runtime_paths::workspace_runtime_dir;
 
 pub struct WorkbookSheetInput {
     pub sheet_name: String,
@@ -293,7 +294,9 @@ fn validate_chart_specs(
     Ok(())
 }
 
-fn normalized_chart_series(chart: &PersistedWorkbookChartSpec) -> Vec<PersistedWorkbookChartSeriesSpec> {
+fn normalized_chart_series(
+    chart: &PersistedWorkbookChartSpec,
+) -> Vec<PersistedWorkbookChartSeriesSpec> {
     if !chart.series.is_empty() {
         return chart.series.clone();
     }
@@ -319,7 +322,10 @@ pub enum WorkbookRefStoreError {
     #[error("workbook 图表引用的 sheet 不存在: {0}")]
     MissingChartSheet(String),
     #[error("workbook 图表引用的列不存在: {sheet_name}.{column_name}")]
-    MissingChartColumn { sheet_name: String, column_name: String },
+    MissingChartColumn {
+        sheet_name: String,
+        column_name: String,
+    },
     #[error("无法为 workbook 草稿创建存储目录: {0}")]
     CreateStoreDir(String),
     #[error("无法保存 workbook_ref `{workbook_ref}`: {message}")]
@@ -349,13 +355,8 @@ impl WorkbookDraftStore {
     }
 
     pub fn workspace_default() -> Result<Self, WorkbookRefStoreError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|error| WorkbookRefStoreError::CreateStoreDir(error.to_string()))?;
-        Ok(Self::new(
-            current_dir
-                .join(".excel_skill_runtime")
-                .join("workbook_refs"),
-        ))
+        let runtime_dir = workspace_runtime_dir().map_err(WorkbookRefStoreError::CreateStoreDir)?;
+        Ok(Self::new(runtime_dir.join("workbook_refs")))
     }
 
     pub fn create_workbook_ref() -> String {
