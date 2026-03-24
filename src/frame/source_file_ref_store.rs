@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::frame::table_ref_store::SourceFingerprint;
+use crate::runtime_paths::workspace_runtime_dir;
 
 // 2026-03-23: 这里定义按序号暴露给后续流程复用的 Sheet 目录项，原因是入口链路可能不稳定传递中文 Sheet 名；目的是让后续 Tool 可以改走“第几个 Sheet”而不是重复依赖名称字符串。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,7 +56,10 @@ impl PersistedSourceFileRef {
     }
 
     // 2026-03-23: 这里按 Sheet 序号解析名称，原因是后续 Tool 将优先按“第几个 Sheet”继续；目的是在 Rust 进程内部再恢复真实 Sheet 名，避免外层重复传递中文字符串。
-    pub fn sheet_name_for_index(&self, sheet_index: usize) -> Result<String, SourceFileRefStoreError> {
+    pub fn sheet_name_for_index(
+        &self,
+        sheet_index: usize,
+    ) -> Result<String, SourceFileRefStoreError> {
         self.sheets
             .iter()
             .find(|sheet| sheet.sheet_index == sheet_index)
@@ -93,7 +97,10 @@ pub enum SourceFileRefStoreError {
     #[error("file_ref `{file_ref}` 对应的文件已变化，请重新打开文件后再继续")]
     StaleFileRef { file_ref: String },
     #[error("file_ref `{file_ref}` 中找不到第 {sheet_index} 个 Sheet")]
-    MissingSheetIndex { file_ref: String, sheet_index: usize },
+    MissingSheetIndex {
+        file_ref: String,
+        sheet_index: usize,
+    },
     #[error("无法读取 file_ref 源文件元数据: {0}")]
     ReadSourceMetadata(String),
 }
@@ -112,11 +119,9 @@ impl SourceFileRefStore {
 
     // 2026-03-23: 这里提供工作区默认目录，原因是真实 CLI 请求需要跨轮次复用 file_ref；目的是让打开文件后的上下文默认落盘到统一位置。
     pub fn workspace_default() -> Result<Self, SourceFileRefStoreError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|error| SourceFileRefStoreError::ResolveWorkingDirectory(error.to_string()))?;
-        Ok(Self::new(
-            current_dir.join(".excel_skill_runtime").join("file_refs"),
-        ))
+        let runtime_dir =
+            workspace_runtime_dir().map_err(SourceFileRefStoreError::ResolveWorkingDirectory)?;
+        Ok(Self::new(runtime_dir.join("file_refs")))
     }
 
     // 2026-03-23: 这里统一生成 file_ref，原因是需要与 table_ref/result_ref/workbook_ref 做明显区分；目的是让 dispatcher 能稳定识别“这是一个打开过的文件引用”。
@@ -167,7 +172,9 @@ impl SourceFileRefStore {
 }
 
 // 2026-03-23: 这里复用文件指纹逻辑，原因是 file_ref 也需要做源文件变更校验；目的是保证跨请求复用时不会静默读取到已被替换的文件。
-fn fingerprint_for_path(path: impl AsRef<Path>) -> Result<SourceFingerprint, SourceFileRefStoreError> {
+fn fingerprint_for_path(
+    path: impl AsRef<Path>,
+) -> Result<SourceFingerprint, SourceFileRefStoreError> {
     let metadata = fs::metadata(path.as_ref())
         .map_err(|error| SourceFileRefStoreError::ReadSourceMetadata(error.to_string()))?;
     let modified = metadata

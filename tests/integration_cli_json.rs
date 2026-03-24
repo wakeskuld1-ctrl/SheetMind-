@@ -11,11 +11,11 @@ use serde_json::json;
 use crate::common::{
     create_chinese_path_fixture, create_positioned_workbook, create_test_output_path,
     create_test_runtime_db, create_test_workbook, run_cli_with_bytes, run_cli_with_json,
-    run_cli_with_json_and_runtime,
+    run_cli_with_json_and_runtime, thread_result_ref_store,
 };
 
 fn create_datetime_result_ref_for_cli() -> String {
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let result_ref = ResultRefStore::create_result_ref();
     // 2026-03-23: 这里手工构造日期时间文本结果集，目的是让 CLI 测试直接覆盖 result_ref 输入链路。
     let dataframe = DataFrame::new(vec![
@@ -443,10 +443,7 @@ fn normalize_table_accepts_file_ref_and_sheet_index_without_sheet_name() {
     assert_eq!(output["status"], "ok");
     // 2026-03-23: 这里先锁定 normalize_table 能按“第几个 Sheet”继续，目的是让表头判断不再依赖再次传递 Sheet 名。
     assert_eq!(output["data"]["sheet"], "Sales");
-    assert_eq!(
-        output["data"]["columns"][0]["canonical_name"],
-        "user_id"
-    );
+    assert_eq!(output["data"]["columns"][0]["canonical_name"], "user_id");
 }
 
 #[test]
@@ -1113,7 +1110,10 @@ fn group_and_aggregate_updates_session_state_to_latest_result_ref() {
     });
     let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
     assert_eq!(confirm_output["status"], "ok");
-    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let group_request = json!({
         "tool": "group_and_aggregate",
@@ -1137,7 +1137,10 @@ fn group_and_aggregate_updates_session_state_to_latest_result_ref() {
     });
     let group_output = run_cli_with_json_and_runtime(&group_request.to_string(), &runtime_db);
     assert_eq!(group_output["status"], "ok");
-    let latest_result_ref = group_output["data"]["result_ref"].as_str().unwrap().to_string();
+    let latest_result_ref = group_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let get_request = json!({
         "tool": "get_session_state",
@@ -1167,7 +1170,10 @@ fn append_tables_updates_session_state_to_latest_result_ref() {
     });
     let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
     assert_eq!(confirm_output["status"], "ok");
-    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let append_request = json!({
         "tool": "append_tables",
@@ -1184,7 +1190,10 @@ fn append_tables_updates_session_state_to_latest_result_ref() {
     });
     let append_output = run_cli_with_json_and_runtime(&append_request.to_string(), &runtime_db);
     assert_eq!(append_output["status"], "ok");
-    let latest_result_ref = append_output["data"]["result_ref"].as_str().unwrap().to_string();
+    let latest_result_ref = append_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let get_request = json!({
         "tool": "get_session_state",
@@ -1214,7 +1223,10 @@ fn join_tables_updates_session_state_to_latest_result_ref() {
     });
     let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
     assert_eq!(confirm_output["status"], "ok");
-    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let join_request = json!({
         "tool": "join_tables",
@@ -1234,7 +1246,10 @@ fn join_tables_updates_session_state_to_latest_result_ref() {
     });
     let join_output = run_cli_with_json_and_runtime(&join_request.to_string(), &runtime_db);
     assert_eq!(join_output["status"], "ok");
-    let latest_result_ref = join_output["data"]["result_ref"].as_str().unwrap().to_string();
+    let latest_result_ref = join_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let get_request = json!({
         "tool": "get_session_state",
@@ -1314,7 +1329,10 @@ fn stat_summary_preserves_input_result_ref_and_stable_table_ref() {
     });
     let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
     assert_eq!(confirm_output["status"], "ok");
-    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let group_request = json!({
         "tool": "group_and_aggregate",
@@ -1338,7 +1356,10 @@ fn stat_summary_preserves_input_result_ref_and_stable_table_ref() {
     });
     let group_output = run_cli_with_json_and_runtime(&group_request.to_string(), &runtime_db);
     assert_eq!(group_output["status"], "ok");
-    let latest_result_ref = group_output["data"]["result_ref"].as_str().unwrap().to_string();
+    let latest_result_ref = group_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let stat_request = json!({
         "tool": "stat_summary",
@@ -1373,7 +1394,7 @@ fn stat_summary_preserves_input_result_ref_and_stable_table_ref() {
 
 #[test]
 fn stat_summary_accepts_result_ref_from_previous_step() {
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let result_ref = ResultRefStore::create_result_ref();
     // 2026-03-22: 这里先构造一个持久化中间结果，目的是锁定分析 Tool 可以直接复用上一步结果，而不必回退到 path+sheet。
     let dataframe = DataFrame::new(vec![
@@ -2263,7 +2284,7 @@ fn join_tables_accepts_casts_before_matching() {
 
 #[test]
 fn join_tables_aligns_integer_and_float_result_refs_without_manual_casts() {
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let left_result_ref = ResultRefStore::create_result_ref();
     let right_result_ref = ResultRefStore::create_result_ref();
     // 2026-03-23: 这里手工准备整数键 result_ref，目的是锁定 CLI 在多步链路里也能直接复用数值型中间结果做显性关联。
@@ -2709,7 +2730,7 @@ fn append_tables_returns_reusable_result_ref_for_follow_up_analysis() {
 
 #[test]
 fn export_csv_writes_result_ref_to_file() {
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let result_ref = ResultRefStore::create_result_ref();
     let output_path = create_test_output_path("export_csv", "csv");
     let dataframe = DataFrame::new(vec![
@@ -2745,7 +2766,7 @@ fn export_csv_writes_result_ref_to_file() {
 
 #[test]
 fn export_excel_writes_result_ref_to_workbook() {
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let result_ref = ResultRefStore::create_result_ref();
     let output_path = create_test_output_path("export_excel", "xlsx");
     let dataframe = DataFrame::new(vec![
@@ -2820,7 +2841,10 @@ fn compose_workbook_updates_session_state_to_workbook_ref() {
     });
     let confirm_output = run_cli_with_json_and_runtime(&confirm_request.to_string(), &runtime_db);
     assert_eq!(confirm_output["status"], "ok");
-    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let compose_request = json!({
         "tool": "compose_workbook",
@@ -2838,7 +2862,10 @@ fn compose_workbook_updates_session_state_to_workbook_ref() {
     });
     let compose_output = run_cli_with_json_and_runtime(&compose_request.to_string(), &runtime_db);
     assert_eq!(compose_output["status"], "ok");
-    let workbook_ref = compose_output["data"]["workbook_ref"].as_str().unwrap().to_string();
+    let workbook_ref = compose_output["data"]["workbook_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let get_request = json!({
         "tool": "get_session_state",
@@ -2988,7 +3015,7 @@ fn join_tables_accepts_nested_table_ref_and_result_ref_inputs() {
         .unwrap()
         .to_string();
 
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let right_result_ref = ResultRefStore::create_result_ref();
     // 2026-03-22: 这里先手工准备右侧 result_ref，目的是锁定 join_tables 能消费嵌套的中间结果句柄而不是只认 path+sheet。
     let right_dataframe = DataFrame::new(vec![
@@ -3044,7 +3071,7 @@ fn join_tables_accepts_nested_table_ref_and_result_ref_inputs() {
 
 #[test]
 fn append_tables_accepts_nested_result_ref_and_path_inputs() {
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let top_result_ref = ResultRefStore::create_result_ref();
     // 2026-03-22: 这里先手工准备上侧 result_ref，目的是锁定 append_tables 也能消费嵌套来源句柄。
     let top_dataframe = DataFrame::new(vec![
@@ -3152,7 +3179,7 @@ fn export_excel_accepts_path_and_sheet_directly() {
 
 #[test]
 fn export_csv_escapes_quotes_commas_and_newlines() {
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let result_ref = ResultRefStore::create_result_ref();
     let output_path = create_test_output_path("export_csv_escape", "csv");
     // 2026-03-22: 这里构造包含逗号、引号和换行的值，目的是先锁定 CSV 交付在真实业务文本下不会破坏格式。
@@ -4472,7 +4499,10 @@ fn fill_missing_from_lookup_accepts_composite_keys_in_cli() {
     });
     let confirm_output = run_cli_with_json(&confirm_request.to_string());
     assert_eq!(confirm_output["status"], "ok");
-    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let lookup_request = json!({
         "tool": "select_columns",
@@ -4484,7 +4514,10 @@ fn fill_missing_from_lookup_accepts_composite_keys_in_cli() {
     });
     let lookup_output = run_cli_with_json(&lookup_request.to_string());
     assert_eq!(lookup_output["status"], "ok");
-    let result_ref = lookup_output["data"]["result_ref"].as_str().unwrap().to_string();
+    let result_ref = lookup_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let fill_request = json!({
         "tool": "fill_missing_from_lookup",
@@ -4796,7 +4829,10 @@ fn lookup_values_accepts_composite_keys_in_cli() {
     });
     let confirm_output = run_cli_with_json(&confirm_request.to_string());
     assert_eq!(confirm_output["status"], "ok");
-    let table_ref = confirm_output["data"]["table_ref"].as_str().unwrap().to_string();
+    let table_ref = confirm_output["data"]["table_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let lookup_request = json!({
         "tool": "select_columns",
@@ -4808,7 +4844,10 @@ fn lookup_values_accepts_composite_keys_in_cli() {
     });
     let lookup_output = run_cli_with_json(&lookup_request.to_string());
     assert_eq!(lookup_output["status"], "ok");
-    let result_ref = lookup_output["data"]["result_ref"].as_str().unwrap().to_string();
+    let result_ref = lookup_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let request = json!({
         "tool": "lookup_values",
@@ -5000,7 +5039,7 @@ fn suggest_table_links_accepts_nested_table_ref_and_result_ref_inputs() {
         .unwrap()
         .to_string();
 
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let result_ref = ResultRefStore::create_result_ref();
     // 2026-03-23: 这里手工构造右侧 result_ref，目的是先锁定关系建议层也能直接消费中间结果句柄。
     let dataframe = DataFrame::new(vec![
@@ -5145,7 +5184,7 @@ fn suggest_table_workflow_preserves_nested_source_payloads_in_tool_call() {
         .unwrap()
         .to_string();
 
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let result_ref = ResultRefStore::create_result_ref();
     // 2026-03-23: 这里手工准备右侧 result_ref，目的是锁定工作流建议层返回的建议调用不会把句柄退化回 path+sheet。
     let dataframe = DataFrame::new(vec![
@@ -5386,7 +5425,7 @@ fn suggest_multi_table_plan_preserves_mixed_source_payloads() {
         .unwrap()
         .to_string();
 
-    let store = ResultRefStore::workspace_default().unwrap();
+    let store = thread_result_ref_store();
     let sales_result_ref = ResultRefStore::create_result_ref();
     // 2026-03-23: 这里手工准备 sales_a 的 result_ref，目的是锁定多表计划器会把原始来源类型一路保留到建议调用骨架。
     let sales_dataframe = DataFrame::new(vec![

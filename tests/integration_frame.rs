@@ -1397,7 +1397,6 @@ fn pivot_table_builds_mean_values_for_repeated_cells() {
     assert_eq!(preview.rows[0]["Feb"], "60");
 }
 
-
 #[test]
 fn parse_datetime_columns_normalizes_date_and_datetime_strings() {
     let loaded = LoadedTable {
@@ -2239,7 +2238,11 @@ fn derive_columns_supports_condition_groups_date_bucket_and_template() {
             ],
         ),
         dataframe: DataFrame::new(vec![
-            Series::new("customer_id".into(), vec![Some("C001"), Some("C002"), Some("C003")]).into(),
+            Series::new(
+                "customer_id".into(),
+                vec![Some("C001"), Some("C002"), Some("C003")],
+            )
+            .into(),
             Series::new("sales".into(), vec![120_i64, 95_i64, 60_i64]).into(),
             Series::new("visits".into(), vec![3_i64, 5_i64, 1_i64]).into(),
             Series::new(
@@ -2247,7 +2250,11 @@ fn derive_columns_supports_condition_groups_date_bucket_and_template() {
                 vec![Some("2026-01-15"), Some("2026-04-10"), Some("2026-08-01")],
             )
             .into(),
-            Series::new("region".into(), vec![Some("East"), Some("West"), Some("North")]).into(),
+            Series::new(
+                "region".into(),
+                vec![Some("East"), Some("West"), Some("North")],
+            )
+            .into(),
         ])
         .unwrap(),
     };
@@ -2617,8 +2624,14 @@ fn join_tables_aligns_integer_and_float_keys_without_manual_casts() {
         .unwrap(),
     };
 
-    let joined = join_tables(&left, &right, "user_id", "user_id", JoinKeepMode::MatchedOnly)
-        .unwrap();
+    let joined = join_tables(
+        &left,
+        &right,
+        "user_id",
+        "user_id",
+        JoinKeepMode::MatchedOnly,
+    )
+    .unwrap();
     let preview = preview_table(&joined.dataframe, joined.dataframe.height()).unwrap();
 
     // 2026-03-23: 这里锁定整数键与浮点键会按同一数值语义匹配，目的是减少显性关联前还要额外 casts 的负担。

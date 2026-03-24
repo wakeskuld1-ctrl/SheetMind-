@@ -1,4 +1,4 @@
-﻿use excel_skill::domain::handles::TableHandle;
+use excel_skill::domain::handles::TableHandle;
 use excel_skill::domain::schema::{SchemaState, infer_schema_state_label};
 use excel_skill::frame::registry::TableRegistry;
 use excel_skill::frame::result_ref_store::{PersistedResultDataset, ResultRefStore};
@@ -79,7 +79,7 @@ fn stored_region_table_ref_round_trips_and_reloads_same_region() {
     std::fs::create_dir_all(&store_dir).unwrap();
     let store = TableRefStore::new(store_dir);
 
-    let _record = PersistedTableRef::new_for_test(
+    let record = PersistedTableRef::new_for_test(
         "table_region_roundtrip",
         "tests/runtime_fixtures/generated_workbooks/region_seed_placeholder.xlsx",
         "Report",
@@ -94,6 +94,7 @@ fn stored_region_table_ref_round_trips_and_reloads_same_region() {
     );
 
     // 2026-03-22: 杩欓噷鍏堥攣瀹?region table_ref 鐨?JSON 缁撴瀯浼氬甫涓婃樉寮忓尯鍩燂紝鐩殑鏄负灞€閮ㄥ尯鍩熺‘璁ゆ€佽法璇锋眰澶嶇敤鎵撳簳銆?    store.save(&record).unwrap();
+    store.save(&record).unwrap();
     let loaded = store.load("table_region_roundtrip").unwrap();
     assert_eq!(loaded.region.as_deref(), Some("B3:D5"));
 }
@@ -238,11 +239,18 @@ fn stored_result_dataset_round_trips_dense_nulls_and_all_null_columns() {
     .unwrap();
 
     store.save(&record).unwrap();
-    let restored = store.load("result_dense_nulls").unwrap().to_dataframe().unwrap();
+    let restored = store
+        .load("result_dense_nulls")
+        .unwrap()
+        .to_dataframe()
+        .unwrap();
 
     assert_eq!(restored.height(), 3);
     assert_eq!(restored.width(), 4);
-    assert_eq!(restored.column("score").unwrap().i64().unwrap().get(1), None);
+    assert_eq!(
+        restored.column("score").unwrap().i64().unwrap().get(1),
+        None
+    );
     assert_eq!(restored.column("note").unwrap().null_count(), 3);
     assert_eq!(restored.column("tag").unwrap().str().unwrap().get(1), None);
 }
@@ -272,7 +280,11 @@ fn stored_result_dataset_preserves_non_finite_float_values() {
     .unwrap();
 
     store.save(&record).unwrap();
-    let restored = store.load("result_non_finite").unwrap().to_dataframe().unwrap();
+    let restored = store
+        .load("result_non_finite")
+        .unwrap()
+        .to_dataframe()
+        .unwrap();
     let values = restored.column("score").unwrap().f64().unwrap();
 
     assert!(values.get(0).unwrap().is_nan());
@@ -315,7 +327,10 @@ fn stored_result_dataset_round_trips_date_and_datetime_columns() {
         .to_dataframe()
         .unwrap();
 
-    assert_eq!(restored.column("biz_date").unwrap().dtype(), &DataType::Date);
+    assert_eq!(
+        restored.column("biz_date").unwrap().dtype(),
+        &DataType::Date
+    );
     assert_eq!(
         restored.column("created_at").unwrap().dtype(),
         &DataType::Datetime(TimeUnit::Milliseconds, None)

@@ -160,7 +160,10 @@ pub fn pivot_table(
 
     let dataframe =
         DataFrame::new(frame_columns).map_err(|error| PivotError::BuildFrame(error.to_string()))?;
-    let mut output_columns = rows.iter().map(|item| (*item).to_string()).collect::<Vec<_>>();
+    let mut output_columns = rows
+        .iter()
+        .map(|item| (*item).to_string())
+        .collect::<Vec<_>>();
     output_columns.extend(pivot_headers.iter().cloned());
     let handle = TableHandle::new_confirmed(
         loaded.handle.source_path(),

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::domain::schema::{ConfidenceLevel, HeaderColumn, HeaderInference, SchemaState};
+use crate::runtime_paths::workspace_runtime_dir;
 
 // 2026-03-22: 这里定义源文件指纹，目的是在复用 table_ref 前先校验 Excel 是否已变化，避免旧确认态误用到新文件。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -167,11 +168,9 @@ impl TableRefStore {
 
     // 2026-03-22: 这里提供工作区默认目录，目的是让真实 CLI 请求能在同一工作目录下跨请求复用 table_ref。
     pub fn workspace_default() -> Result<Self, TableRefStoreError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|error| TableRefStoreError::ResolveWorkingDirectory(error.to_string()))?;
-        Ok(Self::new(
-            current_dir.join(".excel_skill_runtime").join("table_refs"),
-        ))
+        let runtime_dir =
+            workspace_runtime_dir().map_err(TableRefStoreError::ResolveWorkingDirectory)?;
+        Ok(Self::new(runtime_dir.join("table_refs")))
     }
 
     // 2026-03-22: 这里持久化 table_ref 记录，目的是让确认态真正落盘，而不是只停留在进程内存里。

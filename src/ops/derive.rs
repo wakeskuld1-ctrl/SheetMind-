@@ -227,7 +227,9 @@ pub fn derive_columns(
                         match current {
                             Some(current) => buckets
                                 .iter()
-                                .find(|bucket| date_bucket_matches(bucket, current).unwrap_or(false))
+                                .find(|bucket| {
+                                    date_bucket_matches(bucket, current).unwrap_or(false)
+                                })
                                 .map(|bucket| bucket.label.clone())
                                 .unwrap_or_else(|| else_value.clone()),
                             None => else_value.clone(),
@@ -276,7 +278,9 @@ fn evaluate_predicate(
     predicate: &DerivePredicate,
 ) -> Result<bool, DeriveError> {
     match predicate {
-        DerivePredicate::Condition(condition) => evaluate_condition(dataframe, row_index, condition),
+        DerivePredicate::Condition(condition) => {
+            evaluate_condition(dataframe, row_index, condition)
+        }
         DerivePredicate::Group(group) => match group.mode {
             LogicalMode::All => group
                 .conditions

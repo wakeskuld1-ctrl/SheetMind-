@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::frame::table_ref_store::PersistedTableRef;
+use crate::runtime_paths::workspace_runtime_dir;
 
 // 2026-03-22: 这里定义会话阶段枚举，目的是把 orchestrator 三层路由状态收口成稳定的本地持久值。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -191,11 +192,9 @@ impl LocalMemoryRuntime {
             return Ok(Self::new(PathBuf::from(path)));
         }
 
-        let current_dir = std::env::current_dir()
-            .map_err(|error| LocalMemoryError::ResolveWorkingDirectory(error.to_string()))?;
-        Ok(Self::new(
-            current_dir.join(".excel_skill_runtime").join("runtime.db"),
-        ))
+        let runtime_dir =
+            workspace_runtime_dir().map_err(LocalMemoryError::ResolveWorkingDirectory)?;
+        Ok(Self::new(runtime_dir.join("runtime.db")))
     }
 
     // 2026-03-22: 这里读取会话状态，目的是让 orchestrator 能在每轮开始时拿到真实本地摘要而不是依赖大模型记忆。
@@ -508,26 +507,50 @@ impl LocalMemoryRuntime {
             .filter_map(Result::ok)
             .collect::<Vec<_>>();
 
-        if !columns.iter().any(|column_name| column_name == "current_file_ref") {
+        if !columns
+            .iter()
+            .any(|column_name| column_name == "current_file_ref")
+        {
             connection
-                .execute("ALTER TABLE session_state ADD COLUMN current_file_ref TEXT", [])
+                .execute(
+                    "ALTER TABLE session_state ADD COLUMN current_file_ref TEXT",
+                    [],
+                )
                 .map_err(|error| LocalMemoryError::BootstrapSchema(error.to_string()))?;
         }
-        if !columns.iter().any(|column_name| column_name == "current_sheet_index") {
+        if !columns
+            .iter()
+            .any(|column_name| column_name == "current_sheet_index")
+        {
             connection
-                .execute("ALTER TABLE session_state ADD COLUMN current_sheet_index INTEGER", [])
+                .execute(
+                    "ALTER TABLE session_state ADD COLUMN current_sheet_index INTEGER",
+                    [],
+                )
                 .map_err(|error| LocalMemoryError::BootstrapSchema(error.to_string()))?;
         }
-        if !columns.iter().any(|column_name| column_name == "active_handle_ref") {
+        if !columns
+            .iter()
+            .any(|column_name| column_name == "active_handle_ref")
+        {
             // 2026-03-23: 这里兼容旧 runtime 库补充 active_handle_ref 列，原因是历史库只保存 active_table_ref；目的是在不清库的前提下给多步链式闭环增加“最新激活句柄”维度。
             connection
-                .execute("ALTER TABLE session_state ADD COLUMN active_handle_ref TEXT", [])
+                .execute(
+                    "ALTER TABLE session_state ADD COLUMN active_handle_ref TEXT",
+                    [],
+                )
                 .map_err(|error| LocalMemoryError::BootstrapSchema(error.to_string()))?;
         }
-        if !columns.iter().any(|column_name| column_name == "active_handle_kind") {
+        if !columns
+            .iter()
+            .any(|column_name| column_name == "active_handle_kind")
+        {
             // 2026-03-23: 这里兼容旧 runtime 库补充 active_handle_kind 列，原因是上层要区分 table/result/workbook 三类句柄；目的是避免老库升级后状态摘要仍依赖前缀猜测。
             connection
-                .execute("ALTER TABLE session_state ADD COLUMN active_handle_kind TEXT", [])
+                .execute(
+                    "ALTER TABLE session_state ADD COLUMN active_handle_kind TEXT",
+                    [],
+                )
                 .map_err(|error| LocalMemoryError::BootstrapSchema(error.to_string()))?;
         }
 

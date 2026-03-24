@@ -1,4 +1,4 @@
-﻿use std::fs;
+use std::fs;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
@@ -6,6 +6,8 @@ use polars::prelude::{DataFrame, DataType, NamedFrom, PolarsError, Series, TimeU
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
+
+use crate::runtime_paths::workspace_runtime_dir;
 
 // 2026-03-22: 这里定义结果集持久化的稳定物理列类型，目的是先把跨请求复用真正需要的基础数值/文本类型收口下来。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,7 +129,11 @@ impl PersistedResultColumn {
                     .i32()
                     .map_err(|error| ResultRefStoreError::SerializeResult(error.to_string()))?
                     .into_iter()
-                    .map(|value| value.map(|days| Value::from(i64::from(days))).unwrap_or(Value::Null))
+                    .map(|value| {
+                        value
+                            .map(|days| Value::from(i64::from(days)))
+                            .unwrap_or(Value::Null)
+                    })
                     .collect(),
                 logical_type: Some(PersistedLogicalType::Date),
             });
@@ -304,11 +310,8 @@ impl ResultRefStore {
 
     // 2026-03-22: 这里提供默认落盘目录，目的是让 dispatcher 和 Tool 统一复用同一套结果集存储位置。
     pub fn workspace_default() -> Result<Self, ResultRefStoreError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|error| ResultRefStoreError::CreateStoreDir(error.to_string()))?;
-        Ok(Self::new(
-            current_dir.join(".excel_skill_runtime").join("result_refs"),
-        ))
+        let runtime_dir = workspace_runtime_dir().map_err(ResultRefStoreError::CreateStoreDir)?;
+        Ok(Self::new(runtime_dir.join("result_refs")))
     }
 
     // 2026-03-22: 这里统一生成 result_ref，目的是把中间结果命名规则和 table_ref 区分开，便于调试与展示。

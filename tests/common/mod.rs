@@ -1,14 +1,56 @@
 use assert_cmd::Command;
+use excel_skill::frame::result_ref_store::ResultRefStore;
 use rust_xlsxwriter::Workbook;
 use serde_json::Value;
+use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
+use std::thread_local;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+thread_local! {
+    static THREAD_RUNTIME_DB: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+fn thread_runtime_db() -> PathBuf {
+    THREAD_RUNTIME_DB.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        if let Some(path) = slot.as_ref() {
+            return path.clone();
+        }
+
+        let unique_suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let runtime_dir = PathBuf::from("tests")
+            .join("runtime_fixtures")
+            .join("thread_local_memory")
+            .join(format!(
+                "thread_{:?}_{unique_suffix}",
+                std::thread::current().id()
+            ));
+        fs::create_dir_all(&runtime_dir).unwrap();
+        let db_path = runtime_dir.join("runtime.db");
+        *slot = Some(db_path.clone());
+        db_path
+    })
+}
+
+#[allow(dead_code)]
+pub fn thread_result_ref_store() -> ResultRefStore {
+    let runtime_root = thread_runtime_db()
+        .parent()
+        .expect("thread runtime db should always have a parent directory")
+        .to_path_buf();
+    ResultRefStore::new(runtime_root.join("result_refs"))
+}
 
 // 2026-03-21: ?????? CLI ????????????? Tool ????????????? JSON ????????
 #[allow(dead_code)]
 pub fn run_cli_with_json(input: &str) -> Value {
     let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    cmd.env("EXCEL_SKILL_RUNTIME_DB", thread_runtime_db());
     let assert = cmd.write_stdin(input).assert().success();
     let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
     serde_json::from_str(&output).unwrap()
@@ -18,6 +60,7 @@ pub fn run_cli_with_json(input: &str) -> Value {
 #[allow(dead_code)]
 pub fn run_cli_with_bytes(input: Vec<u8>) -> Value {
     let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    cmd.env("EXCEL_SKILL_RUNTIME_DB", thread_runtime_db());
     let assert = cmd.write_stdin(input).assert().success();
     let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
     serde_json::from_str(&output).unwrap()
@@ -34,6 +77,7 @@ pub fn run_cli_with_json_and_runtime(input: &str, runtime_db_path: &PathBuf) -> 
 }
 
 // 2026-03-22: ?????????????????????? Windows ??????????????????????
+#[allow(dead_code)]
 pub fn create_chinese_path_fixture(file_name: &str) -> PathBuf {
     let base_dir = PathBuf::from("tests")
         .join("runtime_fixtures")

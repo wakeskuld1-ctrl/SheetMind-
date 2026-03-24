@@ -191,7 +191,8 @@ fn build_lookup_index(
     let key_column_name = lookup_keys.join(" + ");
 
     for row_index in 0..lookup.dataframe.height() {
-        let Some(key) = read_composite_key(&lookup.dataframe, lookup_keys, row_index, "lookup")? else {
+        let Some(key) = read_composite_key(&lookup.dataframe, lookup_keys, row_index, "lookup")?
+        else {
             continue;
         };
         if index.contains_key(&key) {

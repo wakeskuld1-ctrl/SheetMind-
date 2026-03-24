@@ -211,6 +211,8 @@ fn write_excel_cell(
             worksheet.write_string(row, col, value.as_ref())?;
             Ok(())
         }
-        Err(error) => Err(rust_xlsxwriter::XlsxError::ParameterError(error.to_string())),
+        Err(error) => Err(rust_xlsxwriter::XlsxError::ParameterError(
+            error.to_string(),
+        )),
     }
 }

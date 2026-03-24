@@ -9,6 +9,7 @@ use thiserror::Error;
 use crate::frame::result_ref_store::{
     PersistedResultColumn, PersistedResultDataset, ResultRefStoreError,
 };
+use crate::runtime_paths::workspace_runtime_dir;
 
 // 2026-03-22: 这里定义 workbook 草稿输入 sheet，目的是把 dispatcher 组装好的多表快照统一压成可持久化结构前的最小中间形态。
 pub struct WorkbookSheetInput {
@@ -149,13 +150,8 @@ impl WorkbookDraftStore {
 
     // 2026-03-22: 这里提供默认 workbook 草稿目录，目的是让 compose/export 两个 Tool 共享稳定的落盘位置。
     pub fn workspace_default() -> Result<Self, WorkbookRefStoreError> {
-        let current_dir = std::env::current_dir()
-            .map_err(|error| WorkbookRefStoreError::CreateStoreDir(error.to_string()))?;
-        Ok(Self::new(
-            current_dir
-                .join(".excel_skill_runtime")
-                .join("workbook_refs"),
-        ))
+        let runtime_dir = workspace_runtime_dir().map_err(WorkbookRefStoreError::CreateStoreDir)?;
+        Ok(Self::new(runtime_dir.join("workbook_refs")))
     }
 
     // 2026-03-22: 这里统一生成 workbook_ref，目的是把多 Sheet 草稿和单表 result_ref 做清晰区分。
