@@ -83,7 +83,7 @@ fn stored_region_table_ref_round_trips_and_reloads_same_region() {
     std::fs::create_dir_all(&store_dir).unwrap();
     let store = TableRefStore::new(store_dir);
 
-    let _record = PersistedTableRef::new_for_test(
+    let record = PersistedTableRef::new_for_test(
         "table_region_roundtrip",
         "tests/runtime_fixtures/generated_workbooks/region_seed_placeholder.xlsx",
         "Report",
@@ -98,6 +98,7 @@ fn stored_region_table_ref_round_trips_and_reloads_same_region() {
     );
 
     // 2026-03-22: 杩欓噷鍏堥攣瀹?region table_ref 鐨?JSON 缁撴瀯浼氬甫涓婃樉寮忓尯鍩燂紝鐩殑鏄负灞€閮ㄥ尯鍩熺‘璁ゆ€佽法璇锋眰澶嶇敤鎵撳簳銆?    store.save(&record).unwrap();
+    store.save(&record).unwrap();
     let loaded = store.load("table_region_roundtrip").unwrap();
     assert_eq!(loaded.region.as_deref(), Some("B3:D5"));
 }
