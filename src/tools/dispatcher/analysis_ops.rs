@@ -2,11 +2,16 @@ use serde_json::{Value, json};
 
 use crate::ops::analyze::analyze_table;
 use crate::ops::cluster_kmeans::cluster_kmeans;
+use crate::ops::correlation_analysis::correlation_analysis;
 use crate::ops::decision_assistant::decision_assistant;
+use crate::ops::distribution_analysis::distribution_analysis;
 use crate::ops::linear_regression::linear_regression;
 use crate::ops::logistic_regression::logistic_regression;
+use crate::ops::outlier_detection::{OutlierDetectionMethod, outlier_detection};
+use crate::ops::preview::preview_table;
 use crate::ops::stat_summary::stat_summary;
 use crate::ops::summary::summarize_table;
+use crate::ops::trend_analysis::trend_analysis;
 use crate::runtime::local_memory::SessionStage;
 use crate::tools::contracts::ToolResponse;
 use crate::tools::session;
@@ -121,6 +126,175 @@ pub(super) fn dispatch_stat_summary(args: Value) -> ToolResponse {
                     Err(error) => ToolResponse::error(error.to_string()),
                 }
             }
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+pub(super) fn dispatch_correlation_analysis(args: Value) -> ToolResponse {
+    let Some(target_column) = args.get("target_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("invalid request parameters");
+    };
+    let feature_columns = string_array(&args, "feature_columns");
+    let casts = match parse_casts(&args, "casts", "correlation_analysis") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match sources::load_table_for_analysis(&args, "correlation_analysis") {
+        Ok(sources::OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(sources::OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => {
+                match correlation_analysis(&prepared_loaded, target_column, &feature_columns) {
+                    Ok(result) => {
+                        if let Err(response) = session::sync_loaded_table_state(
+                            &args,
+                            &prepared_loaded,
+                            SessionStage::AnalysisModeling,
+                            "analysis completed",
+                            "correlation_analysis",
+                            "analysis_completed",
+                        ) {
+                            return response;
+                        }
+                        ToolResponse::ok(json!(result))
+                    }
+                    Err(error) => ToolResponse::error(error.to_string()),
+                }
+            }
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+pub(super) fn dispatch_outlier_detection(args: Value) -> ToolResponse {
+    let columns = string_array(&args, "columns");
+    let method = match args.get("method") {
+        Some(value) => match serde_json::from_value::<OutlierDetectionMethod>(value.clone()) {
+            Ok(method) => method,
+            Err(error) => {
+                return ToolResponse::error(format!("request parsing failed: {error}"));
+            }
+        },
+        None => OutlierDetectionMethod::Iqr,
+    };
+    let casts = match parse_casts(&args, "casts", "outlier_detection") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match sources::load_table_for_analysis(&args, "outlier_detection") {
+        Ok(sources::OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(sources::OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match outlier_detection(&prepared_loaded, &columns, method) {
+                Ok((flagged_loaded, result)) => {
+                    if let Err(response) = session::sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "analysis completed",
+                        "outlier_detection",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    let preview = preview_table(&flagged_loaded.dataframe, 20);
+                    let columns = preview
+                        .as_ref()
+                        .map(|item| item.columns.clone())
+                        .unwrap_or_default();
+                    let rows = preview.map(|item| item.rows).unwrap_or_default();
+                    crate::tools::results::respond_with_result_dataset(
+                        "outlier_detection",
+                        &args,
+                        &flagged_loaded,
+                        json!({
+                            "method": result.method,
+                            "row_count": result.row_count,
+                            "outlier_summaries": result.outlier_summaries,
+                            "human_summary": result.human_summary,
+                            "columns": columns,
+                            "rows": rows
+                        }),
+                    )
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+pub(super) fn dispatch_distribution_analysis(args: Value) -> ToolResponse {
+    let Some(column) = args.get("column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("invalid request parameters");
+    };
+    let bins = args.get("bins").and_then(|value| value.as_u64()).unwrap_or(10) as usize;
+    let casts = match parse_casts(&args, "casts", "distribution_analysis") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match sources::load_table_for_analysis(&args, "distribution_analysis") {
+        Ok(sources::OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(sources::OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match distribution_analysis(&prepared_loaded, column, bins) {
+                Ok(result) => {
+                    if let Err(response) = session::sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "analysis completed",
+                        "distribution_analysis",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    ToolResponse::ok(json!(result))
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+pub(super) fn dispatch_trend_analysis(args: Value) -> ToolResponse {
+    let Some(time_column) = args.get("time_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("invalid request parameters");
+    };
+    let Some(value_column) = args.get("value_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("invalid request parameters");
+    };
+    let casts = match parse_casts(&args, "casts", "trend_analysis") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match sources::load_table_for_analysis(&args, "trend_analysis") {
+        Ok(sources::OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(sources::OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match trend_analysis(&prepared_loaded, time_column, value_column)
+            {
+                Ok(result) => {
+                    if let Err(response) = session::sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "analysis completed",
+                        "trend_analysis",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    ToolResponse::ok(json!(result))
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
             Err(error) => ToolResponse::error(error),
         },
         Err(response) => response,

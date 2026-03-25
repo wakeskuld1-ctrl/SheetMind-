@@ -46,7 +46,8 @@ pub(super) fn dispatch_open_workbook(args: Value) -> ToolResponse {
 
 pub(super) fn dispatch_list_sheets(args: Value) -> ToolResponse {
     let Some(path) = args.get("path").and_then(|value| value.as_str()) else {
-        return ToolResponse::error("invalid request parameters");
+        // 2026-03-25: 模块化切流后保持与旧 dispatcher 完全一致的参数缺失报错，避免 CLI 回归测试和上层 Skill 文案判断失配。
+        return ToolResponse::error("list_sheets 缺少 path 参数");
     };
 
     match list_sheets(path) {
@@ -77,7 +78,8 @@ pub(super) fn dispatch_load_table_region(args: Value) -> ToolResponse {
         Err(response) => return response,
     };
     let Some(region) = args.get("range").and_then(|value| value.as_str()) else {
-        return ToolResponse::error("invalid request parameters");
+        // 2026-03-25: 保留历史稳定报错文案，目的为维持旧链路兼容并锁住 UTF-8 中文断言。
+        return ToolResponse::error("load_table_region 缺少 range 参数");
     };
     let header_row_count = args
         .get("header_row_count")

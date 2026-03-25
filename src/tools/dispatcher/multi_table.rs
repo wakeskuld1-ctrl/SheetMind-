@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::frame::loader::LoadedTable;
 use crate::frame::workbook_ref_store::{
-    PersistedWorkbookDraft, WorkbookDraftStore, WorkbookSheetInput,
+    PersistedWorkbookDraft, PersistedWorkbookSheetKind, WorkbookDraftStore, WorkbookSheetInput,
 };
 use crate::ops::append::append_tables;
 use crate::ops::join::{JoinKeepMode, join_tables};
@@ -64,6 +64,11 @@ pub(super) fn dispatch_compose_workbook(args: Value) -> ToolResponse {
             sheet_name: worksheet_arg.sheet_name,
             source_refs: sources::source_refs_from_nested_source(&worksheet_arg.source),
             dataframe: loaded.dataframe,
+            sheet_kind: PersistedWorkbookSheetKind::DataSheet,
+            export_options: None,
+            title: None,
+            subtitle: None,
+            data_start_row: 0,
         });
     }
 
