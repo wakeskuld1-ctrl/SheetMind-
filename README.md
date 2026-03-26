@@ -220,6 +220,7 @@ The current acceptance evidence shows that V1 can already:
 - provide deterministic state-sync/resume templates for unknown-failure recovery replay
 - support both blocked-step replay and full-chain resume templates after diagnostics
 - auto-provide full-chain continuation template once blocked-step replay succeeds
+- provide one-call recovery macro (`recover_multi_table_failure`) for replay + continuation
 
 ## Quick Start / 快速开始
 

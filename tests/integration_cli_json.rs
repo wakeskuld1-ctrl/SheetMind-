@@ -7132,6 +7132,22 @@ fn tool_catalog_includes_execute_multi_table_plan() {
 }
 
 #[test]
+fn tool_catalog_includes_recover_multi_table_failure() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "recover_multi_table_failure")
+    );
+}
+
+#[test]
 fn suggest_multi_table_plan_builds_append_chain_in_cli() {
     let request = json!({
         "tool": "suggest_multi_table_plan",
@@ -8027,6 +8043,144 @@ fn execute_multi_table_plan_missing_tool_call_returns_unknown_failure_diagnostic
         json!({})
     );
     assert_eq!(output["data"]["failure_diagnostics"]["state_synced"], true);
+}
+
+#[test]
+fn recover_multi_table_failure_runs_replay_then_full_chain() {
+    let plan_request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+    let plan_output = run_cli_with_json(&plan_request.to_string());
+    assert_eq!(plan_output["status"], "ok");
+
+    let recovery_templates = json!({
+        "update_session_state": {
+            "tool": "update_session_state",
+            "args": {
+                "session_id": "default",
+                "current_stage": "table_processing",
+                "last_user_goal": "recover failed multi-table chain"
+            }
+        },
+        "resume_execution": {
+            "tool": "execute_multi_table_plan",
+            "args": {
+                "session_id": "default",
+                "plan": plan_output["data"],
+                "auto_confirm_join": true,
+                "stop_after_step_id": "step_1",
+                "result_ref_bindings": {}
+            }
+        },
+        "resume_full_chain": {
+            "tool": "execute_multi_table_plan",
+            "args": {
+                "session_id": "default",
+                "plan": plan_output["data"],
+                "auto_confirm_join": true,
+                "result_ref_bindings": {}
+            }
+        }
+    });
+    let recover_request = json!({
+        "tool": "recover_multi_table_failure",
+        "args": {
+            "failure_diagnostics": {
+                "state_synced": true,
+                "default_template": "resume_execution",
+                "recovery_templates": recovery_templates
+            },
+            "continue_after_replay": true
+        }
+    });
+
+    let output = run_cli_with_json(&recover_request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["macro_status"], "completed");
+    assert_eq!(
+        output["data"]["replay"]["data"]["execution_status"],
+        "stopped_after_step_id"
+    );
+    assert_eq!(
+        output["data"]["continue"]["data"]["execution_status"],
+        "completed"
+    );
+    assert_eq!(output["data"]["final_execution_status"], "completed");
+}
+
+#[test]
+fn recover_multi_table_failure_uses_runtime_continuation_template() {
+    let plan_request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+    let plan_output = run_cli_with_json(&plan_request.to_string());
+    assert_eq!(plan_output["status"], "ok");
+
+    let recovery_templates = json!({
+        "resume_execution": {
+            "tool": "execute_multi_table_plan",
+            "args": {
+                "session_id": "default",
+                "plan": plan_output["data"],
+                "auto_confirm_join": true,
+                "stop_after_step_id": "step_1",
+                "result_ref_bindings": {}
+            }
+        }
+    });
+    let recover_request = json!({
+        "tool": "recover_multi_table_failure",
+        "args": {
+            "failure_diagnostics": {
+                "state_synced": true,
+                "default_template": "resume_execution",
+                "recovery_templates": recovery_templates
+            },
+            "continue_after_replay": true
+        }
+    });
+
+    let output = run_cli_with_json(&recover_request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["macro_status"], "completed");
+    assert_eq!(
+        output["data"]["continue"]["data"]["execution_status"],
+        "completed"
+    );
+    assert_eq!(
+        output["data"]["continue_template_source"]["tool"],
+        "execute_multi_table_plan"
+    );
 }
 
 #[test]

@@ -2,17 +2,22 @@
   "generated_at": "2026-03-26T23:40:00+08:00",
   "scope": "P2 unknown failure observability hardening",
   "evidence": [
+    "step_00_tool_catalog_recover_macro.log",
     "step_01_unknown_failure_diagnostics.log",
     "step_02_missing_tool_call_diagnostics.log",
     "step_03_controlled_stop_missing_bindings.log",
     "step_04_controlled_stop_join_risk.log",
     "step_05_controlled_stop_preflight_confirmation.log",
-    "step_06_continuation_template_after_replay.log"
+    "step_06_continuation_template_after_replay.log",
+    "step_07_recover_macro_full_chain.log",
+    "step_08_recover_macro_runtime_template.log"
   ],
   "notes": [
+    "Step 00 validates recover_multi_table_failure visibility in tool catalog.",
     "Steps 01-02 validate structured failure_diagnostics payload on unknown failure branches.",
     "Unknown-failure payload includes deterministic recovery_templates (resume_execution/resume_full_chain) and session-state writeback.",
     "Step 06 verifies stopped_after_step_id path now emits continuation_templates.resume_full_chain.",
+    "Steps 07-08 validate one-call recovery macro flow with full-chain continuation.",
     "Steps 03-05 verify controlled-stop branches remain stable after diagnostics payload changes."
   ]
 }

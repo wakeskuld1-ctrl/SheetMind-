@@ -377,5 +377,6 @@ Then table-processing should:
 4. Prefer `failure_diagnostics.recovery_templates` to resume execution from the blocked step or full chain.
 5. If blocked-step replay returns `continuation_templates`, use `continuation_templates.resume_full_chain` for direct continuation.
 6. Keep default route as diagnostics-first in table-processing, then retry after inputs are fixed.
+7. If you want runtime to orchestrate replay + continuation automatically, call `recover_multi_table_failure`.
 
 Do not route this branch directly into analysis-modeling or decision-assistant.

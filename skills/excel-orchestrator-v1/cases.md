@@ -86,3 +86,4 @@
   - `failure_diagnostics.recovery_templates.resume_execution` for blocked-step replay, or
   - `failure_diagnostics.recovery_templates.resume_full_chain` for full continuation.
 - If replay returns `continuation_templates`, prefer `continuation_templates.resume_full_chain` as the immediate next call.
+- If user asks for one-call recovery, use `recover_multi_table_failure` with `failure_diagnostics`.

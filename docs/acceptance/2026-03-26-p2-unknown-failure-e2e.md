@@ -52,6 +52,18 @@ Observed:
 - `stopped_needs_preflight_confirmation` still works and is unchanged
 - replay-stop branch (`stopped_after_step_id`) now returns continuation template for full-chain continuation
 
+## Scenario C: one-call recovery macro flow
+
+Evidence:
+- `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure/step_00_tool_catalog_recover_macro.log`
+- `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure/step_07_recover_macro_full_chain.log`
+- `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure/step_08_recover_macro_runtime_template.log`
+
+Observed:
+- `recover_multi_table_failure` is visible in tool catalog.
+- Macro can run blocked-step replay and then continue full chain in one call.
+- Macro can consume runtime-provided continuation template directly.
+
 ## Acceptance conclusion
 
 P2 unknown-failure observability slice is complete:

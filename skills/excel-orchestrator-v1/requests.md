@@ -318,3 +318,20 @@ When replay call (`stop_after_step_id=<blocked_step>`) succeeds, runtime returns
   }
 }
 ```
+
+### Single-call macro recovery template
+
+```json
+{
+  "tool": "recover_multi_table_failure",
+  "args": {
+    "failure_diagnostics": {},
+    "continue_after_replay": true
+  }
+}
+```
+
+Use this when you want runtime to execute:
+1) blocked-step replay, then
+2) full-chain continuation,
+in one call.

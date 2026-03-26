@@ -111,6 +111,8 @@ impl ToolResponse {
                 "execute_suggested_tool_call",
                 // 2026-03-26: 这里暴露多表计划一键执行入口，目的是让上层可以按计划顺序自动执行并沉淀结果映射。
                 "execute_multi_table_plan",
+                // 2026-03-26: 这里暴露失败恢复宏入口，目的是让上层按模板完成“状态同步->阻塞步重放->全链继续”。
+                "recover_multi_table_failure",
                 "append_tables",
                 "summarize_table",
                 "analyze_table",

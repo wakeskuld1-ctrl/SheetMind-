@@ -10,6 +10,7 @@ Upgrade `execute_multi_table_plan` unknown-failure branch from plain error text 
 - Integration tests (`tests/integration_cli_json.rs`)
 - Skill routing templates (`skills/excel-orchestrator-v1/*`, `skills/table-processing-v1/*`)
 - Acceptance evidence (`docs/acceptance/*`)
+- Recovery macro tool (`recover_multi_table_failure`)
 
 ## Problem
 
@@ -41,6 +42,7 @@ When unknown failure is hit, runtime now emits:
 3. Unknown-failure branch writes session stage/user-goal back to table-processing context.
 4. Existing controlled-stop branches (`stopped_needs_preflight_confirmation`, `stopped_missing_result_bindings`, `stopped_join_risk_threshold`) are unchanged.
 5. Skill-layer templates include this new branch and deterministic recovery-template usage.
+6. One-call macro path can execute replay + continuation without manual template stitching.
 
 ## Exit Criteria
 

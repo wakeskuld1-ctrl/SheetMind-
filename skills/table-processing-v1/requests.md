@@ -503,3 +503,17 @@ Interpretation rule:
   - `recovery_templates.resume_execution` for blocked-step replay, or
   - `recovery_templates.resume_full_chain` for full continuation.
 - If replay returns `continuation_templates.default_template = resume_full_chain`, execute that template directly.
+
+### D) one-call macro recovery
+
+```json
+{
+  "tool": "recover_multi_table_failure",
+  "args": {
+    "failure_diagnostics": {},
+    "continue_after_replay": true
+  }
+}
+```
+
+This macro performs blocked-step replay first, then continues full chain when replay succeeds.

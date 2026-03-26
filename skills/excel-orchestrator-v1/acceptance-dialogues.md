@@ -269,6 +269,7 @@ Route: `table-processing-v1`.
 - Distinguishes unknown failure vs controlled stop statuses.
 - Mentions `failure_diagnostics` fields in plain language.
 - Keeps diagnostics-first route before rerun.
+- Supports one-call recovery path via `recover_multi_table_failure`.
 
 ### Fail criteria
 

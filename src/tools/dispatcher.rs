@@ -119,6 +119,7 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "suggest_multi_table_plan" => dispatch_suggest_multi_table_plan(args),
         "execute_suggested_tool_call" => dispatch_execute_suggested_tool_call(args),
         "execute_multi_table_plan" => dispatch_execute_multi_table_plan(args),
+        "recover_multi_table_failure" => dispatch_recover_multi_table_failure(args),
         "append_tables" => dispatch_append_tables(args),
         "summarize_table" => dispatch_summarize_table(args),
         "analyze_table" => dispatch_analyze_table(args),
@@ -133,6 +134,151 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "decision_assistant" => dispatch_decision_assistant(args),
         _ => ToolResponse::error(format!("不支持的 tool: {}", tool)),
     }
+}
+
+fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
+    let failure_diagnostics = args
+        .get("failure_diagnostics")
+        .and_then(Value::as_object)
+        .cloned();
+    let recovery_templates = args
+        .get("recovery_templates")
+        .or_else(|| {
+            args.get("failure_diagnostics")
+                .and_then(|payload| payload.get("recovery_templates"))
+        })
+        .cloned()
+        .unwrap_or(Value::Null);
+    let Some(recovery_templates) = recovery_templates.as_object() else {
+        return ToolResponse::error("recover_multi_table_failure 缺少 recovery_templates 对象参数");
+    };
+
+    let continue_after_replay = args
+        .get("continue_after_replay")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let state_synced = failure_diagnostics
+        .as_ref()
+        .and_then(|payload| payload.get("state_synced"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let mut state_sync_response: Option<ToolResponse> = None;
+    if !state_synced {
+        if let Some(template) = recovery_templates.get("update_session_state") {
+            let request =
+                match tool_request_from_recovery_template(template, "update_session_state") {
+                    Ok(request) => request,
+                    Err(error) => return error,
+                };
+            state_sync_response = Some(dispatch(request));
+        }
+    }
+
+    let replay_template_name = failure_diagnostics
+        .as_ref()
+        .and_then(|payload| payload.get("default_template"))
+        .and_then(Value::as_str)
+        .unwrap_or("resume_execution");
+    let replay_template = recovery_templates
+        .get(replay_template_name)
+        .or_else(|| recovery_templates.get("resume_execution"));
+    let Some(replay_template) = replay_template else {
+        return ToolResponse::error("recover_multi_table_failure 缺少 resume_execution 恢复模板");
+    };
+    let replay_request =
+        match tool_request_from_recovery_template(replay_template, replay_template_name) {
+            Ok(request) => request,
+            Err(error) => return error,
+        };
+    let replay_response = dispatch(replay_request);
+
+    let mut continue_response: Option<ToolResponse> = None;
+    let mut continue_template_source = Value::Null;
+    if continue_after_replay && replay_response.status == "ok" {
+        let runtime_template = replay_response
+            .data
+            .get("continuation_templates")
+            .and_then(|payload| payload.get("resume_full_chain"))
+            .cloned();
+        let fallback_template = recovery_templates.get("resume_full_chain").cloned();
+        if let Some(template) = runtime_template.or(fallback_template) {
+            let request = match tool_request_from_recovery_template(&template, "resume_full_chain")
+            {
+                Ok(request) => request,
+                Err(error) => return error,
+            };
+            continue_template_source = template;
+            continue_response = Some(dispatch(request));
+        }
+    }
+
+    let macro_status = if replay_response.status != "ok" {
+        "replay_failed"
+    } else if continue_after_replay
+        && continue_response
+            .as_ref()
+            .map(|response| response.status != "ok")
+            .unwrap_or(false)
+    {
+        "continue_failed"
+    } else {
+        "completed"
+    };
+    let final_execution_status = continue_response
+        .as_ref()
+        .and_then(|response| response.data.get("execution_status"))
+        .cloned()
+        .or_else(|| replay_response.data.get("execution_status").cloned());
+
+    ToolResponse::ok(json!({
+        "macro_status": macro_status,
+        "continue_after_replay": continue_after_replay,
+        "replay_template": replay_template_name,
+        "state_sync": state_sync_response.as_ref().map(tool_response_to_json),
+        "replay": tool_response_to_json(&replay_response),
+        "continue": continue_response.as_ref().map(tool_response_to_json),
+        "continue_template_source": continue_template_source,
+        "final_execution_status": final_execution_status,
+    }))
+}
+
+fn tool_request_from_recovery_template(
+    template: &Value,
+    template_name: &str,
+) -> Result<ToolRequest, ToolResponse> {
+    let Some(template) = template.as_object() else {
+        return Err(ToolResponse::error(format!(
+            "recover_multi_table_failure 的 `{}` 模板必须是对象",
+            template_name
+        )));
+    };
+    let Some(tool_name) = template.get("tool").and_then(Value::as_str) else {
+        return Err(ToolResponse::error(format!(
+            "recover_multi_table_failure 的 `{}` 模板缺少 tool 字段",
+            template_name
+        )));
+    };
+    if tool_name.trim().is_empty() {
+        return Err(ToolResponse::error(format!(
+            "recover_multi_table_failure 的 `{}` 模板 tool 不能为空",
+            template_name
+        )));
+    }
+    let template_args = template.get("args").cloned().unwrap_or_else(|| json!({}));
+
+    Ok(ToolRequest {
+        tool: tool_name.to_string(),
+        args: template_args,
+    })
+}
+
+fn tool_response_to_json(response: &ToolResponse) -> Value {
+    json!({
+        "status": response.status,
+        "data": response.data,
+        "error": response.error,
+    })
 }
 
 fn resolve_result_ref_bindings(args: Value) -> Value {

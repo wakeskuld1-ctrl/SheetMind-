@@ -3,9 +3,12 @@
 ## Required commands
 
 ```powershell
+cargo test tool_catalog_includes_recover_multi_table_failure -- --exact
 cargo test execute_multi_table_plan_failed_step_returns_unknown_failure_diagnostics -- --exact
 cargo test execute_multi_table_plan_missing_tool_call_returns_unknown_failure_diagnostics -- --exact
 cargo test execute_multi_table_plan_stops_after_target_step_id -- --exact
+cargo test recover_multi_table_failure_runs_replay_then_full_chain -- --exact
+cargo test recover_multi_table_failure_uses_runtime_continuation_template -- --exact
 cargo test execute_multi_table_plan_stops_when_result_bindings_are_missing -- --exact
 cargo test execute_multi_table_plan_stops_when_join_risk_threshold_exceeded -- --exact
 cargo test execute_multi_table_plan_stops_before_join_without_auto_confirm -- --exact
@@ -23,6 +26,7 @@ cargo test execute_multi_table_plan_stops_before_join_without_auto_confirm -- --
   - `failure_diagnostics.recovery_templates.resume_full_chain`
   - `failure_diagnostics.state_synced = true`
 - `stopped_after_step_id` replay path must include `continuation_templates.resume_full_chain`
+- Recovery macro tests must end with `macro_status = completed` and `final_execution_status = completed`
 - Controlled-stop tests must still expose original stop statuses without behavior drift.
 
 ## Evidence
