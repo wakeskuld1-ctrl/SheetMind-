@@ -2173,6 +2173,10 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
         .get("auto_confirm_join")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    let dry_run = args
+        .get("dry_run")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
     let plan_payload = match resolve_multi_table_plan_for_execution(&args) {
         Ok(payload) => payload,
@@ -2285,6 +2289,26 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
             break;
         };
 
+        if dry_run {
+            let simulated_result_ref = if step_result_ref_alias.is_empty() {
+                None
+            } else {
+                Some(format!("dry_run::{}", step_result_ref_alias))
+            };
+            if let Some(result_ref) = simulated_result_ref.clone() {
+                latest_result_ref = Some(result_ref.clone());
+                bindings.insert(step_result_ref_alias, result_ref);
+            }
+            executed_steps.push(json!({
+                "step_id": step_id,
+                "action": action,
+                "status": "dry_run",
+                "tool_call": suggested_tool_call,
+                "simulated_output_result_ref": simulated_result_ref,
+            }));
+            continue;
+        }
+
         let mut exec_args = json!({
             "tool_call": suggested_tool_call,
             "result_ref_bindings": bindings,
@@ -2332,6 +2356,7 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
 
     ToolResponse::ok(json!({
         "execution_status": execution_status,
+        "dry_run": dry_run,
         "stop_reason": stop_reason,
         "stopped_at_step_id": stopped_at_step_id,
         "auto_confirm_join": auto_confirm_join,

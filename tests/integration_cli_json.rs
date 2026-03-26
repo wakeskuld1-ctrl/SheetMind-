@@ -7655,6 +7655,88 @@ fn execute_multi_table_plan_runs_join_chain_with_auto_confirm() {
 }
 
 #[test]
+fn execute_multi_table_plan_dry_run_builds_simulated_bindings() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3,
+            "auto_confirm_join": true,
+            "dry_run": true
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "completed");
+    assert_eq!(output["data"]["dry_run"], true);
+    assert_eq!(output["data"]["executed_steps"][0]["status"], "dry_run");
+    assert_eq!(output["data"]["executed_steps"][1]["status"], "dry_run");
+    assert_eq!(output["data"]["executed_steps"][2]["status"], "dry_run");
+    assert!(
+        output["data"]["result_ref_bindings"]["step_1_result"]
+            .as_str()
+            .unwrap()
+            .starts_with("dry_run::")
+    );
+    assert!(
+        output["data"]["result_ref_bindings"]["step_3_result"]
+            .as_str()
+            .unwrap()
+            .starts_with("dry_run::")
+    );
+}
+
+#[test]
+fn execute_multi_table_plan_dry_run_still_honors_preflight_gate() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3,
+            "dry_run": true
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["execution_status"],
+        "stopped_needs_preflight_confirmation"
+    );
+    assert_eq!(output["data"]["dry_run"], true);
+    assert_eq!(output["data"]["executed_steps"][0]["status"], "dry_run");
+    assert_eq!(output["data"]["executed_steps"][1]["status"], "skipped");
+}
+
+#[test]
 fn execute_multi_table_plan_accepts_explicit_plan_payload() {
     let plan_request = json!({
         "tool": "suggest_multi_table_plan",
