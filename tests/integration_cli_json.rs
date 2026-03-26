@@ -7655,6 +7655,69 @@ fn execute_multi_table_plan_runs_join_chain_with_auto_confirm() {
 }
 
 #[test]
+fn execute_multi_table_plan_accepts_explicit_plan_payload() {
+    let plan_request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+    let plan_output = run_cli_with_json(&plan_request.to_string());
+    assert_eq!(plan_output["status"], "ok");
+
+    let execute_request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "plan": plan_output["data"],
+            "auto_confirm_join": true
+        }
+    });
+    let output = run_cli_with_json(&execute_request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "completed");
+    assert_eq!(output["data"]["executed_steps"][0]["action"], "append_tables");
+    assert_eq!(output["data"]["executed_steps"][1]["action"], "join_preflight");
+    assert_eq!(output["data"]["executed_steps"][2]["action"], "join_tables");
+}
+
+#[test]
+fn execute_multi_table_plan_rejects_invalid_plan_payload() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "plan": {
+                "human_summary": "missing steps"
+            }
+        }
+    });
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "error");
+    assert!(
+        output["error"]
+            .as_str()
+            .unwrap()
+            .contains("plan.steps")
+    );
+}
+
+#[test]
 fn open_workbook_missing_path_returns_utf8_error_message() {
     let request = json!({
         "tool": "open_workbook",

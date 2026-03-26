@@ -2068,6 +2068,28 @@ fn build_multi_table_plan_payload(args: &Value) -> Result<Value, ToolResponse> {
     Ok(payload)
 }
 
+fn resolve_multi_table_plan_for_execution(args: &Value) -> Result<Value, ToolResponse> {
+    if let Some(plan) = args.get("plan").cloned() {
+        let Some(plan_object) = plan.as_object() else {
+            return Err(ToolResponse::error(
+                "execute_multi_table_plan `plan` must be an object",
+            ));
+        };
+        if plan_object
+            .get("steps")
+            .and_then(Value::as_array)
+            .is_none()
+        {
+            return Err(ToolResponse::error(
+                "execute_multi_table_plan `plan.steps` must be an array",
+            ));
+        }
+        return Ok(plan);
+    }
+
+    build_multi_table_plan_payload(args)
+}
+
 fn dispatch_execute_suggested_tool_call(args: Value) -> ToolResponse {
     let Some(tool_call_value) = args.get("tool_call").cloned() else {
         return ToolResponse::error("execute_suggested_tool_call 缺少 tool_call 参数");
@@ -2152,7 +2174,7 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
 
-    let plan_payload = match build_multi_table_plan_payload(&args) {
+    let plan_payload = match resolve_multi_table_plan_for_execution(&args) {
         Ok(payload) => payload,
         Err(response) => return response,
     };
