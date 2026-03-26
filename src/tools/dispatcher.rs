@@ -113,6 +113,7 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "suggest_table_links" => dispatch_suggest_table_links(args),
         "suggest_table_workflow" => dispatch_suggest_table_workflow(args),
         "suggest_multi_table_plan" => dispatch_suggest_multi_table_plan(args),
+        "execute_suggested_tool_call" => dispatch_execute_suggested_tool_call(args),
         "append_tables" => dispatch_append_tables(args),
         "summarize_table" => dispatch_summarize_table(args),
         "analyze_table" => dispatch_analyze_table(args),
@@ -2060,6 +2061,86 @@ fn dispatch_suggest_multi_table_plan(args: Value) -> ToolResponse {
         }
         Err(error) => ToolResponse::error(error.to_string()),
     }
+}
+
+fn dispatch_execute_suggested_tool_call(args: Value) -> ToolResponse {
+    let Some(tool_call_value) = args.get("tool_call").cloned() else {
+        return ToolResponse::error("execute_suggested_tool_call 缺少 tool_call 参数");
+    };
+    let mut tool_call = match serde_json::from_value::<ToolRequest>(tool_call_value) {
+        Ok(request) => request,
+        Err(error) => {
+            return ToolResponse::error(format!(
+                "execute_suggested_tool_call 的 tool_call 参数解析失败: {error}"
+            ));
+        }
+    };
+    if tool_call.tool.trim().is_empty() {
+        return ToolResponse::error("execute_suggested_tool_call 的 tool_call.tool 不能为空");
+    }
+    if tool_call.tool == "execute_suggested_tool_call" {
+        return ToolResponse::error(
+            "execute_suggested_tool_call 不支持递归调用自身，请改为传入具体 tool",
+        );
+    }
+
+    if let Some(overrides) = args.get("arg_overrides").cloned() {
+        let Some(overrides_object) = overrides.as_object() else {
+            return ToolResponse::error(
+                "execute_suggested_tool_call 的 arg_overrides 必须是对象",
+            );
+        };
+        match &mut tool_call.args {
+            Value::Null => {
+                tool_call.args = Value::Object(overrides_object.clone());
+            }
+            Value::Object(call_args) => {
+                for (key, value) in overrides_object {
+                    call_args.insert(key.clone(), value.clone());
+                }
+            }
+            _ => {
+                return ToolResponse::error(
+                    "execute_suggested_tool_call 的 tool_call.args 必须是对象",
+                );
+            }
+        }
+    }
+
+    if let Some(bindings) = args.get("result_ref_bindings").cloned() {
+        let Some(bindings_object) = bindings.as_object() else {
+            return ToolResponse::error(
+                "execute_suggested_tool_call 的 result_ref_bindings 必须是对象",
+            );
+        };
+        match &mut tool_call.args {
+            Value::Null => {
+                tool_call.args = json!({
+                    "result_ref_bindings": bindings_object
+                });
+            }
+            Value::Object(call_args) => {
+                let entry = call_args
+                    .entry("result_ref_bindings".to_string())
+                    .or_insert_with(|| json!({}));
+                let Some(call_bindings) = entry.as_object_mut() else {
+                    return ToolResponse::error(
+                        "execute_suggested_tool_call 的 tool_call.args.result_ref_bindings 必须是对象",
+                    );
+                };
+                for (key, value) in bindings_object {
+                    call_bindings.insert(key.clone(), value.clone());
+                }
+            }
+            _ => {
+                return ToolResponse::error(
+                    "execute_suggested_tool_call 的 tool_call.args 必须是对象",
+                );
+            }
+        }
+    }
+
+    dispatch(tool_call)
 }
 
 fn dispatch_append_tables(args: Value) -> ToolResponse {

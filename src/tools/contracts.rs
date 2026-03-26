@@ -107,6 +107,8 @@ impl ToolResponse {
                 "suggest_table_workflow",
                 // 2026-03-22: 这里暴露多表顺序建议入口，目的是让 Skill 能先拿到多张表的处理步骤计划。
                 "suggest_multi_table_plan",
+                // 2026-03-26: 这里暴露建议调用执行入口，目的是让上层直接执行 suggested_tool_call，并按需注入 result_ref 绑定。
+                "execute_suggested_tool_call",
                 "append_tables",
                 "summarize_table",
                 "analyze_table",

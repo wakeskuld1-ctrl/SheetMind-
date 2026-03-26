@@ -7100,6 +7100,22 @@ fn tool_catalog_includes_suggest_multi_table_plan() {
 }
 
 #[test]
+fn tool_catalog_includes_execute_suggested_tool_call() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "execute_suggested_tool_call")
+    );
+}
+
+#[test]
 fn suggest_multi_table_plan_builds_append_chain_in_cli() {
     let request = json!({
         "tool": "suggest_multi_table_plan",
@@ -7457,6 +7473,74 @@ fn suggest_multi_table_plan_preserves_mixed_source_payloads() {
         output["data"]["steps"][2]["suggested_tool_call"]["args"]["right"]["result_ref"],
         "step_1_result"
     );
+}
+
+#[test]
+fn execute_suggested_tool_call_can_run_plan_step_with_result_ref_bindings() {
+    let plan_request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+    let plan_output = run_cli_with_json(&plan_request.to_string());
+    assert_eq!(plan_output["status"], "ok");
+
+    let append_exec_request = json!({
+        "tool": "execute_suggested_tool_call",
+        "args": {
+            "tool_call": plan_output["data"]["steps"][0]["suggested_tool_call"]
+        }
+    });
+    let append_output = run_cli_with_json(&append_exec_request.to_string());
+    assert_eq!(append_output["status"], "ok");
+    let append_result_ref = append_output["data"]["result_ref"].as_str().unwrap().to_string();
+
+    let preflight_exec_request = json!({
+        "tool": "execute_suggested_tool_call",
+        "args": {
+            "tool_call": plan_output["data"]["steps"][1]["suggested_tool_call"],
+            "result_ref_bindings": {
+                "step_1_result": append_result_ref
+            },
+            "arg_overrides": {
+                "confirm_join": true
+            }
+        }
+    });
+    let preflight_output = run_cli_with_json(&preflight_exec_request.to_string());
+    assert_eq!(preflight_output["status"], "ok");
+    assert_eq!(
+        preflight_output["data"]["confirmed_join_tool_call"]["tool"],
+        "join_tables"
+    );
+
+    let join_exec_request = json!({
+        "tool": "execute_suggested_tool_call",
+        "args": {
+            "tool_call": preflight_output["data"]["confirmed_join_tool_call"]
+        }
+    });
+    let join_output = run_cli_with_json(&join_exec_request.to_string());
+    assert_eq!(join_output["status"], "ok");
+    assert!(join_output["data"]["row_count"].as_u64().unwrap() > 0);
 }
 
 #[test]
