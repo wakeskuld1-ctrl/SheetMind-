@@ -456,3 +456,25 @@ Only after user agrees to loosen thresholds:
 ```
 
 If user does not approve threshold change, route to key cleanup first.
+
+### C) recover from `execution_status=failed` with `failure_diagnostics`
+
+If runtime returns unknown failure diagnostics, do diagnostics-first routing before retry:
+
+```json
+{
+  "tool": "execute_multi_table_plan",
+  "args": {
+    "plan": {"steps": []},
+    "auto_confirm_join": true,
+    "result_ref_bindings": {
+      "step_1_result": "result_xxx"
+    },
+    "stop_after_step_id": "step_1"
+  }
+}
+```
+
+Interpretation rule:
+- `failure_diagnostics.fallback_route = table_processing_diagnostics` means do not jump directly to analysis/modeling.
+- First restore missing inputs/step args in table-processing flow, then rerun from blocked step.

@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-03-26T23:40:00+08:00",
+  "scope": "P2 unknown failure observability hardening",
+  "evidence": [
+    "step_01_unknown_failure_diagnostics.log",
+    "step_02_missing_tool_call_diagnostics.log",
+    "step_03_controlled_stop_missing_bindings.log",
+    "step_04_controlled_stop_join_risk.log",
+    "step_05_controlled_stop_preflight_confirmation.log"
+  ],
+  "notes": [
+    "Steps 01-02 validate structured failure_diagnostics payload on unknown failure branches.",
+    "Steps 03-05 verify controlled-stop branches remain stable after diagnostics payload changes."
+  ]
+}

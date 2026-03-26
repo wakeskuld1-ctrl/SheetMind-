@@ -302,3 +302,18 @@ Use this matrix before any cross-layer routing decision.
 - Default route: `table-processing-v1` diagnostics path unless user explicitly asks to stop.
 
 Routing order is strict: A -> B -> C -> D. Only after all four checks may orchestrator conclude unreadable/cannot-continue.
+
+## 2026-03-26 P2 unknown failure diagnostics payload
+
+When `execute_multi_table_plan` returns `execution_status = "failed"`, orchestrator should check `failure_diagnostics` first.
+
+Required fields:
+- `failure_diagnostics.failure_class = "unknown_runtime_failure"`
+- `failure_diagnostics.fallback_route = "table_processing_diagnostics"`
+- `failure_diagnostics.fallback_message` for deterministic user-safe wording
+- `failure_diagnostics.failed_step_id` / `failed_action` for blocked location
+- `failure_diagnostics.raw_error` for internal troubleshooting context
+
+Routing rule:
+- default route remains `table-processing-v1`;
+- do not route to analysis-modeling or decision-assistant directly from this branch.

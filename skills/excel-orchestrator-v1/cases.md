@@ -75,3 +75,11 @@
 - Target layer: `table-processing-v1`.
 - Routing reason: this is a dependency-replay issue; chain context must be restored before continuing blocked step.
 - Recovery expectation: complete missing bindings or replay from required prior step, then rerun execution.
+
+## Scenario 10: multi-table execution failed with unknown failure diagnostics
+
+- User says: continue and fix whatever blocked this run.
+- Current status: runtime returned `execution_status=failed` with `failure_diagnostics.failure_class=unknown_runtime_failure`.
+- Target layer: `table-processing-v1`.
+- Routing reason: fallback route is `table_processing_diagnostics`; blocked step and tool are known but failure is unclassified.
+- Recovery expectation: diagnose/fix blocked step inputs in table-processing first, then rerun from blocked step.

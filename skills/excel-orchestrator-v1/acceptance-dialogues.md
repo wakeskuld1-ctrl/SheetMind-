@@ -248,3 +248,30 @@ Route: `table-processing-v1`.
 - Treats missing bindings as unknown crash.
 - Attempts blind rerun without rebuilding bindings.
 - Skips explanation of what is missing.
+
+---
+
+## Scenario 9: failed execution with unknown failure diagnostics
+
+### User
+
+Continue execution and fix the blocked step.
+
+### Expected Skill reply
+
+Current understanding: execution failed in an unclassified runtime/tool branch, not a controlled preflight stop.
+Current status: `failure_diagnostics` points to `failed_step_id`/`failed_action`, and fallback route is `table_processing_diagnostics`.
+Next action: I will route to table-processing diagnostics first, fix the blocked step inputs, then rerun from the blocked step.
+Route: `table-processing-v1`.
+
+### Pass criteria
+
+- Distinguishes unknown failure vs controlled stop statuses.
+- Mentions `failure_diagnostics` fields in plain language.
+- Keeps diagnostics-first route before rerun.
+
+### Fail criteria
+
+- Routes directly to analysis/modeling.
+- Treats unknown failure as completed result.
+- Tries blind rerun without diagnostics.

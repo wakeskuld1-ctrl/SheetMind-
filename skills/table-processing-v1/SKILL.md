@@ -363,3 +363,16 @@ Before any table computation request, apply this recovery order:
   - Ask explicit user confirmation before proceeding.
 
 This recovery branch is host/workflow preparation, not a new Excel computation primitive.
+
+## 2026-03-26 P2 unknown failure diagnostics handling
+
+If `execute_multi_table_plan` returns:
+- `execution_status = "failed"`
+- `failure_diagnostics.failure_class = "unknown_runtime_failure"`
+
+Then table-processing should:
+1. Explain this is an unclassified runtime/tool failure, not a completed plan result.
+2. Use `failure_diagnostics.failed_step_id` and `failed_action` to localize the blocked step.
+3. Keep default route as diagnostics-first in table-processing, then retry from the blocked step after inputs are fixed.
+
+Do not route this branch directly into analysis-modeling or decision-assistant.

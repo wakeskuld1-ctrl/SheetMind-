@@ -7865,6 +7865,101 @@ fn execute_multi_table_plan_stops_when_result_bindings_are_missing() {
 }
 
 #[test]
+fn execute_multi_table_plan_failed_step_returns_unknown_failure_diagnostics() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "plan": {
+                "steps": [
+                    {
+                        "step_id": "step_1",
+                        "action": "join_tables",
+                        "suggested_tool_call": {
+                            "tool": "join_tables",
+                            "args": {}
+                        }
+                    }
+                ]
+            }
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "failed");
+    assert_eq!(output["data"]["stopped_at_step_id"], "step_1");
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["failure_class"],
+        "unknown_runtime_failure"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["fallback_route"],
+        "table_processing_diagnostics"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["failed_step_id"],
+        "step_1"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["failed_action"],
+        "join_tables"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["failed_tool"],
+        "join_tables"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["raw_error"],
+        output["data"]["stop_reason"]
+    );
+    assert!(
+        output["data"]["failure_diagnostics"]["fallback_message"]
+            .as_str()
+            .unwrap()
+            .contains("table-processing diagnostics")
+    );
+}
+
+#[test]
+fn execute_multi_table_plan_missing_tool_call_returns_unknown_failure_diagnostics() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "plan": {
+                "steps": [
+                    {
+                        "step_id": "step_1",
+                        "action": "join_tables"
+                    }
+                ]
+            }
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "failed");
+    assert_eq!(output["data"]["stopped_at_step_id"], "step_1");
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["failure_class"],
+        "unknown_runtime_failure"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["failed_step_id"],
+        "step_1"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["failed_action"],
+        "join_tables"
+    );
+    assert!(output["data"]["failure_diagnostics"]["failed_tool"].is_null());
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["raw_error"],
+        output["data"]["stop_reason"]
+    );
+}
+
+#[test]
 fn execute_multi_table_plan_accepts_explicit_plan_payload() {
     let plan_request = json!({
         "tool": "suggest_multi_table_plan",

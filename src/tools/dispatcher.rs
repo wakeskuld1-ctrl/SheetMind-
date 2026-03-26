@@ -69,6 +69,10 @@ use crate::runtime::local_memory::{
 };
 use crate::tools::contracts::{ToolRequest, ToolResponse};
 
+const MULTI_TABLE_UNKNOWN_FAILURE_CLASS: &str = "unknown_runtime_failure";
+const MULTI_TABLE_UNKNOWN_FAILURE_ROUTE: &str = "table_processing_diagnostics";
+const MULTI_TABLE_UNKNOWN_FAILURE_MESSAGE: &str = "Execution encountered an unclassified runtime/tool failure. Route to table-processing diagnostics before retry.";
+
 pub fn dispatch(request: ToolRequest) -> ToolResponse {
     let ToolRequest { tool, args } = request;
     let args = resolve_result_ref_bindings(args);
@@ -2248,6 +2252,7 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
     let mut stop_reason: Option<String> = None;
     let mut stopped_at_step_id: Option<String> = None;
     let mut latest_result_ref: Option<String> = None;
+    let mut failure_diagnostics: Option<Value> = None;
 
     for step in steps {
         let step_id = step
@@ -2341,6 +2346,12 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
             execution_status = "failed".to_string();
             stop_reason = Some(format!("step `{}` missing suggested_tool_call", step_id));
             stopped_at_step_id = Some(step_id.clone());
+            failure_diagnostics = Some(build_multi_table_unknown_failure_diagnostics(
+                &step_id,
+                &action,
+                None,
+                stop_reason.as_deref(),
+            ));
             executed_steps.push(json!({
                 "step_id": step_id,
                 "action": action,
@@ -2394,6 +2405,12 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
             execution_status = "failed".to_string();
             stop_reason = response.error.clone();
             stopped_at_step_id = Some(step_id.clone());
+            failure_diagnostics = Some(build_multi_table_unknown_failure_diagnostics(
+                &step_id,
+                &action,
+                Some(&suggested_tool_call),
+                stop_reason.as_deref(),
+            ));
             executed_steps.push(json!({
                 "step_id": step_id,
                 "action": action,
@@ -2466,8 +2483,28 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
         "executed_steps": executed_steps,
         "result_ref_bindings": bindings,
         "latest_result_ref": latest_result_ref,
+        "failure_diagnostics": failure_diagnostics,
         "plan": plan_payload,
     }))
+}
+
+fn build_multi_table_unknown_failure_diagnostics(
+    step_id: &str,
+    action: &str,
+    suggested_tool_call: Option<&Value>,
+    raw_error: Option<&str>,
+) -> Value {
+    json!({
+        "failure_class": MULTI_TABLE_UNKNOWN_FAILURE_CLASS,
+        "fallback_route": MULTI_TABLE_UNKNOWN_FAILURE_ROUTE,
+        "fallback_message": MULTI_TABLE_UNKNOWN_FAILURE_MESSAGE,
+        "failed_step_id": step_id,
+        "failed_action": action,
+        "failed_tool": suggested_tool_call
+            .and_then(|tool_call| tool_call.get("tool"))
+            .and_then(Value::as_str),
+        "raw_error": raw_error,
+    })
 }
 
 #[derive(Debug, Clone, Copy, Default)]

@@ -205,6 +205,9 @@ This repository already includes real-file acceptance writeups and artifacts.
 - P1 ingress recovery E2E record: `docs/acceptance/2026-03-26-p1-ingress-recovery-e2e.md`
 - P1 ingress recovery regression gates: `docs/acceptance/2026-03-26-p1-ingress-recovery-regression-gates.md`
 - P1 ingress recovery artifacts: `docs/acceptance/artifacts/2026-03-26-p1-ingress-recovery`
+- P2 unknown failure observability E2E: `docs/acceptance/2026-03-26-p2-unknown-failure-e2e.md`
+- P2 unknown failure regression gates: `docs/acceptance/2026-03-26-p2-unknown-failure-regression-gates.md`
+- P2 unknown failure artifacts: `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure`
 
 The current acceptance evidence shows that V1 can already:
 
@@ -213,6 +216,7 @@ The current acceptance evidence shows that V1 can already:
 - continue analysis by `table_ref`
 - continue decision guidance by `table_ref`
 - recover ingress/runtime stops with deterministic A/B/C/D routing and unified UX wording
+- expose deterministic `failure_diagnostics` for unknown runtime/tool failure routing
 
 ## Quick Start / 快速开始
 

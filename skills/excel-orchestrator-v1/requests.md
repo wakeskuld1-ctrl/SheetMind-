@@ -237,3 +237,30 @@
   }
 }
 ```
+
+## 2026-03-26 cross-layer template: failed with unknown failure diagnostics
+
+### Trigger payload (from runtime)
+
+```json
+{
+  "execution_status": "failed",
+  "stopped_at_step_id": "step_1",
+  "stop_reason": "join_tables 缺少 left 参数",
+  "failure_diagnostics": {
+    "failure_class": "unknown_runtime_failure",
+    "fallback_route": "table_processing_diagnostics",
+    "fallback_message": "Execution encountered an unclassified runtime/tool failure. Route to table-processing diagnostics before retry.",
+    "failed_step_id": "step_1",
+    "failed_action": "join_tables",
+    "failed_tool": "join_tables",
+    "raw_error": "join_tables 缺少 left 参数"
+  }
+}
+```
+
+### Orchestrator response template
+
+- Current understanding: execution failed in an unclassified runtime/tool branch rather than a controlled preflight gate.
+- Current status: fallback route is `table_processing_diagnostics`; blocked step/action is provided in `failure_diagnostics`.
+- Next action: route to table-processing diagnostics first, then decide retry from blocked step or rebuild plan chain.
