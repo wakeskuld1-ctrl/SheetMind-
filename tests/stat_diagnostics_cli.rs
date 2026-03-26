@@ -107,6 +107,95 @@ fn create_trend_result_ref_for_cli() -> String {
     result_ref
 }
 
+fn create_forecast_result_ref_for_cli() -> String {
+    let store = thread_result_ref_store();
+    let result_ref = ResultRefStore::create_result_ref();
+    let dataframe = DataFrame::new(vec![
+        Series::new(
+            "week".into(),
+            ["2026-W01", "2026-W02", "2026-W03", "2026-W04", "2026-W05"],
+        )
+        .into(),
+        Series::new(
+            "sales".into(),
+            [100.0_f64, 104.0_f64, 109.0_f64, 115.0_f64, 150.0_f64],
+        )
+        .into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "seed_forecast_alert",
+        vec!["seed_forecast_alert".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+    result_ref
+}
+
+fn create_contribution_result_ref_for_cli() -> String {
+    let store = thread_result_ref_store();
+    let result_ref = ResultRefStore::create_result_ref();
+    let dataframe = DataFrame::new(vec![
+        Series::new(
+            "period".into(),
+            [
+                "2026-01", "2026-01", "2026-01", "2026-02", "2026-02", "2026-02",
+            ],
+        )
+        .into(),
+        Series::new(
+            "region".into(),
+            ["East", "West", "North", "East", "West", "North"],
+        )
+        .into(),
+        Series::new(
+            "revenue".into(),
+            [100.0_f64, 80.0_f64, 60.0_f64, 130.0_f64, 70.0_f64, 62.0_f64],
+        )
+        .into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "seed_contribution_attribution",
+        vec!["seed_contribution_attribution".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+    result_ref
+}
+
+fn create_scenario_result_ref_for_cli() -> String {
+    let store = thread_result_ref_store();
+    let result_ref = ResultRefStore::create_result_ref();
+    let dataframe = DataFrame::new(vec![
+        Series::new(
+            "revenue".into(),
+            [100.0_f64, 110.0_f64, 120.0_f64, 130.0_f64],
+        )
+        .into(),
+        Series::new(
+            "price_index".into(),
+            [1.00_f64, 1.05_f64, 1.08_f64, 1.12_f64],
+        )
+        .into(),
+        Series::new("ad_spend".into(), [50.0_f64, 52.0_f64, 56.0_f64, 58.0_f64]).into(),
+    ])
+    .unwrap();
+    let record = PersistedResultDataset::from_dataframe(
+        &result_ref,
+        "seed_scenario_simulation",
+        vec!["seed_scenario_simulation".to_string()],
+        &dataframe,
+    )
+    .unwrap();
+    store.save(&record).unwrap();
+    result_ref
+}
+
 #[test]
 fn correlation_analysis_returns_ranked_correlations() {
     let result_ref = create_correlation_result_ref_for_cli();
@@ -223,6 +312,109 @@ fn trend_analysis_returns_direction_and_ordered_points() {
 }
 
 #[test]
+fn short_term_forecast_alert_returns_forecasts_and_alerts() {
+    let result_ref = create_forecast_result_ref_for_cli();
+    let request = json!({
+        "tool": "short_term_forecast_alert",
+        "args": {
+            "result_ref": result_ref,
+            "time_column": "week",
+            "value_column": "sales",
+            "horizon": 3,
+            "sensitivity": 2.0
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["time_column"], "week");
+    assert_eq!(output["data"]["value_column"], "sales");
+    assert_eq!(output["data"]["horizon"], 3);
+    assert_eq!(output["data"]["forecasts"].as_array().unwrap().len(), 3);
+    assert!(output["data"]["forecasts"][0]["forecast"].as_f64().unwrap() > 0.0);
+    assert!(
+        output["data"]["human_summary"]["overall"]
+            .as_str()
+            .unwrap()
+            .contains("short-term forecast")
+    );
+}
+
+#[test]
+fn contribution_attribution_returns_ranked_drivers() {
+    let result_ref = create_contribution_result_ref_for_cli();
+    let request = json!({
+        "tool": "contribution_attribution",
+        "args": {
+            "result_ref": result_ref,
+            "period_column": "period",
+            "dimension_column": "region",
+            "value_column": "revenue",
+            "baseline_period": "2026-01",
+            "current_period": "2026-02",
+            "top_k": 2
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["total_change"], 22.0);
+    assert_eq!(output["data"]["top_positive"][0]["dimension"], "East");
+    assert_eq!(output["data"]["top_positive"][0]["contribution"], 30.0);
+    assert_eq!(output["data"]["top_negative"][0]["dimension"], "West");
+    assert_eq!(output["data"]["top_negative"][0]["contribution"], -10.0);
+}
+
+#[test]
+fn scenario_simulation_returns_projected_targets() {
+    let result_ref = create_scenario_result_ref_for_cli();
+    let request = json!({
+        "tool": "scenario_simulation",
+        "args": {
+            "result_ref": result_ref,
+            "target_column": "revenue",
+            "driver_columns": ["price_index", "ad_spend"],
+            "scenarios": [
+                {
+                    "name": "price_up",
+                    "driver_changes": {
+                        "price_index": 0.05
+                    }
+                },
+                {
+                    "name": "marketing_cut",
+                    "driver_changes": {
+                        "ad_spend": -0.1
+                    }
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["target_column"], "revenue");
+    assert_eq!(output["data"]["scenarios"].as_array().unwrap().len(), 2);
+    let elasticity_drivers = output["data"]["driver_elasticities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["driver_column"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(elasticity_drivers.contains(&"price_index"));
+    assert!(elasticity_drivers.contains(&"ad_spend"));
+    assert!(
+        output["data"]["human_summary"]["overall"]
+            .as_str()
+            .unwrap()
+            .contains("scenarios")
+    );
+}
+
+#[test]
 fn tool_catalog_includes_stat_diagnostic_tools() {
     let mut cmd = Command::cargo_bin("excel_skill").unwrap();
     let assert = cmd.assert().success();
@@ -257,5 +449,26 @@ fn tool_catalog_includes_stat_diagnostic_tools() {
             .unwrap()
             .iter()
             .any(|tool| tool == "trend_analysis")
+    );
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "short_term_forecast_alert")
+    );
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "contribution_attribution")
+    );
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "scenario_simulation")
     );
 }

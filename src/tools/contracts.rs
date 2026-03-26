@@ -125,6 +125,9 @@ impl ToolResponse {
                 "distribution_analysis",
                 // 2026-03-25: 这里暴露趋势分析入口，原因是统计诊断层要进一步回答时间上的整体走向；目的是让上层 Skill 可以自然推荐“再看趋势”。
                 "trend_analysis",
+                "short_term_forecast_alert",
+                "contribution_attribution",
+                "scenario_simulation",
                 "linear_regression",
                 "logistic_regression",
                 "cluster_kmeans",

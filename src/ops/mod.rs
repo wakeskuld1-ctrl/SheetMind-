@@ -69,6 +69,12 @@ pub mod outlier_detection;
 pub mod distribution_analysis;
 // 2026-03-25: 这里导出趋势分析模块，原因是统计诊断型能力第四步要回答“时间上整体是在涨还是跌”；目的是把时间趋势观察正式纳入 Tool 层。
 pub mod trend_analysis;
+// 2026-03-26: expose short-term forecasting with alert bands for operational monitoring.
+pub mod short_term_forecast_alert;
+// 2026-03-26: expose period-over-period contribution attribution by business dimension.
+pub mod contribution_attribution;
+// 2026-03-26: expose scenario simulation with simple elasticity-based impact estimates.
+pub mod scenario_simulation;
 // 2026-03-21: 这里导出线性回归模块，目的是把分析建模层 V1 的首个传统回归能力下沉到独立 Tool 计算层。
 pub mod linear_regression;
 // 2026-03-21: 这里导出公共建模准备层，目的是让回归、分类和聚类共享统一前处理口径。

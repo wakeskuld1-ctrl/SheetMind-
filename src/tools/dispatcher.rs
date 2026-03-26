@@ -26,6 +26,7 @@ use crate::ops::append::append_tables;
 use crate::ops::cast::{CastColumnSpec, cast_column_types, summarize_column_types};
 use crate::ops::chart_svg::render_chart_svg;
 use crate::ops::cluster_kmeans::cluster_kmeans;
+use crate::ops::contribution_attribution::contribution_attribution;
 use crate::ops::correlation_analysis::correlation_analysis;
 use crate::ops::decision_assistant::decision_assistant;
 use crate::ops::deduplicate_by_key::{DeduplicateKeep, OrderSpec, deduplicate_by_key};
@@ -55,7 +56,9 @@ use crate::ops::report_delivery::{
     ReportDeliveryLegendPosition, ReportDeliveryRequest, ReportDeliverySection,
     build_report_delivery_draft, chart_ref_to_report_delivery_chart,
 };
+use crate::ops::scenario_simulation::{ScenarioInput, scenario_simulation};
 use crate::ops::select::select_columns;
+use crate::ops::short_term_forecast_alert::short_term_forecast_alert;
 use crate::ops::sort::{SortSpec, sort_rows};
 use crate::ops::stat_summary::stat_summary;
 use crate::ops::summary::summarize_table;
@@ -128,6 +131,9 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "outlier_detection" => dispatch_outlier_detection(args),
         "distribution_analysis" => dispatch_distribution_analysis(args),
         "trend_analysis" => dispatch_trend_analysis(args),
+        "short_term_forecast_alert" => dispatch_short_term_forecast_alert(args),
+        "contribution_attribution" => dispatch_contribution_attribution(args),
+        "scenario_simulation" => dispatch_scenario_simulation(args),
         "linear_regression" => dispatch_linear_regression(args),
         "logistic_regression" => dispatch_logistic_regression(args),
         "cluster_kmeans" => dispatch_cluster_kmeans(args),
@@ -3435,6 +3441,187 @@ fn dispatch_trend_analysis(args: Value) -> ToolResponse {
                     Err(error) => ToolResponse::error(error.to_string()),
                 }
             }
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+fn dispatch_short_term_forecast_alert(args: Value) -> ToolResponse {
+    let Some(time_column) = args.get("time_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("short_term_forecast_alert requires time_column");
+    };
+    let Some(value_column) = args.get("value_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("short_term_forecast_alert requires value_column");
+    };
+    let horizon = args
+        .get("horizon")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(4) as usize;
+    let sensitivity = args
+        .get("sensitivity")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(2.5);
+    let casts = match parse_casts(&args, "casts", "short_term_forecast_alert") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match load_table_for_analysis(&args, "short_term_forecast_alert") {
+        Ok(OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match short_term_forecast_alert(
+                &prepared_loaded,
+                time_column,
+                value_column,
+                horizon,
+                sensitivity,
+            ) {
+                Ok(result) => {
+                    if let Err(response) = sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "review short-term forecast and warning bands",
+                        "short_term_forecast_alert",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    ToolResponse::ok(json!(result))
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+fn dispatch_contribution_attribution(args: Value) -> ToolResponse {
+    let Some(period_column) = args.get("period_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("contribution_attribution requires period_column");
+    };
+    let Some(dimension_column) = args
+        .get("dimension_column")
+        .and_then(|value| value.as_str())
+    else {
+        return ToolResponse::error("contribution_attribution requires dimension_column");
+    };
+    let Some(value_column) = args.get("value_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("contribution_attribution requires value_column");
+    };
+    let Some(baseline_period) = args.get("baseline_period").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("contribution_attribution requires baseline_period");
+    };
+    let Some(current_period) = args.get("current_period").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("contribution_attribution requires current_period");
+    };
+    let top_k = args
+        .get("top_k")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(5) as usize;
+    let casts = match parse_casts(&args, "casts", "contribution_attribution") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match load_table_for_analysis(&args, "contribution_attribution") {
+        Ok(OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match contribution_attribution(
+                &prepared_loaded,
+                period_column,
+                dimension_column,
+                value_column,
+                baseline_period,
+                current_period,
+                top_k,
+            ) {
+                Ok(result) => {
+                    if let Err(response) = sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "review period-over-period contribution drivers",
+                        "contribution_attribution",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    ToolResponse::ok(json!(result))
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
+            Err(error) => ToolResponse::error(error),
+        },
+        Err(response) => response,
+    }
+}
+
+fn dispatch_scenario_simulation(args: Value) -> ToolResponse {
+    let Some(target_column) = args.get("target_column").and_then(|value| value.as_str()) else {
+        return ToolResponse::error("scenario_simulation requires target_column");
+    };
+    let Some(scenarios_value) = args.get("scenarios").and_then(|value| value.as_array()) else {
+        return ToolResponse::error("scenario_simulation requires scenarios");
+    };
+    let scenarios = scenarios_value
+        .iter()
+        .map(|value| serde_json::from_value::<ScenarioInput>(value.clone()))
+        .collect::<Result<Vec<_>, _>>();
+    let scenarios = match scenarios {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return ToolResponse::error(format!(
+                "scenario_simulation failed to parse scenarios: {error}"
+            ));
+        }
+    };
+
+    let mut driver_columns = string_array(&args, "driver_columns")
+        .into_iter()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if driver_columns.is_empty() {
+        let mut inferred = BTreeSet::new();
+        for scenario in &scenarios {
+            for driver in scenario.driver_changes.keys() {
+                inferred.insert(driver.clone());
+            }
+        }
+        driver_columns = inferred.into_iter().collect::<Vec<_>>();
+    }
+
+    let casts = match parse_casts(&args, "casts", "scenario_simulation") {
+        Ok(casts) => casts,
+        Err(response) => return response,
+    };
+
+    match load_table_for_analysis(&args, "scenario_simulation") {
+        Ok(OperationLoad::NeedsConfirmation(response)) => response,
+        Ok(OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
+            Ok(prepared_loaded) => match scenario_simulation(
+                &prepared_loaded,
+                target_column,
+                &driver_columns,
+                &scenarios,
+            ) {
+                Ok(result) => {
+                    if let Err(response) = sync_loaded_table_state(
+                        &args,
+                        &prepared_loaded,
+                        SessionStage::AnalysisModeling,
+                        "review scenario simulation outputs",
+                        "scenario_simulation",
+                        "analysis_completed",
+                    ) {
+                        return response;
+                    }
+                    ToolResponse::ok(json!(result))
+                }
+                Err(error) => ToolResponse::error(error.to_string()),
+            },
             Err(error) => ToolResponse::error(error),
         },
         Err(response) => response,
