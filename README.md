@@ -208,6 +208,7 @@ This repository already includes real-file acceptance writeups and artifacts.
 - P2 unknown failure observability E2E: `docs/acceptance/2026-03-26-p2-unknown-failure-e2e.md`
 - P2 unknown failure regression gates: `docs/acceptance/2026-03-26-p2-unknown-failure-regression-gates.md`
 - P2 unknown failure artifacts: `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure`
+- Recovery regression one-shot runner: `scripts/run_recovery_regression_gates.ps1`
 
 The current acceptance evidence shows that V1 can already:
 

@@ -2,6 +2,12 @@
 
 ## Required commands
 
+One-shot gate runner:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_recovery_regression_gates.ps1 -Suite p2 -LowMemory
+```
+
 ```powershell
 cargo test tool_catalog_includes_recover_multi_table_failure -- --exact
 cargo test execute_multi_table_plan_failed_step_returns_unknown_failure_diagnostics -- --exact

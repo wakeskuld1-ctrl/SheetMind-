@@ -11,6 +11,12 @@ Use this runbook to quickly re-validate P1 recovery behavior after any routing/r
 
 Run each command from repo root.
 
+One-shot gate runner:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/run_recovery_regression_gates.ps1 -Suite p1 -LowMemory
+```
+
 ```powershell
 cargo test open_workbook_missing_path_returns_utf8_error_message -- --exact
 cargo test cli_open_workbook_accepts_chinese_windows_path -- --exact
