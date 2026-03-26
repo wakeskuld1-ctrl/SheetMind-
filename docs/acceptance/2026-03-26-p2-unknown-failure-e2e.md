@@ -18,6 +18,8 @@ Observed:
 - `failure_diagnostics.fallback_route = table_processing_diagnostics`
 - `failure_diagnostics.failed_step_id` and `failed_action` are returned
 - `failure_diagnostics.raw_error` mirrors `stop_reason`
+- `failure_diagnostics.recovery_templates` provides deterministic `update_session_state` and resume calls
+- session state is written back to `current_stage=table_processing` with a recovery goal
 
 Interpretation:
 - Orchestrator can now route unknown failures deterministically instead of relying on free-text parsing.

@@ -254,7 +254,27 @@
     "failed_step_id": "step_1",
     "failed_action": "join_tables",
     "failed_tool": "join_tables",
-    "raw_error": "join_tables 缺少 left 参数"
+    "raw_error": "join_tables 缺少 left 参数",
+    "recovery_templates": {
+      "update_session_state": {
+        "tool": "update_session_state",
+        "args": {
+          "session_id": "default",
+          "current_stage": "table_processing",
+          "last_user_goal": "resolve unknown multi-table failure at step_1"
+        }
+      },
+      "resume_execution": {
+        "tool": "execute_multi_table_plan",
+        "args": {
+          "session_id": "default",
+          "plan": {"steps": []},
+          "auto_confirm_join": false,
+          "stop_after_step_id": "step_1",
+          "result_ref_bindings": {}
+        }
+      }
+    }
   }
 }
 ```
@@ -263,4 +283,4 @@
 
 - Current understanding: execution failed in an unclassified runtime/tool branch rather than a controlled preflight gate.
 - Current status: fallback route is `table_processing_diagnostics`; blocked step/action is provided in `failure_diagnostics`.
-- Next action: route to table-processing diagnostics first, then decide retry from blocked step or rebuild plan chain.
+- Next action: route to table-processing diagnostics first, then use `recovery_templates.resume_execution` after blocked-step inputs are fixed.

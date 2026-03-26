@@ -10,6 +10,7 @@
   ],
   "notes": [
     "Steps 01-02 validate structured failure_diagnostics payload on unknown failure branches.",
+    "Unknown-failure payload includes deterministic recovery_templates and session-state writeback.",
     "Steps 03-05 verify controlled-stop branches remain stable after diagnostics payload changes."
   ]
 }

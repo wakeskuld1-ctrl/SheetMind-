@@ -26,6 +26,8 @@ When unknown failure is hit, runtime now emits:
 - `failure_diagnostics.failed_action`
 - `failure_diagnostics.failed_tool`
 - `failure_diagnostics.raw_error`
+- `failure_diagnostics.recovery_templates.update_session_state`
+- `failure_diagnostics.recovery_templates.resume_execution`
 
 `stop_reason` remains for backward compatibility.
 
@@ -33,8 +35,9 @@ When unknown failure is hit, runtime now emits:
 
 1. Step runtime error inside plan execution returns structured `failure_diagnostics`.
 2. Missing `suggested_tool_call` branch also returns structured `failure_diagnostics`.
-3. Existing controlled-stop branches (`stopped_needs_preflight_confirmation`, `stopped_missing_result_bindings`, `stopped_join_risk_threshold`) are unchanged.
-4. Skill-layer templates include this new branch and default route behavior.
+3. Unknown-failure branch writes session stage/user-goal back to table-processing context.
+4. Existing controlled-stop branches (`stopped_needs_preflight_confirmation`, `stopped_missing_result_bindings`, `stopped_join_risk_threshold`) are unchanged.
+5. Skill-layer templates include this new branch and deterministic recovery-template usage.
 
 ## Exit Criteria
 

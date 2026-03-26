@@ -2169,6 +2169,7 @@ fn dispatch_execute_suggested_tool_call(args: Value) -> ToolResponse {
 }
 
 fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
+    let session_id = session_id_from_args(&args);
     let auto_confirm_join = args
         .get("auto_confirm_join")
         .and_then(|value| value.as_bool())
@@ -2346,12 +2347,25 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
             execution_status = "failed".to_string();
             stop_reason = Some(format!("step `{}` missing suggested_tool_call", step_id));
             stopped_at_step_id = Some(step_id.clone());
-            failure_diagnostics = Some(build_multi_table_unknown_failure_diagnostics(
+            let mut diagnostics = build_multi_table_unknown_failure_diagnostics(
+                &session_id,
+                auto_confirm_join,
                 &step_id,
                 &action,
                 None,
                 stop_reason.as_deref(),
-            ));
+            );
+            if let Some(sync_error) = try_sync_multi_table_unknown_failure_state(
+                &args,
+                &step_id,
+                &action,
+                stop_reason.as_deref(),
+            ) {
+                if let Some(payload) = diagnostics.as_object_mut() {
+                    payload.insert("state_sync_error".to_string(), json!(sync_error));
+                }
+            }
+            failure_diagnostics = Some(diagnostics);
             executed_steps.push(json!({
                 "step_id": step_id,
                 "action": action,
@@ -2405,12 +2419,25 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
             execution_status = "failed".to_string();
             stop_reason = response.error.clone();
             stopped_at_step_id = Some(step_id.clone());
-            failure_diagnostics = Some(build_multi_table_unknown_failure_diagnostics(
+            let mut diagnostics = build_multi_table_unknown_failure_diagnostics(
+                &session_id,
+                auto_confirm_join,
                 &step_id,
                 &action,
                 Some(&suggested_tool_call),
                 stop_reason.as_deref(),
-            ));
+            );
+            if let Some(sync_error) = try_sync_multi_table_unknown_failure_state(
+                &args,
+                &step_id,
+                &action,
+                stop_reason.as_deref(),
+            ) {
+                if let Some(payload) = diagnostics.as_object_mut() {
+                    payload.insert("state_sync_error".to_string(), json!(sync_error));
+                }
+            }
+            failure_diagnostics = Some(diagnostics);
             executed_steps.push(json!({
                 "step_id": step_id,
                 "action": action,
@@ -2489,6 +2516,8 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
 }
 
 fn build_multi_table_unknown_failure_diagnostics(
+    session_id: &str,
+    auto_confirm_join: bool,
     step_id: &str,
     action: &str,
     suggested_tool_call: Option<&Value>,
@@ -2504,7 +2533,79 @@ fn build_multi_table_unknown_failure_diagnostics(
             .and_then(|tool_call| tool_call.get("tool"))
             .and_then(Value::as_str),
         "raw_error": raw_error,
+        "recovery_templates": {
+            "update_session_state": {
+                "tool": "update_session_state",
+                "args": {
+                    "session_id": session_id,
+                    "current_stage": "table_processing",
+                    "last_user_goal": format!("resolve unknown multi-table failure at {}", step_id),
+                }
+            },
+            "resume_execution": {
+                "tool": "execute_multi_table_plan",
+                "args": {
+                    "session_id": session_id,
+                    "plan": { "steps": [] },
+                    "auto_confirm_join": auto_confirm_join,
+                    "stop_after_step_id": step_id,
+                    "result_ref_bindings": {},
+                }
+            }
+        }
     })
+}
+
+fn try_sync_multi_table_unknown_failure_state(
+    args: &Value,
+    step_id: &str,
+    action: &str,
+    raw_error: Option<&str>,
+) -> Option<String> {
+    let runtime = match memory_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => return Some(error.error.unwrap_or_else(|| "memory runtime unavailable".to_string())),
+    };
+    let session_id = session_id_from_args(args);
+    let patch = SessionStatePatch {
+        current_workbook: None,
+        current_sheet: None,
+        current_file_ref: None,
+        current_sheet_index: None,
+        current_stage: Some(SessionStage::TableProcessing),
+        schema_status: None,
+        active_table_ref: None,
+        active_handle_ref: None,
+        active_handle_kind: None,
+        last_user_goal: Some(format!(
+            "resolve unknown multi-table failure at {} ({})",
+            step_id, action
+        )),
+        selected_columns: None,
+    };
+
+    if let Err(error) = runtime.update_session_state(&session_id, &patch) {
+        return Some(error.to_string());
+    }
+    if let Err(error) = runtime.append_event(
+        &session_id,
+        &EventLogInput {
+            event_type: "multi_table_unknown_failure".to_string(),
+            stage: Some(SessionStage::TableProcessing),
+            tool_name: Some("execute_multi_table_plan".to_string()),
+            status: "warn".to_string(),
+            message: Some(format!(
+                "stopped at {} ({}) with unknown failure: {}",
+                step_id,
+                action,
+                raw_error.unwrap_or("unknown")
+            )),
+        },
+    ) {
+        return Some(error.to_string());
+    }
+
+    None
 }
 
 #[derive(Debug, Clone, Copy, Default)]

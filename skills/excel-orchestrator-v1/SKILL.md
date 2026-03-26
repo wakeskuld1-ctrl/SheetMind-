@@ -313,6 +313,7 @@ Required fields:
 - `failure_diagnostics.fallback_message` for deterministic user-safe wording
 - `failure_diagnostics.failed_step_id` / `failed_action` for blocked location
 - `failure_diagnostics.raw_error` for internal troubleshooting context
+- `failure_diagnostics.recovery_templates` for deterministic state-sync/resume handoff
 
 Routing rule:
 - default route remains `table-processing-v1`;

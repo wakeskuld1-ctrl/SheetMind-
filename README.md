@@ -217,6 +217,7 @@ The current acceptance evidence shows that V1 can already:
 - continue decision guidance by `table_ref`
 - recover ingress/runtime stops with deterministic A/B/C/D routing and unified UX wording
 - expose deterministic `failure_diagnostics` for unknown runtime/tool failure routing
+- provide deterministic state-sync/resume templates for unknown-failure recovery replay
 
 ## Quick Start / 快速开始
 

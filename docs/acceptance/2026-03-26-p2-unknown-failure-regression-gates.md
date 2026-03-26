@@ -17,6 +17,8 @@ cargo test execute_multi_table_plan_stops_before_join_without_auto_confirm -- --
   - `execution_status = failed`
   - `failure_diagnostics.failure_class = unknown_runtime_failure`
   - `failure_diagnostics.fallback_route = table_processing_diagnostics`
+  - `failure_diagnostics.recovery_templates.update_session_state`
+  - `failure_diagnostics.recovery_templates.resume_execution`
 - Controlled-stop tests must still expose original stop statuses without behavior drift.
 
 ## Evidence

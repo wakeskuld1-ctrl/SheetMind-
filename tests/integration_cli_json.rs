@@ -7918,6 +7918,37 @@ fn execute_multi_table_plan_failed_step_returns_unknown_failure_diagnostics() {
             .unwrap()
             .contains("table-processing diagnostics")
     );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["update_session_state"]["args"]
+            ["current_stage"],
+        "table_processing"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]
+            ["stop_after_step_id"],
+        "step_1"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]
+            ["auto_confirm_join"],
+        false
+    );
+
+    let state_request = json!({
+        "tool": "get_session_state",
+        "args": {
+            "session_id": "default"
+        }
+    });
+    let state_output = run_cli_with_json(&state_request.to_string());
+    assert_eq!(state_output["status"], "ok");
+    assert_eq!(state_output["data"]["current_stage"], "table_processing");
+    assert!(
+        state_output["data"]["last_user_goal"]
+            .as_str()
+            .unwrap()
+            .contains("resolve unknown multi-table failure at step_1")
+    );
 }
 
 #[test]
@@ -7956,6 +7987,11 @@ fn execute_multi_table_plan_missing_tool_call_returns_unknown_failure_diagnostic
     assert_eq!(
         output["data"]["failure_diagnostics"]["raw_error"],
         output["data"]["stop_reason"]
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]
+            ["stop_after_step_id"],
+        "step_1"
     );
 }
 
