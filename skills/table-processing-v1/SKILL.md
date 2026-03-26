@@ -338,3 +338,28 @@ For multi-table end-to-end execution:
 - When runtime returns `stopped_join_risk_threshold`, explain breached metrics and ask whether to:
   1) clean keys / fix source tables, or
   2) raise thresholds and retry.
+
+## 2026-03-26 P1 ingress recovery playbook
+
+Before any table computation request, apply this recovery order:
+
+1. Path format correction (Windows syntax first)
+2. Chinese-path compatibility fallback (ASCII temp-copy only after explicit user confirmation)
+3. Controlled stop recovery
+4. Unknown failure fallback
+
+### Controlled stop recovery rules
+
+- `stopped_join_risk_threshold`
+  - Explain exceeded risk metrics from `join_risk_guard_breaches`.
+  - Default action: key cleanup or join-condition correction first.
+  - Do not auto-loosen thresholds.
+
+- `stopped_missing_result_bindings`
+  - Explain missing aliases from stop reason or step metadata.
+  - Default action: rebuild/replay missing prior step and then rerun blocked step.
+
+- `stopped_needs_preflight_confirmation`
+  - Ask explicit user confirmation before proceeding.
+
+This recovery branch is host/workflow preparation, not a new Excel computation primitive.

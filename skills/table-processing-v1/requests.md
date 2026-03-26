@@ -417,3 +417,42 @@ Default behavior note:
   - `max_right_unmatched_rows = 10`
   - `max_left_duplicate_keys = 5`
   - `max_right_duplicate_keys = 5`
+
+## 2026-03-26 recovery templates
+
+### A) resume after `stopped_missing_result_bindings`
+
+If runtime says a step is missing aliases in `result_ref_bindings`, rerun with explicit bindings restored:
+
+```json
+{
+  "tool": "execute_multi_table_plan",
+  "args": {
+    "plan": {"steps": []},
+    "auto_confirm_join": true,
+    "result_ref_bindings": {
+      "step_1_result": "result_xxx"
+    }
+  }
+}
+```
+
+### B) retry after `stopped_join_risk_threshold` with explicit confirmation
+
+Only after user agrees to loosen thresholds:
+
+```json
+{
+  "tool": "execute_multi_table_plan",
+  "args": {
+    "plan": {"steps": []},
+    "auto_confirm_join": true,
+    "max_left_unmatched_rows": 30,
+    "max_right_unmatched_rows": 30,
+    "max_left_duplicate_keys": 10,
+    "max_right_duplicate_keys": 10
+  }
+}
+```
+
+If user does not approve threshold change, route to key cleanup first.

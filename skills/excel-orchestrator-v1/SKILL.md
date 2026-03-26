@@ -273,3 +273,32 @@ State sync recommendation (if explicit write is needed):
   }
 }
 ```
+
+## 2026-03-26 P1 ingress recovery matrix
+
+Use this matrix before any cross-layer routing decision.
+
+### Class A: path format / syntax
+- Signal: Windows path parse/format error, malformed sheet selector.
+- Decision: classify as entry-format issue, not data-quality issue.
+- Default route: `table-processing-v1` for path correction and retry.
+
+### Class B: Chinese-path compatibility
+- Signal: file exists but backend read fails on non-ASCII path.
+- Decision: classify as compatibility issue, not missing-file issue.
+- Default route: `table-processing-v1` with explicit user confirmation before ASCII temp-copy fallback.
+
+### Class C: controlled execution stops
+- Signal: `execute_multi_table_plan` returns a stop status.
+- Decision: treat as controlled gate, not runtime crash.
+- Required handling by status:
+  - `stopped_join_risk_threshold`: explain breached metrics; default to cleanup route in table-processing.
+  - `stopped_missing_result_bindings`: explain which aliases are missing; route to binding-completion/replay path.
+  - `stopped_needs_preflight_confirmation`: ask explicit confirmation before rerun.
+
+### Class D: unknown runtime/tool failures
+- Signal: unclassified error payload.
+- Decision: produce deterministic fallback wording and collect minimal context.
+- Default route: `table-processing-v1` diagnostics path unless user explicitly asks to stop.
+
+Routing order is strict: A -> B -> C -> D. Only after all four checks may orchestrator conclude unreadable/cannot-continue.

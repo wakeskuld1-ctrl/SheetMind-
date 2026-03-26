@@ -67,3 +67,11 @@
 - Target layer: `table-processing-v1` by default.
 - Routing reason: this is a controlled risk gate; first action should be key cleanup / join condition correction, not blind retry.
 - Alternative path: rerun with custom thresholds only after explicit user confirmation.
+
+## Scenario 9: multi-table execution stopped by missing result bindings
+
+- User says: continue plan execution.
+- Current status: runtime returned `execution_status=stopped_missing_result_bindings` and indicates missing aliases.
+- Target layer: `table-processing-v1`.
+- Routing reason: this is a dependency-replay issue; chain context must be restored before continuing blocked step.
+- Recovery expectation: complete missing bindings or replay from required prior step, then rerun execution.

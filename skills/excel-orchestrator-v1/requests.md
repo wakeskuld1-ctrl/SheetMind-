@@ -206,3 +206,34 @@
   }
 }
 ```
+
+## 2026-03-26 cross-layer template: stopped_missing_result_bindings
+
+### Trigger payload (from runtime)
+
+```json
+{
+  "execution_status": "stopped_missing_result_bindings",
+  "stopped_at_step_id": "step_3",
+  "stop_reason": "step `step_3` missing result_ref_bindings: step_2_result"
+}
+```
+
+### Orchestrator response template
+
+- Current understanding: plan execution paused because required prior-step output handle is missing.
+- Current status: this is a controlled dependency stop, not a runtime crash.
+- Next action: route to table-processing flow to restore chain context and re-run from the blocked step.
+
+### Optional state write before routing
+
+```json
+{
+  "tool": "update_session_state",
+  "args": {
+    "session_id": "default",
+    "current_stage": "table_processing",
+    "last_user_goal": "resolve missing result bindings"
+  }
+}
+```

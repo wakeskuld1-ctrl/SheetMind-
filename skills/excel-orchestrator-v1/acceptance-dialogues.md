@@ -221,3 +221,30 @@ Route: `table-processing-v1` by default.
 - Treats risk-threshold stop as generic crash.
 - Retries automatically with looser guard.
 - Skips user confirmation for threshold increase.
+
+---
+
+## Scenario 8: controlled stop on missing result bindings
+
+### User
+
+Continue the plan from where it stopped.
+
+### Expected Skill reply
+
+Current understanding: execution paused because a required prior-step result handle was not available for the next step.
+Current status: this is `stopped_missing_result_bindings`, a controlled dependency stop rather than a system failure.
+Next action: I will route to table-processing flow to restore/rebuild the missing bindings, then continue execution from the blocked step.
+Route: `table-processing-v1`.
+
+### Pass criteria
+
+- Clearly distinguishes dependency stop vs runtime crash.
+- Mentions missing alias/binding requirement in plain language.
+- Routes to binding completion/replay path before rerun.
+
+### Fail criteria
+
+- Treats missing bindings as unknown crash.
+- Attempts blind rerun without rebuilding bindings.
+- Skips explanation of what is missing.
