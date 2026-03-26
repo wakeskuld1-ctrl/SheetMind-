@@ -345,3 +345,99 @@ The goal is not just to add more tools. It is to make the full path from table p
 
 **English one-liner:**  
 This is a local, binary-first product direction that helps ordinary Excel users gain advanced data-processing and analytics capability without installing Python.
+
+## P0 Default Execution Template (Multi-table)
+
+For customer-safe P0 execution, the recommended path is:
+
+1. Build a plan with `suggest_multi_table_plan`
+2. Execute with `execute_multi_table_plan`
+3. Keep `auto_confirm_join=true` only when risk guard is enabled
+
+### Step 1: plan
+
+```json
+{
+  "tool": "suggest_multi_table_plan",
+  "args": {
+    "tables": [
+      {
+        "path": "tests/fixtures/join-customers.xlsx",
+        "sheet": "Customers",
+        "alias": "customers"
+      },
+      {
+        "path": "tests/fixtures/join-orders.xlsx",
+        "sheet": "Orders",
+        "alias": "orders"
+      }
+    ],
+    "max_link_candidates": 3
+  }
+}
+```
+
+### Step 2: execute (default safe mode)
+
+```json
+{
+  "tool": "execute_multi_table_plan",
+  "args": {
+    "tables": [
+      {
+        "path": "tests/fixtures/join-customers.xlsx",
+        "sheet": "Customers",
+        "alias": "customers"
+      },
+      {
+        "path": "tests/fixtures/join-orders.xlsx",
+        "sheet": "Orders",
+        "alias": "orders"
+      }
+    ],
+    "max_link_candidates": 3,
+    "auto_confirm_join": true
+  }
+}
+```
+
+When `auto_confirm_join=true` and no thresholds are provided, runtime applies defaults:
+
+- `max_left_unmatched_rows = 10`
+- `max_right_unmatched_rows = 10`
+- `max_left_duplicate_keys = 5`
+- `max_right_duplicate_keys = 5`
+
+If a `join_preflight` step exceeds threshold, execution stops with:
+
+- `execution_status = "stopped_join_risk_threshold"`
+- `stopped_at_step_id` set to the preflight step
+- `executed_steps[n].join_risk_guard_breaches` with breached metrics
+
+### Step 3: execute (strict custom guard)
+
+```json
+{
+  "tool": "execute_multi_table_plan",
+  "args": {
+    "tables": [
+      {
+        "path": "tests/fixtures/join-customers.xlsx",
+        "sheet": "Customers",
+        "alias": "customers"
+      },
+      {
+        "path": "tests/fixtures/join-orders.xlsx",
+        "sheet": "Orders",
+        "alias": "orders"
+      }
+    ],
+    "max_link_candidates": 3,
+    "auto_confirm_join": true,
+    "max_left_unmatched_rows": 0,
+    "max_right_unmatched_rows": 0,
+    "max_left_duplicate_keys": 0,
+    "max_right_duplicate_keys": 0
+  }
+}
+```

@@ -375,3 +375,45 @@
 - 如果 `open_workbook` 或 `list_sheets` 已返回 `file_ref` 与 `sheets`，后续请求优先使用 `file_ref + sheet_index`。
 - 面向用户时统一问“请确认是第几个 Sheet”，不要要求用户重复输入中文 Sheet 名。
 - 如果需要复制到 ASCII 临时路径，必须先征求用户确认，不能默认直接复制。
+
+## 2026-03-26 execute_multi_table_plan risk guard
+
+When a user confirms plan execution, you can call `execute_multi_table_plan` and set risk guard limits for join preflight.
+
+```json
+{
+  "tool": "execute_multi_table_plan",
+  "args": {
+    "tables": [
+      {
+        "path": "tests/fixtures/join-customers.xlsx",
+        "sheet": "Customers",
+        "alias": "customers"
+      },
+      {
+        "path": "tests/fixtures/join-orders.xlsx",
+        "sheet": "Orders",
+        "alias": "orders"
+      }
+    ],
+    "max_link_candidates": 3,
+    "auto_confirm_join": true,
+    "max_left_unmatched_rows": 10,
+    "max_right_unmatched_rows": 10,
+    "max_left_duplicate_keys": 5,
+    "max_right_duplicate_keys": 5
+  }
+}
+```
+
+If a `join_preflight` step exceeds configured limits, execution stops with:
+- `execution_status = "stopped_join_risk_threshold"`
+- `stopped_at_step_id` set to that preflight step
+- `executed_steps[n].join_risk_guard_breaches` listing breached metrics
+
+Default behavior note:
+- If `auto_confirm_join=true` and no thresholds are provided, runtime applies safe defaults:
+  - `max_left_unmatched_rows = 10`
+  - `max_right_unmatched_rows = 10`
+  - `max_left_duplicate_keys = 5`
+  - `max_right_duplicate_keys = 5`

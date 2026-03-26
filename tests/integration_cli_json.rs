@@ -7655,6 +7655,87 @@ fn execute_multi_table_plan_runs_join_chain_with_auto_confirm() {
 }
 
 #[test]
+fn execute_multi_table_plan_auto_confirm_applies_default_join_risk_guard() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3,
+            "auto_confirm_join": true
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "completed");
+    assert_eq!(
+        output["data"]["join_risk_guard"]["max_left_unmatched_rows"],
+        10
+    );
+    assert_eq!(
+        output["data"]["join_risk_guard"]["max_right_unmatched_rows"],
+        10
+    );
+    assert_eq!(
+        output["data"]["join_risk_guard"]["max_left_duplicate_keys"],
+        5
+    );
+    assert_eq!(
+        output["data"]["join_risk_guard"]["max_right_duplicate_keys"],
+        5
+    );
+    assert_eq!(
+        output["data"]["executed_steps"][0]["action"],
+        "join_preflight"
+    );
+    assert_eq!(output["data"]["executed_steps"][1]["action"], "join_tables");
+}
+
+#[test]
+fn execute_multi_table_plan_without_auto_confirm_keeps_join_risk_guard_unset() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["execution_status"],
+        "stopped_needs_preflight_confirmation"
+    );
+    assert!(output["data"]["join_risk_guard"]["max_left_unmatched_rows"].is_null());
+    assert!(output["data"]["join_risk_guard"]["max_right_unmatched_rows"].is_null());
+    assert!(output["data"]["join_risk_guard"]["max_left_duplicate_keys"].is_null());
+    assert!(output["data"]["join_risk_guard"]["max_right_duplicate_keys"].is_null());
+}
+
+#[test]
 fn execute_multi_table_plan_dry_run_builds_simulated_bindings() {
     let request = json!({
         "tool": "execute_multi_table_plan",
@@ -7833,7 +7914,10 @@ fn execute_multi_table_plan_stops_when_max_steps_reached() {
     assert_eq!(output["data"]["execution_status"], "stopped_max_steps");
     assert_eq!(output["data"]["max_steps"], 1);
     assert_eq!(output["data"]["stopped_at_step_id"], "step_2");
-    assert_eq!(output["data"]["executed_steps"][0]["action"], "append_tables");
+    assert_eq!(
+        output["data"]["executed_steps"][0]["action"],
+        "append_tables"
+    );
     assert_eq!(output["data"]["executed_steps"][0]["status"], "ok");
     assert_eq!(
         output["data"]["executed_steps"][1]["action"],
@@ -7886,7 +7970,10 @@ fn execute_multi_table_plan_stops_after_target_step_id() {
     assert_eq!(output["data"]["execution_status"], "stopped_after_step_id");
     assert_eq!(output["data"]["stop_after_step_id"], "step_1");
     assert_eq!(output["data"]["stopped_at_step_id"], "step_1");
-    assert_eq!(output["data"]["executed_steps"][0]["action"], "append_tables");
+    assert_eq!(
+        output["data"]["executed_steps"][0]["action"],
+        "append_tables"
+    );
     assert_eq!(output["data"]["executed_steps"][0]["status"], "ok");
     assert!(output["data"]["executed_steps"][1].is_null());
     assert!(
@@ -7996,12 +8083,7 @@ fn execute_multi_table_plan_rejects_invalid_max_steps() {
 
     let zero_output = run_cli_with_json(&zero_request.to_string());
     assert_eq!(zero_output["status"], "error");
-    assert!(
-        zero_output["error"]
-            .as_str()
-            .unwrap()
-            .contains("max_steps")
-    );
+    assert!(zero_output["error"].as_str().unwrap().contains("max_steps"));
     assert!(zero_output["error"].as_str().unwrap().contains(">= 1"));
 
     let string_request = json!({
@@ -8030,6 +8112,134 @@ fn execute_multi_table_plan_rejects_invalid_max_steps() {
             .as_str()
             .unwrap()
             .contains("must be integer")
+    );
+}
+
+#[test]
+fn execute_multi_table_plan_stops_when_join_risk_threshold_exceeded() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3,
+            "auto_confirm_join": true,
+            "max_left_unmatched_rows": 0
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["execution_status"],
+        "stopped_join_risk_threshold"
+    );
+    assert_eq!(output["data"]["stopped_at_step_id"], "step_1");
+    assert_eq!(
+        output["data"]["executed_steps"][0]["action"],
+        "join_preflight"
+    );
+    assert_eq!(output["data"]["executed_steps"][0]["status"], "ok");
+    assert!(
+        output["data"]["executed_steps"][0]["join_risk_guard_breaches"][0]
+            .as_str()
+            .unwrap()
+            .contains("left_unmatched_row_count")
+    );
+    assert!(output["data"]["executed_steps"][1].is_null());
+    assert!(
+        output["data"]["stop_reason"]
+            .as_str()
+            .unwrap()
+            .contains("exceeded configured risk guard")
+    );
+}
+
+#[test]
+fn execute_multi_table_plan_honors_join_risk_threshold_when_not_breached() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3,
+            "auto_confirm_join": true,
+            "max_left_unmatched_rows": 10,
+            "max_right_unmatched_rows": 10,
+            "max_left_duplicate_keys": 10,
+            "max_right_duplicate_keys": 10
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "completed");
+    assert_eq!(
+        output["data"]["join_risk_guard"]["max_left_unmatched_rows"],
+        10
+    );
+    assert_eq!(
+        output["data"]["join_risk_guard"]["max_right_unmatched_rows"],
+        10
+    );
+    assert_eq!(output["data"]["executed_steps"][1]["action"], "join_tables");
+    assert_eq!(output["data"]["executed_steps"][1]["status"], "ok");
+}
+
+#[test]
+fn execute_multi_table_plan_rejects_invalid_join_risk_threshold_type() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_left_unmatched_rows": "1"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "error");
+    assert!(
+        output["error"]
+            .as_str()
+            .unwrap()
+            .contains("max_left_unmatched_rows")
+    );
+    assert!(
+        output["error"]
+            .as_str()
+            .unwrap()
+            .contains("non-negative integer")
     );
 }
 

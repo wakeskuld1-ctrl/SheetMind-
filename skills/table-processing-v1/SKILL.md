@@ -329,3 +329,12 @@ Skill 需要做的事：
 - 如果 `open_workbook` 或 `list_sheets` 已返回 `file_ref` 与 `sheets`，后续内部优先走 `file_ref + sheet_index`。
 - 如果要复制 ASCII 临时副本，必须先征求用户确认；复制只用于兼容读取，不代表修改原文件。
 - 只要系统能定位文件，但 Tool 在中文路径上失败，就先解释为“路径/兼容问题”，不要直接判断成文件损坏。
+
+## 2026-03-26 default execute policy (P0)
+
+For multi-table end-to-end execution:
+- Prefer `execute_multi_table_plan`.
+- If user wants auto execution (`auto_confirm_join=true`), keep the runtime default join risk guard unless user provides custom thresholds.
+- When runtime returns `stopped_join_risk_threshold`, explain breached metrics and ask whether to:
+  1) clean keys / fix source tables, or
+  2) raise thresholds and retry.

@@ -2201,6 +2201,11 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
         },
         None => None,
     };
+    let join_risk_guard = match parse_join_risk_guard_limits(&args) {
+        Ok(guard) => guard,
+        Err(response) => return response,
+    }
+    .with_auto_confirm_defaults(auto_confirm_join);
 
     let plan_payload = match resolve_multi_table_plan_for_execution(&args) {
         Ok(payload) => payload,
@@ -2398,8 +2403,8 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
             break;
         }
 
-        let output_result_ref = response
-            .data
+        let response_data = response.data;
+        let output_result_ref = response_data
             .get("result_ref")
             .and_then(Value::as_str)
             .map(|item| item.to_string());
@@ -2409,14 +2414,35 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
                 bindings.insert(step_result_ref_alias, result_ref);
             }
         }
+        let join_risk_breaches = if action == "join_preflight" {
+            evaluate_join_preflight_risk_guard(&join_risk_guard, &response_data)
+        } else {
+            Vec::new()
+        };
 
         executed_steps.push(json!({
             "step_id": step_id,
             "action": action,
             "status": "ok",
-            "response": response.data,
+            "response": response_data,
             "output_result_ref": output_result_ref,
         }));
+        if !join_risk_breaches.is_empty() {
+            execution_status = "stopped_join_risk_threshold".to_string();
+            stop_reason = Some(format!(
+                "step `{}` join_preflight exceeded configured risk guard: {}",
+                step_id,
+                join_risk_breaches.join("; ")
+            ));
+            stopped_at_step_id = Some(step_id.clone());
+            if let Some(last_step) = executed_steps.last_mut().and_then(Value::as_object_mut) {
+                last_step.insert(
+                    "join_risk_guard_breaches".to_string(),
+                    json!(join_risk_breaches),
+                );
+            }
+            break;
+        }
         if stop_after_step_id.as_deref() == Some(step_id.as_str()) {
             execution_status = "stopped_after_step_id".to_string();
             stop_reason = Some(format!(
@@ -2436,11 +2462,159 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
         "stop_reason": stop_reason,
         "stopped_at_step_id": stopped_at_step_id,
         "auto_confirm_join": auto_confirm_join,
+        "join_risk_guard": join_risk_guard.to_json(),
         "executed_steps": executed_steps,
         "result_ref_bindings": bindings,
         "latest_result_ref": latest_result_ref,
         "plan": plan_payload,
     }))
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct JoinRiskGuardLimits {
+    max_left_unmatched_rows: Option<usize>,
+    max_right_unmatched_rows: Option<usize>,
+    max_left_duplicate_keys: Option<usize>,
+    max_right_duplicate_keys: Option<usize>,
+}
+
+impl JoinRiskGuardLimits {
+    const DEFAULT_MAX_LEFT_UNMATCHED_ROWS: usize = 10;
+    const DEFAULT_MAX_RIGHT_UNMATCHED_ROWS: usize = 10;
+    const DEFAULT_MAX_LEFT_DUPLICATE_KEYS: usize = 5;
+    const DEFAULT_MAX_RIGHT_DUPLICATE_KEYS: usize = 5;
+
+    fn to_json(self) -> Value {
+        json!({
+            "max_left_unmatched_rows": self.max_left_unmatched_rows,
+            "max_right_unmatched_rows": self.max_right_unmatched_rows,
+            "max_left_duplicate_keys": self.max_left_duplicate_keys,
+            "max_right_duplicate_keys": self.max_right_duplicate_keys,
+        })
+    }
+
+    fn with_auto_confirm_defaults(self, auto_confirm_join: bool) -> Self {
+        if !auto_confirm_join {
+            return self;
+        }
+
+        Self {
+            max_left_unmatched_rows: self
+                .max_left_unmatched_rows
+                .or(Some(Self::DEFAULT_MAX_LEFT_UNMATCHED_ROWS)),
+            max_right_unmatched_rows: self
+                .max_right_unmatched_rows
+                .or(Some(Self::DEFAULT_MAX_RIGHT_UNMATCHED_ROWS)),
+            max_left_duplicate_keys: self
+                .max_left_duplicate_keys
+                .or(Some(Self::DEFAULT_MAX_LEFT_DUPLICATE_KEYS)),
+            max_right_duplicate_keys: self
+                .max_right_duplicate_keys
+                .or(Some(Self::DEFAULT_MAX_RIGHT_DUPLICATE_KEYS)),
+        }
+    }
+}
+
+fn parse_join_risk_guard_limits(args: &Value) -> Result<JoinRiskGuardLimits, ToolResponse> {
+    Ok(JoinRiskGuardLimits {
+        max_left_unmatched_rows: parse_optional_non_negative_limit(
+            args,
+            "max_left_unmatched_rows",
+        )?,
+        max_right_unmatched_rows: parse_optional_non_negative_limit(
+            args,
+            "max_right_unmatched_rows",
+        )?,
+        max_left_duplicate_keys: parse_optional_non_negative_limit(
+            args,
+            "max_left_duplicate_keys",
+        )?,
+        max_right_duplicate_keys: parse_optional_non_negative_limit(
+            args,
+            "max_right_duplicate_keys",
+        )?,
+    })
+}
+
+fn parse_optional_non_negative_limit(
+    args: &Value,
+    field: &str,
+) -> Result<Option<usize>, ToolResponse> {
+    match args.get(field) {
+        Some(value) => value
+            .as_u64()
+            .map(|limit| Some(limit as usize))
+            .ok_or_else(|| {
+                ToolResponse::error(format!(
+                    "execute_multi_table_plan `{}` must be a non-negative integer",
+                    field
+                ))
+            }),
+        None => Ok(None),
+    }
+}
+
+fn evaluate_join_preflight_risk_guard(guard: &JoinRiskGuardLimits, payload: &Value) -> Vec<String> {
+    let mut breaches = Vec::<String>::new();
+    let join_preview = payload
+        .get("join_preview")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let metric = |name: &str| -> Option<usize> {
+        join_preview
+            .get(name)
+            .and_then(Value::as_u64)
+            .map(|v| v as usize)
+    };
+
+    append_risk_breach(
+        &mut breaches,
+        "left_unmatched_row_count",
+        metric("left_unmatched_row_count"),
+        "max_left_unmatched_rows",
+        guard.max_left_unmatched_rows,
+    );
+    append_risk_breach(
+        &mut breaches,
+        "right_unmatched_row_count",
+        metric("right_unmatched_row_count"),
+        "max_right_unmatched_rows",
+        guard.max_right_unmatched_rows,
+    );
+    append_risk_breach(
+        &mut breaches,
+        "left_duplicate_key_count",
+        metric("left_duplicate_key_count"),
+        "max_left_duplicate_keys",
+        guard.max_left_duplicate_keys,
+    );
+    append_risk_breach(
+        &mut breaches,
+        "right_duplicate_key_count",
+        metric("right_duplicate_key_count"),
+        "max_right_duplicate_keys",
+        guard.max_right_duplicate_keys,
+    );
+
+    breaches
+}
+
+fn append_risk_breach(
+    breaches: &mut Vec<String>,
+    metric_name: &str,
+    metric_value: Option<usize>,
+    limit_name: &str,
+    limit_value: Option<usize>,
+) {
+    let (Some(value), Some(limit)) = (metric_value, limit_value) else {
+        return;
+    };
+    if value > limit {
+        breaches.push(format!(
+            "{metric_name}={value} exceeds {limit_name}={limit}"
+        ));
+    }
 }
 
 fn dispatch_append_tables(args: Value) -> ToolResponse {
