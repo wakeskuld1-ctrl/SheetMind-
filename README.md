@@ -221,6 +221,7 @@ The current acceptance evidence shows that V1 can already:
 - support both blocked-step replay and full-chain resume templates after diagnostics
 - auto-provide full-chain continuation template once blocked-step replay succeeds
 - provide one-call recovery macro (`recover_multi_table_failure`) for replay + continuation
+- allow per-template recovery arg patching via `template_overrides` (or legacy `template_arg_overrides`)
 
 ## Quick Start / 快速开始
 

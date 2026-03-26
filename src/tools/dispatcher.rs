@@ -157,6 +157,20 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
         .get("continue_after_replay")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let template_overrides = match args
+        .get("template_overrides")
+        .or_else(|| args.get("template_arg_overrides"))
+    {
+        Some(value) => match value.as_object() {
+            Some(overrides) => Some(overrides),
+            None => {
+                return ToolResponse::error(
+                    "recover_multi_table_failure 的 template_overrides 必须是对象",
+                );
+            }
+        },
+        None => None,
+    };
     let state_synced = failure_diagnostics
         .as_ref()
         .and_then(|payload| payload.get("state_synced"))
@@ -166,8 +180,17 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
     let mut state_sync_response: Option<ToolResponse> = None;
     if !state_synced {
         if let Some(template) = recovery_templates.get("update_session_state") {
+            let args_override = resolve_template_args_override(
+                template_overrides,
+                "update_session_state",
+                None,
+            );
             let request =
-                match tool_request_from_recovery_template(template, "update_session_state") {
+                match tool_request_from_recovery_template(
+                    template,
+                    "update_session_state",
+                    args_override,
+                ) {
                     Ok(request) => request,
                     Err(error) => return error,
                 };
@@ -186,8 +209,22 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
     let Some(replay_template) = replay_template else {
         return ToolResponse::error("recover_multi_table_failure 缺少 resume_execution 恢复模板");
     };
+    let replay_template_name_resolved = if recovery_templates.contains_key(replay_template_name) {
+        replay_template_name
+    } else {
+        "resume_execution"
+    };
+    let replay_args_override = resolve_template_args_override(
+        template_overrides,
+        replay_template_name_resolved,
+        Some("resume_execution"),
+    );
     let replay_request =
-        match tool_request_from_recovery_template(replay_template, replay_template_name) {
+        match tool_request_from_recovery_template(
+            replay_template,
+            replay_template_name_resolved,
+            replay_args_override,
+        ) {
             Ok(request) => request,
             Err(error) => return error,
         };
@@ -203,8 +240,16 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
             .cloned();
         let fallback_template = recovery_templates.get("resume_full_chain").cloned();
         if let Some(template) = runtime_template.or(fallback_template) {
-            let request = match tool_request_from_recovery_template(&template, "resume_full_chain")
-            {
+            let continue_args_override = resolve_template_args_override(
+                template_overrides,
+                "resume_full_chain",
+                None,
+            );
+            let request = match tool_request_from_recovery_template(
+                &template,
+                "resume_full_chain",
+                continue_args_override,
+            ) {
                 Ok(request) => request,
                 Err(error) => return error,
             };
@@ -234,7 +279,7 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
     ToolResponse::ok(json!({
         "macro_status": macro_status,
         "continue_after_replay": continue_after_replay,
-        "replay_template": replay_template_name,
+        "replay_template": replay_template_name_resolved,
         "state_sync": state_sync_response.as_ref().map(tool_response_to_json),
         "replay": tool_response_to_json(&replay_response),
         "continue": continue_response.as_ref().map(tool_response_to_json),
@@ -243,9 +288,25 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
     }))
 }
 
+fn resolve_template_args_override<'a>(
+    template_overrides: Option<&'a serde_json::Map<String, Value>>,
+    template_name: &str,
+    fallback_template_name: Option<&str>,
+) -> Option<&'a Value> {
+    let overrides = template_overrides?;
+    let raw = overrides.get(template_name).or_else(|| {
+        fallback_template_name.and_then(|fallback_name| overrides.get(fallback_name))
+    })?;
+
+    raw.as_object()
+        .and_then(|override_obj| override_obj.get("args"))
+        .or(Some(raw))
+}
+
 fn tool_request_from_recovery_template(
     template: &Value,
     template_name: &str,
+    args_override: Option<&Value>,
 ) -> Result<ToolRequest, ToolResponse> {
     let Some(template) = template.as_object() else {
         return Err(ToolResponse::error(format!(
@@ -265,12 +326,38 @@ fn tool_request_from_recovery_template(
             template_name
         )));
     }
-    let template_args = template.get("args").cloned().unwrap_or_else(|| json!({}));
+    let mut template_args = template.get("args").cloned().unwrap_or_else(|| json!({}));
+    if let Some(args_override) = args_override {
+        let Some(_) = args_override.as_object() else {
+            return Err(ToolResponse::error(format!(
+                "recover_multi_table_failure 的 `{}` 覆盖参数必须是对象",
+                template_name
+            )));
+        };
+        merge_json_value(&mut template_args, args_override);
+    }
 
     Ok(ToolRequest {
         tool: tool_name.to_string(),
         args: template_args,
     })
+}
+
+fn merge_json_value(target: &mut Value, patch: &Value) {
+    match (target, patch) {
+        (Value::Object(target_obj), Value::Object(patch_obj)) => {
+            for (key, patch_value) in patch_obj {
+                if let Some(existing) = target_obj.get_mut(key) {
+                    merge_json_value(existing, patch_value);
+                } else {
+                    target_obj.insert(key.clone(), patch_value.clone());
+                }
+            }
+        }
+        (target_slot, patch_value) => {
+            *target_slot = patch_value.clone();
+        }
+    }
 }
 
 fn tool_response_to_json(response: &ToolResponse) -> Value {

@@ -321,3 +321,4 @@ Routing rule:
 - default route remains `table-processing-v1`;
 - do not route to analysis-modeling or decision-assistant directly from this branch.
 - For execution handoff, you may call `recover_multi_table_failure` with `failure_diagnostics` to run replay + continuation in one request.
+- Use `template_overrides` when only selected replay/continuation args need adjustment.

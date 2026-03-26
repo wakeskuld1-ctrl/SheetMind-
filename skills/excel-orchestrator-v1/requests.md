@@ -326,7 +326,15 @@ When replay call (`stop_after_step_id=<blocked_step>`) succeeds, runtime returns
   "tool": "recover_multi_table_failure",
   "args": {
     "failure_diagnostics": {},
-    "continue_after_replay": true
+    "continue_after_replay": true,
+    "template_overrides": {
+      "resume_execution": {
+        "max_left_unmatched_rows": 30
+      },
+      "resume_full_chain": {
+        "max_steps": 4
+      }
+    }
   }
 }
 ```
@@ -335,3 +343,5 @@ Use this when you want runtime to execute:
 1) blocked-step replay, then
 2) full-chain continuation,
 in one call.
+
+`template_overrides` can patch only selected template args without rebuilding full `recovery_templates`.

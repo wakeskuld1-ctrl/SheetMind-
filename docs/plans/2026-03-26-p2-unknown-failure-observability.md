@@ -32,6 +32,7 @@ When unknown failure is hit, runtime now emits:
 - `failure_diagnostics.recovery_templates.resume_full_chain`
 - `failure_diagnostics.state_synced`
 - `continuation_templates.resume_full_chain` after blocked-step replay succeeds
+- `recover_multi_table_failure.template_overrides` for selective replay/continue arg patching
 
 `stop_reason` remains for backward compatibility.
 
@@ -43,6 +44,7 @@ When unknown failure is hit, runtime now emits:
 4. Existing controlled-stop branches (`stopped_needs_preflight_confirmation`, `stopped_missing_result_bindings`, `stopped_join_risk_threshold`) are unchanged.
 5. Skill-layer templates include this new branch and deterministic recovery-template usage.
 6. One-call macro path can execute replay + continuation without manual template stitching.
+7. One-call macro path supports selective replay/continue arg overrides without rebuilding full templates.
 
 ## Exit Criteria
 

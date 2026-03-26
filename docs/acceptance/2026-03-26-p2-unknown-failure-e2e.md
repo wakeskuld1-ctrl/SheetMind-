@@ -63,6 +63,7 @@ Observed:
 - `recover_multi_table_failure` is visible in tool catalog.
 - Macro can run blocked-step replay and then continue full chain in one call.
 - Macro can consume runtime-provided continuation template directly.
+- Macro now accepts `template_overrides` (and legacy `template_arg_overrides`) to patch replay/continue args without rebuilding full templates.
 
 ## Acceptance conclusion
 

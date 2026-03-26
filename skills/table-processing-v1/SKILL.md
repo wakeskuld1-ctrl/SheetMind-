@@ -378,5 +378,6 @@ Then table-processing should:
 5. If blocked-step replay returns `continuation_templates`, use `continuation_templates.resume_full_chain` for direct continuation.
 6. Keep default route as diagnostics-first in table-processing, then retry after inputs are fixed.
 7. If you want runtime to orchestrate replay + continuation automatically, call `recover_multi_table_failure`.
+8. If replay/continue thresholds need tuning, pass `template_overrides` (or legacy `template_arg_overrides`) to patch template args only.
 
 Do not route this branch directly into analysis-modeling or decision-assistant.

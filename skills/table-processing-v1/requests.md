@@ -511,9 +511,18 @@ Interpretation rule:
   "tool": "recover_multi_table_failure",
   "args": {
     "failure_diagnostics": {},
-    "continue_after_replay": true
+    "continue_after_replay": true,
+    "template_overrides": {
+      "resume_execution": {
+        "max_left_unmatched_rows": 30
+      },
+      "resume_full_chain": {
+        "max_steps": 4
+      }
+    }
   }
 }
 ```
 
 This macro performs blocked-step replay first, then continues full chain when replay succeeds.
+Use `template_overrides` when you only need to patch selected replay/continue args.
