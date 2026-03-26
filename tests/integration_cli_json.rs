@@ -8309,7 +8309,10 @@ fn recover_multi_table_failure_allows_continue_template_overrides() {
         "stopped_max_steps"
     );
     assert_eq!(output["data"]["continue"]["data"]["max_steps"], 1);
-    assert_eq!(output["data"]["final_execution_status"], "stopped_max_steps");
+    assert_eq!(
+        output["data"]["final_execution_status"],
+        "stopped_max_steps"
+    );
 }
 
 #[test]
@@ -8429,6 +8432,131 @@ fn recover_multi_table_failure_accepts_legacy_template_arg_overrides() {
     assert_eq!(
         output["data"]["replay"]["data"]["stop_after_step_id"],
         "step_2"
+    );
+}
+
+#[test]
+fn recover_multi_table_failure_reports_ignored_template_overrides() {
+    let plan_request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+    let plan_output = run_cli_with_json(&plan_request.to_string());
+    assert_eq!(plan_output["status"], "ok");
+
+    let recovery_templates = json!({
+        "resume_execution": {
+            "tool": "execute_multi_table_plan",
+            "args": {
+                "session_id": "default",
+                "plan": plan_output["data"],
+                "auto_confirm_join": true,
+                "stop_after_step_id": "step_1",
+                "result_ref_bindings": {}
+            }
+        }
+    });
+    let recover_request = json!({
+        "tool": "recover_multi_table_failure",
+        "args": {
+            "failure_diagnostics": {
+                "state_synced": true,
+                "default_template": "resume_execution",
+                "recovery_templates": recovery_templates
+            },
+            "continue_after_replay": false,
+            "template_overrides": {
+                "unknown_template": {
+                    "max_steps": 1
+                }
+            }
+        }
+    });
+
+    let output = run_cli_with_json(&recover_request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["strict_template_overrides"], false);
+    assert_eq!(output["data"]["applied_template_overrides"], json!([]));
+    assert_eq!(
+        output["data"]["ignored_template_overrides"],
+        json!(["unknown_template"])
+    );
+}
+
+#[test]
+fn recover_multi_table_failure_strict_overrides_reject_unknown_template_keys() {
+    let plan_request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+    let plan_output = run_cli_with_json(&plan_request.to_string());
+    assert_eq!(plan_output["status"], "ok");
+
+    let recovery_templates = json!({
+        "resume_execution": {
+            "tool": "execute_multi_table_plan",
+            "args": {
+                "session_id": "default",
+                "plan": plan_output["data"],
+                "auto_confirm_join": true,
+                "stop_after_step_id": "step_1",
+                "result_ref_bindings": {}
+            }
+        }
+    });
+    let recover_request = json!({
+        "tool": "recover_multi_table_failure",
+        "args": {
+            "failure_diagnostics": {
+                "state_synced": true,
+                "default_template": "resume_execution",
+                "recovery_templates": recovery_templates
+            },
+            "continue_after_replay": false,
+            "strict_template_overrides": true,
+            "template_overrides": {
+                "unknown_template": {
+                    "max_steps": 1
+                }
+            }
+        }
+    });
+
+    let output = run_cli_with_json(&recover_request.to_string());
+    assert_eq!(output["status"], "error");
+    assert!(
+        output["error"]
+            .as_str()
+            .unwrap()
+            .contains("strict_template_overrides=true")
     );
 }
 

@@ -13,6 +13,8 @@ cargo test recover_multi_table_failure_allows_replay_template_overrides -- --exa
 cargo test recover_multi_table_failure_allows_continue_template_overrides -- --exact
 cargo test recover_multi_table_failure_rejects_invalid_template_overrides -- --exact
 cargo test recover_multi_table_failure_accepts_legacy_template_arg_overrides -- --exact
+cargo test recover_multi_table_failure_reports_ignored_template_overrides -- --exact
+cargo test recover_multi_table_failure_strict_overrides_reject_unknown_template_keys -- --exact
 cargo test execute_multi_table_plan_stops_when_result_bindings_are_missing -- --exact
 cargo test execute_multi_table_plan_stops_when_join_risk_threshold_exceeded -- --exact
 cargo test execute_multi_table_plan_stops_before_join_without_auto_confirm -- --exact
@@ -33,6 +35,8 @@ cargo test execute_multi_table_plan_stops_before_join_without_auto_confirm -- --
 - Recovery macro tests must end with `macro_status = completed` and `final_execution_status = completed`
 - Template-override macro tests must prove replay/continue args can be patched and invalid override shape is rejected
 - Legacy `template_arg_overrides` remains compatible with the same override behavior
+- Recovery macro output must include `applied_template_overrides` and `ignored_template_overrides`
+- `strict_template_overrides=true` must reject unknown template override keys
 - Controlled-stop tests must still expose original stop statuses without behavior drift.
 
 ## Evidence

@@ -64,6 +64,7 @@ Observed:
 - Macro can run blocked-step replay and then continue full chain in one call.
 - Macro can consume runtime-provided continuation template directly.
 - Macro now accepts `template_overrides` (and legacy `template_arg_overrides`) to patch replay/continue args without rebuilding full templates.
+- Macro now reports applied vs ignored override keys and supports `strict_template_overrides=true` for fail-fast override validation.
 
 ## Acceptance conclusion
 

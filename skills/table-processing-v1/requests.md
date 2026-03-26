@@ -512,6 +512,7 @@ Interpretation rule:
   "args": {
     "failure_diagnostics": {},
     "continue_after_replay": true,
+    "strict_template_overrides": true,
     "template_overrides": {
       "resume_execution": {
         "max_left_unmatched_rows": 30
@@ -526,3 +527,4 @@ Interpretation rule:
 
 This macro performs blocked-step replay first, then continues full chain when replay succeeds.
 Use `template_overrides` when you only need to patch selected replay/continue args.
+Use `strict_template_overrides=true` when override keys must be fully validated.

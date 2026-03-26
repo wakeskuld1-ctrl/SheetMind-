@@ -33,6 +33,8 @@ When unknown failure is hit, runtime now emits:
 - `failure_diagnostics.state_synced`
 - `continuation_templates.resume_full_chain` after blocked-step replay succeeds
 - `recover_multi_table_failure.template_overrides` for selective replay/continue arg patching
+- `recover_multi_table_failure.applied_template_overrides` / `ignored_template_overrides` for override observability
+- `recover_multi_table_failure.strict_template_overrides` to reject unknown override keys
 
 `stop_reason` remains for backward compatibility.
 

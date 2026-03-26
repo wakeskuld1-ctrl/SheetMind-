@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -150,13 +150,19 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
         .cloned()
         .unwrap_or(Value::Null);
     let Some(recovery_templates) = recovery_templates.as_object() else {
-        return ToolResponse::error("recover_multi_table_failure 缺少 recovery_templates 对象参数");
+        return ToolResponse::error(
+            "recover_multi_table_failure requires recovery_templates as an object",
+        );
     };
 
     let continue_after_replay = args
         .get("continue_after_replay")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    let strict_template_overrides = args
+        .get("strict_template_overrides")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let template_overrides = match args
         .get("template_overrides")
         .or_else(|| args.get("template_arg_overrides"))
@@ -165,38 +171,20 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
             Some(overrides) => Some(overrides),
             None => {
                 return ToolResponse::error(
-                    "recover_multi_table_failure 的 template_overrides 必须是对象",
+                    "recover_multi_table_failure template_overrides must be an object",
                 );
             }
         },
         None => None,
     };
+    let provided_override_keys = template_overrides
+        .map(|overrides| overrides.keys().cloned().collect::<BTreeSet<_>>())
+        .unwrap_or_default();
     let state_synced = failure_diagnostics
         .as_ref()
         .and_then(|payload| payload.get("state_synced"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-
-    let mut state_sync_response: Option<ToolResponse> = None;
-    if !state_synced {
-        if let Some(template) = recovery_templates.get("update_session_state") {
-            let args_override = resolve_template_args_override(
-                template_overrides,
-                "update_session_state",
-                None,
-            );
-            let request =
-                match tool_request_from_recovery_template(
-                    template,
-                    "update_session_state",
-                    args_override,
-                ) {
-                    Ok(request) => request,
-                    Err(error) => return error,
-                };
-            state_sync_response = Some(dispatch(request));
-        }
-    }
 
     let replay_template_name = failure_diagnostics
         .as_ref()
@@ -207,27 +195,66 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
         .get(replay_template_name)
         .or_else(|| recovery_templates.get("resume_execution"));
     let Some(replay_template) = replay_template else {
-        return ToolResponse::error("recover_multi_table_failure 缺少 resume_execution 恢复模板");
+        return ToolResponse::error(
+            "recover_multi_table_failure requires resume_execution recovery template",
+        );
     };
     let replay_template_name_resolved = if recovery_templates.contains_key(replay_template_name) {
         replay_template_name
     } else {
         "resume_execution"
     };
+    if strict_template_overrides {
+        if let Some(overrides) = template_overrides {
+            if let Err(error) = validate_template_override_keys(
+                overrides,
+                !state_synced && recovery_templates.get("update_session_state").is_some(),
+                replay_template_name_resolved,
+                continue_after_replay,
+            ) {
+                return error;
+            }
+        }
+    }
+
+    let mut applied_override_keys = BTreeSet::new();
+
+    let mut state_sync_response: Option<ToolResponse> = None;
+    if !state_synced {
+        if let Some(template) = recovery_templates.get("update_session_state") {
+            let args_override =
+                resolve_template_args_override(template_overrides, "update_session_state", None);
+            let request = match tool_request_from_recovery_template(
+                template,
+                "update_session_state",
+                args_override.map(|(_, payload)| payload),
+            ) {
+                Ok(request) => request,
+                Err(error) => return error,
+            };
+            if let Some((override_key, _)) = args_override {
+                applied_override_keys.insert(override_key.to_string());
+            }
+            state_sync_response = Some(dispatch(request));
+        }
+    }
+
     let replay_args_override = resolve_template_args_override(
         template_overrides,
         replay_template_name_resolved,
         Some("resume_execution"),
     );
-    let replay_request =
-        match tool_request_from_recovery_template(
-            replay_template,
-            replay_template_name_resolved,
-            replay_args_override,
-        ) {
-            Ok(request) => request,
-            Err(error) => return error,
-        };
+    let replay_request = match tool_request_from_recovery_template(
+        replay_template,
+        replay_template_name_resolved,
+        replay_args_override.map(|(_, payload)| payload),
+    ) {
+        Ok(request) => request,
+        Err(error) => return error,
+    };
+    if let Some((override_key, _)) = replay_args_override {
+        applied_override_keys.insert(override_key.to_string());
+    }
     let replay_response = dispatch(replay_request);
 
     let mut continue_response: Option<ToolResponse> = None;
@@ -240,19 +267,19 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
             .cloned();
         let fallback_template = recovery_templates.get("resume_full_chain").cloned();
         if let Some(template) = runtime_template.or(fallback_template) {
-            let continue_args_override = resolve_template_args_override(
-                template_overrides,
-                "resume_full_chain",
-                None,
-            );
+            let continue_args_override =
+                resolve_template_args_override(template_overrides, "resume_full_chain", None);
             let request = match tool_request_from_recovery_template(
                 &template,
                 "resume_full_chain",
-                continue_args_override,
+                continue_args_override.map(|(_, payload)| payload),
             ) {
                 Ok(request) => request,
                 Err(error) => return error,
             };
+            if let Some((override_key, _)) = continue_args_override {
+                applied_override_keys.insert(override_key.to_string());
+            }
             continue_template_source = template;
             continue_response = Some(dispatch(request));
         }
@@ -275,11 +302,18 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
         .and_then(|response| response.data.get("execution_status"))
         .cloned()
         .or_else(|| replay_response.data.get("execution_status").cloned());
+    let ignored_override_keys = provided_override_keys
+        .difference(&applied_override_keys)
+        .cloned()
+        .collect::<Vec<_>>();
 
     ToolResponse::ok(json!({
         "macro_status": macro_status,
         "continue_after_replay": continue_after_replay,
+        "strict_template_overrides": strict_template_overrides,
         "replay_template": replay_template_name_resolved,
+        "applied_template_overrides": applied_override_keys.into_iter().collect::<Vec<_>>(),
+        "ignored_template_overrides": ignored_override_keys,
         "state_sync": state_sync_response.as_ref().map(tool_response_to_json),
         "replay": tool_response_to_json(&replay_response),
         "continue": continue_response.as_ref().map(tool_response_to_json),
@@ -288,19 +322,58 @@ fn dispatch_recover_multi_table_failure(args: Value) -> ToolResponse {
     }))
 }
 
-fn resolve_template_args_override<'a>(
-    template_overrides: Option<&'a serde_json::Map<String, Value>>,
-    template_name: &str,
-    fallback_template_name: Option<&str>,
-) -> Option<&'a Value> {
-    let overrides = template_overrides?;
-    let raw = overrides.get(template_name).or_else(|| {
-        fallback_template_name.and_then(|fallback_name| overrides.get(fallback_name))
-    })?;
+fn validate_template_override_keys(
+    overrides: &serde_json::Map<String, Value>,
+    allow_update_session_state_override: bool,
+    replay_template_name: &str,
+    continue_after_replay: bool,
+) -> Result<(), ToolResponse> {
+    let mut allowed = BTreeSet::new();
+    if allow_update_session_state_override {
+        allowed.insert("update_session_state".to_string());
+    }
+    allowed.insert(replay_template_name.to_string());
+    if replay_template_name != "resume_execution" {
+        allowed.insert("resume_execution".to_string());
+    }
+    if continue_after_replay {
+        allowed.insert("resume_full_chain".to_string());
+    }
 
-    raw.as_object()
+    let invalid_keys = overrides
+        .keys()
+        .filter(|key| !allowed.contains(*key))
+        .cloned()
+        .collect::<Vec<_>>();
+    if invalid_keys.is_empty() {
+        return Ok(());
+    }
+
+    Err(ToolResponse::error(format!(
+        "recover_multi_table_failure strict_template_overrides=true forbids unknown override keys: {}",
+        invalid_keys.join(", ")
+    )))
+}
+
+fn resolve_template_args_override<'a, 'b>(
+    template_overrides: Option<&'a serde_json::Map<String, Value>>,
+    template_name: &'b str,
+    fallback_template_name: Option<&'b str>,
+) -> Option<(&'b str, &'a Value)> {
+    let overrides = template_overrides?;
+    if let Some(raw) = overrides.get(template_name) {
+        return Some((template_name, template_override_args_payload(raw)));
+    }
+    let fallback_name = fallback_template_name?;
+    let raw = overrides.get(fallback_name)?;
+    Some((fallback_name, template_override_args_payload(raw)))
+}
+
+fn template_override_args_payload(raw_override: &Value) -> &Value {
+    raw_override
+        .as_object()
         .and_then(|override_obj| override_obj.get("args"))
-        .or(Some(raw))
+        .unwrap_or(raw_override)
 }
 
 fn tool_request_from_recovery_template(

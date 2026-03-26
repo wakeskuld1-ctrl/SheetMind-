@@ -322,3 +322,4 @@ Routing rule:
 - do not route to analysis-modeling or decision-assistant directly from this branch.
 - For execution handoff, you may call `recover_multi_table_failure` with `failure_diagnostics` to run replay + continuation in one request.
 - Use `template_overrides` when only selected replay/continuation args need adjustment.
+- Check `applied_template_overrides` / `ignored_template_overrides`; set `strict_template_overrides=true` when typo tolerance is not acceptable.

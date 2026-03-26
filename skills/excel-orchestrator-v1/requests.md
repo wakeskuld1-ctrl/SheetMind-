@@ -327,6 +327,7 @@ When replay call (`stop_after_step_id=<blocked_step>`) succeeds, runtime returns
   "args": {
     "failure_diagnostics": {},
     "continue_after_replay": true,
+    "strict_template_overrides": true,
     "template_overrides": {
       "resume_execution": {
         "max_left_unmatched_rows": 30
@@ -345,3 +346,4 @@ Use this when you want runtime to execute:
 in one call.
 
 `template_overrides` can patch only selected template args without rebuilding full `recovery_templates`.
+When `strict_template_overrides=true`, unknown override keys are rejected instead of silently ignored.

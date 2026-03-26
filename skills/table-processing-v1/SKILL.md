@@ -379,5 +379,6 @@ Then table-processing should:
 6. Keep default route as diagnostics-first in table-processing, then retry after inputs are fixed.
 7. If you want runtime to orchestrate replay + continuation automatically, call `recover_multi_table_failure`.
 8. If replay/continue thresholds need tuning, pass `template_overrides` (or legacy `template_arg_overrides`) to patch template args only.
+9. Read `applied_template_overrides` / `ignored_template_overrides`; use `strict_template_overrides=true` if unknown override keys must fail fast.
 
 Do not route this branch directly into analysis-modeling or decision-assistant.
