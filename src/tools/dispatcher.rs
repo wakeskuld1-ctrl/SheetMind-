@@ -114,6 +114,7 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "suggest_table_workflow" => dispatch_suggest_table_workflow(args),
         "suggest_multi_table_plan" => dispatch_suggest_multi_table_plan(args),
         "execute_suggested_tool_call" => dispatch_execute_suggested_tool_call(args),
+        "execute_multi_table_plan" => dispatch_execute_multi_table_plan(args),
         "append_tables" => dispatch_append_tables(args),
         "summarize_table" => dispatch_summarize_table(args),
         "analyze_table" => dispatch_analyze_table(args),
@@ -2003,28 +2004,34 @@ fn dispatch_suggest_table_workflow(args: Value) -> ToolResponse {
     }
 }
 
-fn dispatch_suggest_multi_table_plan(args: Value) -> ToolResponse {
-    #[derive(Debug, Deserialize)]
-    struct MultiPlanTableInput {
-        path: Option<String>,
-        sheet: Option<String>,
-        table_ref: Option<String>,
-        result_ref: Option<String>,
-        alias: Option<String>,
-    }
+#[derive(Debug, Deserialize)]
+struct MultiPlanTableInput {
+    path: Option<String>,
+    sheet: Option<String>,
+    table_ref: Option<String>,
+    result_ref: Option<String>,
+    alias: Option<String>,
+}
 
+fn dispatch_suggest_multi_table_plan(args: Value) -> ToolResponse {
+    match build_multi_table_plan_payload(&args) {
+        Ok(payload) => ToolResponse::ok(payload),
+        Err(response) => response,
+    }
+}
+
+fn build_multi_table_plan_payload(args: &Value) -> Result<Value, ToolResponse> {
     let Some(tables_value) = args.get("tables") else {
-        return ToolResponse::error("suggest_multi_table_plan 缺少 tables 参数");
+        return Err(ToolResponse::error(
+            "suggest_multi_table_plan missing required `tables` argument",
+        ));
     };
-    let table_inputs =
-        match serde_json::from_value::<Vec<MultiPlanTableInput>>(tables_value.clone()) {
-            Ok(inputs) => inputs,
-            Err(error) => {
-                return ToolResponse::error(format!(
-                    "suggest_multi_table_plan 的 tables 参数解析失败: {error}"
-                ));
-            }
-        };
+    let table_inputs = serde_json::from_value::<Vec<MultiPlanTableInput>>(tables_value.clone())
+        .map_err(|error| {
+            ToolResponse::error(format!(
+                "suggest_multi_table_plan failed to parse `tables`: {error}"
+            ))
+        })?;
     let max_link_candidates = args
         .get("max_link_candidates")
         .and_then(|value| value.as_u64())
@@ -2047,20 +2054,18 @@ fn dispatch_suggest_multi_table_plan(args: Value) -> ToolResponse {
         let source_payload = nested_source_payload(&source);
         source_payloads.insert(table_ref.clone(), source_payload);
         match load_nested_table_source_from_parsed(&source, "suggest_multi_table_plan", "tables") {
-            Ok(OperationLoad::NeedsConfirmation(response)) => return response,
+            Ok(OperationLoad::NeedsConfirmation(response)) => return Err(response),
             Ok(OperationLoad::Loaded(loaded)) => loaded_tables.push((table_ref, loaded)),
-            Err(response) => return response,
+            Err(response) => return Err(response),
         }
     }
 
-    match suggest_multi_table_plan(loaded_tables, max_link_candidates) {
-        Ok(result) => {
-            let mut payload = json!(result);
-            rewrite_multi_table_plan_suggested_tool_call_sources(&mut payload, &source_payloads);
-            ToolResponse::ok(payload)
-        }
-        Err(error) => ToolResponse::error(error.to_string()),
-    }
+    let mut payload = json!(
+        suggest_multi_table_plan(loaded_tables, max_link_candidates)
+            .map_err(|error| ToolResponse::error(error.to_string()))?
+    );
+    rewrite_multi_table_plan_suggested_tool_call_sources(&mut payload, &source_payloads);
+    Ok(payload)
 }
 
 fn dispatch_execute_suggested_tool_call(args: Value) -> ToolResponse {
@@ -2086,9 +2091,7 @@ fn dispatch_execute_suggested_tool_call(args: Value) -> ToolResponse {
 
     if let Some(overrides) = args.get("arg_overrides").cloned() {
         let Some(overrides_object) = overrides.as_object() else {
-            return ToolResponse::error(
-                "execute_suggested_tool_call 的 arg_overrides 必须是对象",
-            );
+            return ToolResponse::error("execute_suggested_tool_call 的 arg_overrides 必须是对象");
         };
         match &mut tool_call.args {
             Value::Null => {
@@ -2141,6 +2144,180 @@ fn dispatch_execute_suggested_tool_call(args: Value) -> ToolResponse {
     }
 
     dispatch(tool_call)
+}
+
+fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
+    let auto_confirm_join = args
+        .get("auto_confirm_join")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+
+    let plan_payload = match build_multi_table_plan_payload(&args) {
+        Ok(payload) => payload,
+        Err(response) => return response,
+    };
+    let Some(steps) = plan_payload.get("steps").and_then(Value::as_array) else {
+        return ToolResponse::error("execute_multi_table_plan expected array field `steps`");
+    };
+
+    let mut bindings = args
+        .get("result_ref_bindings")
+        .and_then(Value::as_object)
+        .map(|bindings| {
+            bindings
+                .iter()
+                .filter_map(|(key, value)| {
+                    value
+                        .as_str()
+                        .map(|resolved| (key.clone(), resolved.to_string()))
+                })
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let mut executed_steps = Vec::<Value>::new();
+    let mut execution_status = "completed".to_string();
+    let mut stop_reason: Option<String> = None;
+    let mut stopped_at_step_id: Option<String> = None;
+    let mut latest_result_ref: Option<String> = None;
+
+    for step in steps {
+        let step_id = step
+            .get("step_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let action = step
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let step_result_ref_alias = step
+            .get("result_ref")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+
+        let missing_aliases = step
+            .get("pending_result_bindings")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.get("alias").and_then(Value::as_str))
+                    .filter(|alias| !bindings.contains_key(*alias))
+                    .map(|alias| alias.to_string())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if !missing_aliases.is_empty() {
+            execution_status = "stopped_missing_result_bindings".to_string();
+            stop_reason = Some(format!(
+                "step `{}` missing result_ref_bindings: {}",
+                step_id,
+                missing_aliases.join(", ")
+            ));
+            stopped_at_step_id = Some(step_id.clone());
+            executed_steps.push(json!({
+                "step_id": step_id,
+                "action": action,
+                "status": "skipped",
+                "reason": stop_reason.clone(),
+                "missing_aliases": missing_aliases,
+            }));
+            break;
+        }
+
+        if !auto_confirm_join {
+            let needs_preflight_confirmation = step
+                .get("execution_status")
+                .and_then(Value::as_str)
+                .map(|status| status.starts_with("needs_preflight_confirmation"))
+                .unwrap_or(false);
+            if needs_preflight_confirmation {
+                execution_status = "stopped_needs_preflight_confirmation".to_string();
+                stop_reason = Some(format!(
+                    "step `{}` requires preflight confirmation, set auto_confirm_join=true to continue",
+                    step_id
+                ));
+                stopped_at_step_id = Some(step_id.clone());
+                executed_steps.push(json!({
+                    "step_id": step_id,
+                    "action": action,
+                    "status": "skipped",
+                    "reason": stop_reason.clone(),
+                }));
+                break;
+            }
+        }
+
+        let Some(suggested_tool_call) = step.get("suggested_tool_call").cloned() else {
+            execution_status = "failed".to_string();
+            stop_reason = Some(format!("step `{}` missing suggested_tool_call", step_id));
+            stopped_at_step_id = Some(step_id.clone());
+            executed_steps.push(json!({
+                "step_id": step_id,
+                "action": action,
+                "status": "failed",
+                "reason": stop_reason.clone(),
+            }));
+            break;
+        };
+
+        let mut exec_args = json!({
+            "tool_call": suggested_tool_call,
+            "result_ref_bindings": bindings,
+        });
+        if auto_confirm_join && action == "join_preflight" {
+            exec_args["arg_overrides"] = json!({
+                "confirm_join": true
+            });
+        }
+        let response = dispatch_execute_suggested_tool_call(exec_args);
+
+        if response.status != "ok" {
+            execution_status = "failed".to_string();
+            stop_reason = response.error.clone();
+            stopped_at_step_id = Some(step_id.clone());
+            executed_steps.push(json!({
+                "step_id": step_id,
+                "action": action,
+                "status": "failed",
+                "error": response.error,
+            }));
+            break;
+        }
+
+        let output_result_ref = response
+            .data
+            .get("result_ref")
+            .and_then(Value::as_str)
+            .map(|item| item.to_string());
+        if let Some(result_ref) = output_result_ref.clone() {
+            latest_result_ref = Some(result_ref.clone());
+            if !step_result_ref_alias.is_empty() {
+                bindings.insert(step_result_ref_alias, result_ref);
+            }
+        }
+
+        executed_steps.push(json!({
+            "step_id": step_id,
+            "action": action,
+            "status": "ok",
+            "response": response.data,
+            "output_result_ref": output_result_ref,
+        }));
+    }
+
+    ToolResponse::ok(json!({
+        "execution_status": execution_status,
+        "stop_reason": stop_reason,
+        "stopped_at_step_id": stopped_at_step_id,
+        "auto_confirm_join": auto_confirm_join,
+        "executed_steps": executed_steps,
+        "result_ref_bindings": bindings,
+        "latest_result_ref": latest_result_ref,
+        "plan": plan_payload,
+    }))
 }
 
 fn dispatch_append_tables(args: Value) -> ToolResponse {

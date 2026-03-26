@@ -7116,6 +7116,22 @@ fn tool_catalog_includes_execute_suggested_tool_call() {
 }
 
 #[test]
+fn tool_catalog_includes_execute_multi_table_plan() {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    let assert = cmd.assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+    assert!(
+        json["data"]["tool_catalog"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool == "execute_multi_table_plan")
+    );
+}
+
+#[test]
 fn suggest_multi_table_plan_builds_append_chain_in_cli() {
     let request = json!({
         "tool": "suggest_multi_table_plan",
@@ -7511,7 +7527,10 @@ fn execute_suggested_tool_call_can_run_plan_step_with_result_ref_bindings() {
     });
     let append_output = run_cli_with_json(&append_exec_request.to_string());
     assert_eq!(append_output["status"], "ok");
-    let append_result_ref = append_output["data"]["result_ref"].as_str().unwrap().to_string();
+    let append_result_ref = append_output["data"]["result_ref"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     let preflight_exec_request = json!({
         "tool": "execute_suggested_tool_call",
@@ -7541,6 +7560,98 @@ fn execute_suggested_tool_call_can_run_plan_step_with_result_ref_bindings() {
     let join_output = run_cli_with_json(&join_exec_request.to_string());
     assert_eq!(join_output["status"], "ok");
     assert!(join_output["data"]["row_count"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn execute_multi_table_plan_stops_before_join_without_auto_confirm() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["execution_status"],
+        "stopped_needs_preflight_confirmation"
+    );
+    assert_eq!(
+        output["data"]["executed_steps"][0]["action"],
+        "join_preflight"
+    );
+    assert_eq!(output["data"]["executed_steps"][0]["status"], "ok");
+    assert_eq!(output["data"]["executed_steps"][1]["status"], "skipped");
+}
+
+#[test]
+fn execute_multi_table_plan_runs_join_chain_with_auto_confirm() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3,
+            "auto_confirm_join": true
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "completed");
+    assert_eq!(
+        output["data"]["executed_steps"][0]["action"],
+        "append_tables"
+    );
+    assert_eq!(
+        output["data"]["executed_steps"][1]["action"],
+        "join_preflight"
+    );
+    assert_eq!(output["data"]["executed_steps"][2]["action"], "join_tables");
+    assert!(
+        output["data"]["result_ref_bindings"]["step_1_result"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+    assert!(
+        output["data"]["result_ref_bindings"]["step_3_result"]
+            .as_str()
+            .unwrap()
+            .starts_with("result_")
+    );
+    assert_eq!(
+        output["data"]["latest_result_ref"],
+        output["data"]["result_ref_bindings"]["step_3_result"]
+    );
 }
 
 #[test]

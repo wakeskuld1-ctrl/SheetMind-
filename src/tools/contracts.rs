@@ -109,6 +109,8 @@ impl ToolResponse {
                 "suggest_multi_table_plan",
                 // 2026-03-26: 这里暴露建议调用执行入口，目的是让上层直接执行 suggested_tool_call，并按需注入 result_ref 绑定。
                 "execute_suggested_tool_call",
+                // 2026-03-26: 这里暴露多表计划一键执行入口，目的是让上层可以按计划顺序自动执行并沉淀结果映射。
+                "execute_multi_table_plan",
                 "append_tables",
                 "summarize_table",
                 "analyze_table",
