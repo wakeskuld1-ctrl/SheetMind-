@@ -21,6 +21,7 @@ Observed:
 - `failure_diagnostics.recovery_templates` provides deterministic `update_session_state` and resume calls
 - resume calls include both blocked-step replay and full-chain continuation templates
 - session state is written back to `current_stage=table_processing` with a recovery goal
+- blocked-step replay path now emits `continuation_templates.resume_full_chain` for immediate continuation
 
 Interpretation:
 - Orchestrator can now route unknown failures deterministically instead of relying on free-text parsing.
@@ -43,11 +44,13 @@ Evidence:
 - `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure/step_03_controlled_stop_missing_bindings.log`
 - `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure/step_04_controlled_stop_join_risk.log`
 - `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure/step_05_controlled_stop_preflight_confirmation.log`
+- `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure/step_06_continuation_template_after_replay.log`
 
 Observed:
 - `stopped_missing_result_bindings` still works and is unchanged
 - `stopped_join_risk_threshold` still works and is unchanged
 - `stopped_needs_preflight_confirmation` still works and is unchanged
+- replay-stop branch (`stopped_after_step_id`) now returns continuation template for full-chain continuation
 
 ## Acceptance conclusion
 

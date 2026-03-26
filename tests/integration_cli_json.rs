@@ -7893,6 +7893,14 @@ fn execute_multi_table_plan_failed_step_returns_unknown_failure_diagnostics() {
         "unknown_runtime_failure"
     );
     assert_eq!(
+        output["data"]["failure_diagnostics"]["default_template"],
+        "resume_execution"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["next_template_on_success"],
+        "resume_full_chain"
+    );
+    assert_eq!(
         output["data"]["failure_diagnostics"]["fallback_route"],
         "table_processing_diagnostics"
     );
@@ -7932,11 +7940,13 @@ fn execute_multi_table_plan_failed_step_returns_unknown_failure_diagnostics() {
         false
     );
     assert_eq!(
-        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["plan"]["steps"][0]["step_id"],
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["plan"]
+            ["steps"][0]["step_id"],
         "step_1"
     );
     assert_eq!(
-        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_full_chain"]["args"]["plan"]["steps"][0]["step_id"],
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_full_chain"]["args"]["plan"]
+            ["steps"][0]["step_id"],
         "step_1"
     );
     assert_eq!(
@@ -7987,6 +7997,10 @@ fn execute_multi_table_plan_missing_tool_call_returns_unknown_failure_diagnostic
         "unknown_runtime_failure"
     );
     assert_eq!(
+        output["data"]["failure_diagnostics"]["default_template"],
+        "resume_execution"
+    );
+    assert_eq!(
         output["data"]["failure_diagnostics"]["failed_step_id"],
         "step_1"
     );
@@ -8004,7 +8018,8 @@ fn execute_multi_table_plan_missing_tool_call_returns_unknown_failure_diagnostic
         "step_1"
     );
     assert_eq!(
-        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["plan"]["steps"][0]["step_id"],
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["plan"]
+            ["steps"][0]["step_id"],
         "step_1"
     );
     assert_eq!(
@@ -8178,6 +8193,19 @@ fn execute_multi_table_plan_stops_after_target_step_id() {
             .as_str()
             .unwrap()
             .contains("stopped after step `step_1`")
+    );
+    assert_eq!(
+        output["data"]["continuation_templates"]["default_template"],
+        "resume_full_chain"
+    );
+    assert_eq!(
+        output["data"]["continuation_templates"]["resume_full_chain"]["args"]["plan"]["steps"][0]["step_id"],
+        "step_1"
+    );
+    assert_eq!(
+        output["data"]["continuation_templates"]["resume_full_chain"]["args"]["result_ref_bindings"]
+            ["step_1_result"],
+        output["data"]["result_ref_bindings"]["step_1_result"]
     );
     assert!(output["data"]["result_ref_bindings"]["step_3_result"].is_null());
 }

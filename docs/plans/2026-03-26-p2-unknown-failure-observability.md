@@ -30,6 +30,7 @@ When unknown failure is hit, runtime now emits:
 - `failure_diagnostics.recovery_templates.resume_execution`
 - `failure_diagnostics.recovery_templates.resume_full_chain`
 - `failure_diagnostics.state_synced`
+- `continuation_templates.resume_full_chain` after blocked-step replay succeeds
 
 `stop_reason` remains for backward compatibility.
 

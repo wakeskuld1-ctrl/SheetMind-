@@ -502,3 +502,4 @@ Interpretation rule:
 - First restore missing inputs/step args in table-processing flow, then execute:
   - `recovery_templates.resume_execution` for blocked-step replay, or
   - `recovery_templates.resume_full_chain` for full continuation.
+- If replay returns `continuation_templates.default_template = resume_full_chain`, execute that template directly.

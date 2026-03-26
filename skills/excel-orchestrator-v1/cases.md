@@ -85,3 +85,4 @@
 - Recovery expectation: diagnose/fix blocked step inputs in table-processing first, then use:
   - `failure_diagnostics.recovery_templates.resume_execution` for blocked-step replay, or
   - `failure_diagnostics.recovery_templates.resume_full_chain` for full continuation.
+- If replay returns `continuation_templates`, prefer `continuation_templates.resume_full_chain` as the immediate next call.

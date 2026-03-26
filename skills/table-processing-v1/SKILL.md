@@ -375,6 +375,7 @@ Then table-processing should:
 2. Use `failure_diagnostics.failed_step_id` and `failed_action` to localize the blocked step.
 3. Check `failure_diagnostics.state_synced`; if false, run `recovery_templates.update_session_state` first.
 4. Prefer `failure_diagnostics.recovery_templates` to resume execution from the blocked step or full chain.
-5. Keep default route as diagnostics-first in table-processing, then retry after inputs are fixed.
+5. If blocked-step replay returns `continuation_templates`, use `continuation_templates.resume_full_chain` for direct continuation.
+6. Keep default route as diagnostics-first in table-processing, then retry after inputs are fixed.
 
 Do not route this branch directly into analysis-modeling or decision-assistant.

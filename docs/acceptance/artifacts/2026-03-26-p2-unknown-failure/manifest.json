@@ -6,11 +6,13 @@
     "step_02_missing_tool_call_diagnostics.log",
     "step_03_controlled_stop_missing_bindings.log",
     "step_04_controlled_stop_join_risk.log",
-    "step_05_controlled_stop_preflight_confirmation.log"
+    "step_05_controlled_stop_preflight_confirmation.log",
+    "step_06_continuation_template_after_replay.log"
   ],
   "notes": [
     "Steps 01-02 validate structured failure_diagnostics payload on unknown failure branches.",
     "Unknown-failure payload includes deterministic recovery_templates (resume_execution/resume_full_chain) and session-state writeback.",
+    "Step 06 verifies stopped_after_step_id path now emits continuation_templates.resume_full_chain.",
     "Steps 03-05 verify controlled-stop branches remain stable after diagnostics payload changes."
   ]
 }

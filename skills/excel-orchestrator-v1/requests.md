@@ -251,6 +251,8 @@
     "failure_class": "unknown_runtime_failure",
     "fallback_route": "table_processing_diagnostics",
     "fallback_message": "Execution encountered an unclassified runtime/tool failure. Route to table-processing diagnostics before retry.",
+    "default_template": "resume_execution",
+    "next_template_on_success": "resume_full_chain",
     "failed_step_id": "step_1",
     "failed_action": "join_tables",
     "failed_tool": "join_tables",
@@ -294,3 +296,25 @@
 - Current understanding: execution failed in an unclassified runtime/tool branch rather than a controlled preflight gate.
 - Current status: fallback route is `table_processing_diagnostics`; blocked step/action is provided in `failure_diagnostics`.
 - Next action: route to table-processing diagnostics first, then use `recovery_templates.resume_execution` after blocked-step inputs are fixed.
+
+### Follow-up payload after blocked-step replay success
+
+When replay call (`stop_after_step_id=<blocked_step>`) succeeds, runtime returns:
+
+```json
+{
+  "execution_status": "stopped_after_step_id",
+  "continuation_templates": {
+    "default_template": "resume_full_chain",
+    "resume_full_chain": {
+      "tool": "execute_multi_table_plan",
+      "args": {
+        "session_id": "default",
+        "plan": {"steps": [{"step_id": "step_1"}]},
+        "auto_confirm_join": false,
+        "result_ref_bindings": {}
+      }
+    }
+  }
+}
+```

@@ -2254,6 +2254,7 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
     let mut stopped_at_step_id: Option<String> = None;
     let mut latest_result_ref: Option<String> = None;
     let mut failure_diagnostics: Option<Value> = None;
+    let mut continuation_templates: Option<Value> = None;
 
     for step in steps {
         let step_id = step
@@ -2506,6 +2507,12 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
                 step_id
             ));
             stopped_at_step_id = Some(step_id);
+            continuation_templates = Some(build_multi_table_continuation_templates(
+                &session_id,
+                auto_confirm_join,
+                &plan_payload,
+                &bindings,
+            ));
             break;
         }
     }
@@ -2523,6 +2530,7 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
         "result_ref_bindings": bindings,
         "latest_result_ref": latest_result_ref,
         "failure_diagnostics": failure_diagnostics,
+        "continuation_templates": continuation_templates,
         "plan": plan_payload,
     }))
 }
@@ -2541,6 +2549,8 @@ fn build_multi_table_unknown_failure_diagnostics(
         "failure_class": MULTI_TABLE_UNKNOWN_FAILURE_CLASS,
         "fallback_route": MULTI_TABLE_UNKNOWN_FAILURE_ROUTE,
         "fallback_message": MULTI_TABLE_UNKNOWN_FAILURE_MESSAGE,
+        "default_template": "resume_execution",
+        "next_template_on_success": "resume_full_chain",
         "failed_step_id": step_id,
         "failed_action": action,
         "failed_tool": suggested_tool_call
@@ -2574,6 +2584,26 @@ fn build_multi_table_unknown_failure_diagnostics(
                     "auto_confirm_join": auto_confirm_join,
                     "result_ref_bindings": result_ref_bindings,
                 }
+            }
+        }
+    })
+}
+
+fn build_multi_table_continuation_templates(
+    session_id: &str,
+    auto_confirm_join: bool,
+    plan_payload: &Value,
+    result_ref_bindings: &BTreeMap<String, String>,
+) -> Value {
+    json!({
+        "default_template": "resume_full_chain",
+        "resume_full_chain": {
+            "tool": "execute_multi_table_plan",
+            "args": {
+                "session_id": session_id,
+                "plan": plan_payload,
+                "auto_confirm_join": auto_confirm_join,
+                "result_ref_bindings": result_ref_bindings,
             }
         }
     })

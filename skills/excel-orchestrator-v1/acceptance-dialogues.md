@@ -261,7 +261,7 @@ Continue execution and fix the blocked step.
 
 Current understanding: execution failed in an unclassified runtime/tool branch, not a controlled preflight stop.
 Current status: `failure_diagnostics` points to `failed_step_id`/`failed_action`, fallback route is `table_processing_diagnostics`, and `recovery_templates` provides deterministic resume calls (`resume_execution` / `resume_full_chain`).
-Next action: I will route to table-processing diagnostics first, fix blocked inputs, and then choose blocked-step replay or full-chain continuation.
+Next action: I will route to table-processing diagnostics first, fix blocked inputs, then run blocked-step replay; once replay succeeds I will continue with `continuation_templates.resume_full_chain`.
 Route: `table-processing-v1`.
 
 ### Pass criteria

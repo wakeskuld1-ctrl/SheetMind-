@@ -1,4 +1,5 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.62s
+   Compiling excel_skill v0.1.0 (E:\Excel\SheetMind-)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 34.23s
      Running unittests src\lib.rs (target\debug\deps\excel_skill-ef2ac20d0c62a87a.exe)
 
 running 0 tests
@@ -19,10 +20,11 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; fini
 
      Running tests\integration_cli_json.rs (target\debug\deps\integration_cli_json-7819edb17a02ac94.exe)
 
-running 1 test
+running 2 tests
+test execute_multi_table_plan_missing_tool_call_returns_unknown_failure_diagnostics ... ok
 test execute_multi_table_plan_failed_step_returns_unknown_failure_diagnostics ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 201 filtered out; finished in 0.67s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 200 filtered out; finished in 1.16s
 
      Running tests\integration_frame.rs (target\debug\deps\integration_frame-7de56704d945d5e7.exe)
 

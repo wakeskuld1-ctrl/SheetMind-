@@ -315,6 +315,7 @@ Required fields:
 - `failure_diagnostics.raw_error` for internal troubleshooting context
 - `failure_diagnostics.recovery_templates` for deterministic state-sync/resume handoff
 - `failure_diagnostics.state_synced` to confirm whether runtime session writeback succeeded
+- `continuation_templates` after blocked-step replay to continue full chain without manual assembly
 
 Routing rule:
 - default route remains `table-processing-v1`;
