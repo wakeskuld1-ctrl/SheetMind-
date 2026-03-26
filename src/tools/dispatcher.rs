@@ -2075,11 +2075,7 @@ fn resolve_multi_table_plan_for_execution(args: &Value) -> Result<Value, ToolRes
                 "execute_multi_table_plan `plan` must be an object",
             ));
         };
-        if plan_object
-            .get("steps")
-            .and_then(Value::as_array)
-            .is_none()
-        {
+        if plan_object.get("steps").and_then(Value::as_array).is_none() {
             return Err(ToolResponse::error(
                 "execute_multi_table_plan `plan.steps` must be an array",
             ));
@@ -2177,6 +2173,34 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
         .get("dry_run")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    let max_steps = match args.get("max_steps") {
+        Some(value) => match value.as_u64() {
+            Some(0) => {
+                return ToolResponse::error("execute_multi_table_plan `max_steps` must be >= 1");
+            }
+            Some(limit) => Some(limit as usize),
+            None => {
+                return ToolResponse::error("execute_multi_table_plan `max_steps` must be integer");
+            }
+        },
+        None => None,
+    };
+    let stop_after_step_id = match args.get("stop_after_step_id") {
+        Some(value) => match value.as_str() {
+            Some(step_id) if !step_id.trim().is_empty() => Some(step_id.trim().to_string()),
+            Some(_) => {
+                return ToolResponse::error(
+                    "execute_multi_table_plan `stop_after_step_id` cannot be empty",
+                );
+            }
+            None => {
+                return ToolResponse::error(
+                    "execute_multi_table_plan `stop_after_step_id` must be string",
+                );
+            }
+        },
+        None => None,
+    };
 
     let plan_payload = match resolve_multi_table_plan_for_execution(&args) {
         Ok(payload) => payload,
@@ -2185,6 +2209,20 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
     let Some(steps) = plan_payload.get("steps").and_then(Value::as_array) else {
         return ToolResponse::error("execute_multi_table_plan expected array field `steps`");
     };
+    if let Some(target_step_id) = stop_after_step_id.as_deref() {
+        let exists = steps.iter().any(|step| {
+            step.get("step_id")
+                .and_then(Value::as_str)
+                .map(|step_id| step_id == target_step_id)
+                .unwrap_or(false)
+        });
+        if !exists {
+            return ToolResponse::error(format!(
+                "execute_multi_table_plan `stop_after_step_id` not found in plan: {}",
+                target_step_id
+            ));
+        }
+    }
 
     let mut bindings = args
         .get("result_ref_bindings")
@@ -2222,6 +2260,24 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+
+        if let Some(limit) = max_steps {
+            if executed_steps.len() >= limit {
+                execution_status = "stopped_max_steps".to_string();
+                stop_reason = Some(format!(
+                    "reached max_steps={}, next step `{}` was skipped",
+                    limit, step_id
+                ));
+                stopped_at_step_id = Some(step_id.clone());
+                executed_steps.push(json!({
+                    "step_id": step_id,
+                    "action": action,
+                    "status": "skipped",
+                    "reason": stop_reason.clone(),
+                }));
+                break;
+            }
+        }
 
         let missing_aliases = step
             .get("pending_result_bindings")
@@ -2306,6 +2362,15 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
                 "tool_call": suggested_tool_call,
                 "simulated_output_result_ref": simulated_result_ref,
             }));
+            if stop_after_step_id.as_deref() == Some(step_id.as_str()) {
+                execution_status = "stopped_after_step_id".to_string();
+                stop_reason = Some(format!(
+                    "stopped after step `{}` by stop_after_step_id",
+                    step_id
+                ));
+                stopped_at_step_id = Some(step_id);
+                break;
+            }
             continue;
         }
 
@@ -2352,11 +2417,22 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
             "response": response.data,
             "output_result_ref": output_result_ref,
         }));
+        if stop_after_step_id.as_deref() == Some(step_id.as_str()) {
+            execution_status = "stopped_after_step_id".to_string();
+            stop_reason = Some(format!(
+                "stopped after step `{}` by stop_after_step_id",
+                step_id
+            ));
+            stopped_at_step_id = Some(step_id);
+            break;
+        }
     }
 
     ToolResponse::ok(json!({
         "execution_status": execution_status,
         "dry_run": dry_run,
+        "max_steps": max_steps,
+        "stop_after_step_id": stop_after_step_id,
         "stop_reason": stop_reason,
         "stopped_at_step_id": stopped_at_step_id,
         "auto_confirm_join": auto_confirm_join,

@@ -7774,8 +7774,14 @@ fn execute_multi_table_plan_accepts_explicit_plan_payload() {
     let output = run_cli_with_json(&execute_request.to_string());
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["execution_status"], "completed");
-    assert_eq!(output["data"]["executed_steps"][0]["action"], "append_tables");
-    assert_eq!(output["data"]["executed_steps"][1]["action"], "join_preflight");
+    assert_eq!(
+        output["data"]["executed_steps"][0]["action"],
+        "append_tables"
+    );
+    assert_eq!(
+        output["data"]["executed_steps"][1]["action"],
+        "join_preflight"
+    );
     assert_eq!(output["data"]["executed_steps"][2]["action"], "join_tables");
 }
 
@@ -7791,11 +7797,239 @@ fn execute_multi_table_plan_rejects_invalid_plan_payload() {
     });
     let output = run_cli_with_json(&request.to_string());
     assert_eq!(output["status"], "error");
+    assert!(output["error"].as_str().unwrap().contains("plan.steps"));
+}
+
+#[test]
+fn execute_multi_table_plan_stops_when_max_steps_reached() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3,
+            "auto_confirm_join": true,
+            "max_steps": 1
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "stopped_max_steps");
+    assert_eq!(output["data"]["max_steps"], 1);
+    assert_eq!(output["data"]["stopped_at_step_id"], "step_2");
+    assert_eq!(output["data"]["executed_steps"][0]["action"], "append_tables");
+    assert_eq!(output["data"]["executed_steps"][0]["status"], "ok");
+    assert_eq!(
+        output["data"]["executed_steps"][1]["action"],
+        "join_preflight"
+    );
+    assert_eq!(output["data"]["executed_steps"][1]["status"], "skipped");
+    assert!(
+        output["data"]["stop_reason"]
+            .as_str()
+            .unwrap()
+            .contains("reached max_steps=1")
+    );
+    assert_eq!(
+        output["data"]["latest_result_ref"],
+        output["data"]["result_ref_bindings"]["step_1_result"]
+    );
+    assert!(output["data"]["result_ref_bindings"]["step_3_result"].is_null());
+}
+
+#[test]
+fn execute_multi_table_plan_stops_after_target_step_id() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3,
+            "auto_confirm_join": true,
+            "stop_after_step_id": "step_1"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "stopped_after_step_id");
+    assert_eq!(output["data"]["stop_after_step_id"], "step_1");
+    assert_eq!(output["data"]["stopped_at_step_id"], "step_1");
+    assert_eq!(output["data"]["executed_steps"][0]["action"], "append_tables");
+    assert_eq!(output["data"]["executed_steps"][0]["status"], "ok");
+    assert!(output["data"]["executed_steps"][1].is_null());
+    assert!(
+        output["data"]["stop_reason"]
+            .as_str()
+            .unwrap()
+            .contains("stopped after step `step_1`")
+    );
+    assert!(output["data"]["result_ref_bindings"]["step_3_result"].is_null());
+}
+
+#[test]
+fn execute_multi_table_plan_dry_run_supports_stop_after_step_id() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3,
+            "auto_confirm_join": true,
+            "dry_run": true,
+            "stop_after_step_id": "step_1"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["execution_status"], "stopped_after_step_id");
+    assert_eq!(output["data"]["stopped_at_step_id"], "step_1");
+    assert_eq!(output["data"]["executed_steps"][0]["status"], "dry_run");
+    assert!(
+        output["data"]["result_ref_bindings"]["step_1_result"]
+            .as_str()
+            .unwrap()
+            .starts_with("dry_run::")
+    );
+}
+
+#[test]
+fn execute_multi_table_plan_rejects_unknown_stop_after_step_id() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_link_candidates": 3,
+            "stop_after_step_id": "step_999"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "error");
     assert!(
         output["error"]
             .as_str()
             .unwrap()
-            .contains("plan.steps")
+            .contains("stop_after_step_id")
+    );
+    assert!(output["error"].as_str().unwrap().contains("not found"));
+}
+
+#[test]
+fn execute_multi_table_plan_rejects_invalid_max_steps() {
+    let zero_request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_steps": 0
+        }
+    });
+
+    let zero_output = run_cli_with_json(&zero_request.to_string());
+    assert_eq!(zero_output["status"], "error");
+    assert!(
+        zero_output["error"]
+            .as_str()
+            .unwrap()
+            .contains("max_steps")
+    );
+    assert!(zero_output["error"].as_str().unwrap().contains(">= 1"));
+
+    let string_request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/join-orders.xlsx",
+                    "sheet": "Orders",
+                    "alias": "orders"
+                }
+            ],
+            "max_steps": "1"
+        }
+    });
+
+    let string_output = run_cli_with_json(&string_request.to_string());
+    assert_eq!(string_output["status"], "error");
+    assert!(
+        string_output["error"]
+            .as_str()
+            .unwrap()
+            .contains("must be integer")
     );
 }
 
