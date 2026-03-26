@@ -4979,7 +4979,10 @@ fn suggest_multi_table_plan_builds_join_step_for_linkable_tables() {
     assert_eq!(result.steps[0].input_refs, vec!["customers", "orders"]);
     assert_eq!(result.steps[0].execution_status, "ready");
     assert_eq!(result.steps[0].preflight_step_id, None);
-    assert_eq!(result.steps[0].suggested_tool_call["tool"], "join_preflight");
+    assert_eq!(
+        result.steps[0].suggested_tool_call["tool"],
+        "join_preflight"
+    );
     assert_eq!(
         result.steps[0].suggested_tool_call["args"]["left_on"],
         "user_id"
@@ -5106,7 +5109,10 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_for_mixed_tables() {
     assert_eq!(result.steps[1].execution_status, "needs_result_bindings");
     assert_eq!(result.steps[1].preflight_step_id, None);
     assert_eq!(result.steps[1].pending_result_bindings.len(), 1);
-    assert_eq!(result.steps[1].pending_result_bindings[0].alias, "step_1_result");
+    assert_eq!(
+        result.steps[1].pending_result_bindings[0].alias,
+        "step_1_result"
+    );
     assert_eq!(
         result.steps[1].pending_result_bindings[0].from_step_id,
         "step_1"
@@ -5115,7 +5121,10 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_for_mixed_tables() {
         result.steps[1].pending_result_bindings[0].target_path,
         "args.right.result_ref"
     );
-    assert_eq!(result.steps[1].suggested_tool_call["tool"], "join_preflight");
+    assert_eq!(
+        result.steps[1].suggested_tool_call["tool"],
+        "join_preflight"
+    );
     assert_eq!(
         result.steps[1].suggested_tool_call["args"]["left"]["path"],
         "tests/fixtures/join-customers.xlsx"
@@ -5145,7 +5154,10 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_for_mixed_tables() {
     );
     assert_eq!(result.steps[2].preflight_step_id.as_deref(), Some("step_2"));
     assert_eq!(result.steps[2].pending_result_bindings.len(), 1);
-    assert_eq!(result.steps[2].pending_result_bindings[0].alias, "step_1_result");
+    assert_eq!(
+        result.steps[2].pending_result_bindings[0].alias,
+        "step_1_result"
+    );
     assert_eq!(result.steps[2].suggested_tool_call["tool"], "join_tables");
     assert_eq!(result.unresolved_refs, vec!["step_3_result"]);
 }

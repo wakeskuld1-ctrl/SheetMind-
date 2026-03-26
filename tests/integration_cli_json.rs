@@ -7249,7 +7249,10 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_in_cli() {
         json!(["customers", "step_1_result"])
     );
     assert_eq!(output["data"]["steps"][1]["result_ref"], "step_2_preflight");
-    assert_eq!(output["data"]["steps"][1]["execution_status"], "needs_result_bindings");
+    assert_eq!(
+        output["data"]["steps"][1]["execution_status"],
+        "needs_result_bindings"
+    );
     assert_eq!(
         output["data"]["steps"][1]["pending_result_bindings"][0]["alias"],
         "step_1_result"
