@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 
 use polars::prelude::{Column, DataFrame, NamedFrom, Series};
 use serde::{Deserialize, Serialize};
@@ -6,6 +6,7 @@ use thiserror::Error;
 
 use crate::domain::handles::TableHandle;
 use crate::frame::loader::LoadedTable;
+use crate::ops::preview::preview_table;
 
 // 2026-03-22: 这里定义显性关联的保留模式，目的是把技术性 join 语义翻译成业务用户更容易理解的结果保留策略。
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -41,6 +42,33 @@ pub enum JoinError {
     // 2026-03-22: 这里包装结果 DataFrame 构建失败，目的是统一返回稳定的业务错误语义。
     #[error("无法构建关联结果表: {0}")]
     BuildFrame(String),
+    #[error("无法生成 join 预览: {0}")]
+    Preview(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct JoinPreflightPreview {
+    pub matched_row_count: usize,
+    pub left_unmatched_row_count: usize,
+    pub right_unmatched_row_count: usize,
+    pub left_duplicate_key_count: usize,
+    pub right_duplicate_key_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct JoinPreflightResult {
+    pub left_on: String,
+    pub right_on: String,
+    pub selected_keep_mode: JoinKeepMode,
+    pub join_preview: JoinPreflightPreview,
+    pub output_row_count_by_keep_mode: BTreeMap<String, usize>,
+    #[serde(default)]
+    pub result_columns: Vec<String>,
+    #[serde(default)]
+    pub preview_rows: Vec<BTreeMap<String, String>>,
+    #[serde(default)]
+    pub risk_summary: Vec<String>,
+    pub human_summary: String,
 }
 
 // 2026-03-22: 这里执行显性等值关联，目的是把多表分析真正推进到计算闭环，而不只停留在关系提示层。
@@ -131,6 +159,88 @@ pub fn join_tables(
     );
 
     Ok(LoadedTable { handle, dataframe })
+}
+
+pub fn join_preflight(
+    left: &LoadedTable,
+    right: &LoadedTable,
+    left_on: &str,
+    right_on: &str,
+    keep_mode: JoinKeepMode,
+    limit: usize,
+) -> Result<JoinPreflightResult, JoinError> {
+    if left_on.trim().is_empty() {
+        return Err(JoinError::EmptyLeftKey);
+    }
+    if right_on.trim().is_empty() {
+        return Err(JoinError::EmptyRightKey);
+    }
+
+    ensure_column_exists(&left.dataframe, left_on, "左表")?;
+    ensure_column_exists(&right.dataframe, right_on, "右表")?;
+
+    let matched_only = join_tables(left, right, left_on, right_on, JoinKeepMode::MatchedOnly)?;
+    let keep_left = join_tables(left, right, left_on, right_on, JoinKeepMode::KeepLeft)?;
+    let keep_right = join_tables(left, right, left_on, right_on, JoinKeepMode::KeepRight)?;
+    let selected_preview = match keep_mode {
+        JoinKeepMode::MatchedOnly => &matched_only,
+        JoinKeepMode::KeepLeft => &keep_left,
+        JoinKeepMode::KeepRight => &keep_right,
+    };
+
+    let matched_row_count = matched_only.dataframe.height();
+    let left_unmatched_row_count = keep_left
+        .dataframe
+        .height()
+        .saturating_sub(matched_row_count);
+    let right_unmatched_row_count = keep_right
+        .dataframe
+        .height()
+        .saturating_sub(matched_row_count);
+    let left_duplicate_key_count = duplicate_key_count(&left.dataframe, left_on, "左表")?;
+    let right_duplicate_key_count = duplicate_key_count(&right.dataframe, right_on, "右表")?;
+
+    let mut output_row_count_by_keep_mode = BTreeMap::<String, usize>::new();
+    output_row_count_by_keep_mode.insert("matched_only".to_string(), matched_row_count);
+    output_row_count_by_keep_mode.insert("keep_left".to_string(), keep_left.dataframe.height());
+    output_row_count_by_keep_mode.insert("keep_right".to_string(), keep_right.dataframe.height());
+
+    let preview = preview_table(&selected_preview.dataframe, limit)
+        .map_err(|error| JoinError::Preview(error.to_string()))?;
+    let risk_summary = build_join_preflight_risk_summary(
+        left_on,
+        right_on,
+        left_unmatched_row_count,
+        right_unmatched_row_count,
+        left_duplicate_key_count,
+        right_duplicate_key_count,
+        left.dataframe.height(),
+        right.dataframe.height(),
+    );
+
+    Ok(JoinPreflightResult {
+        left_on: left_on.to_string(),
+        right_on: right_on.to_string(),
+        selected_keep_mode: keep_mode.clone(),
+        join_preview: JoinPreflightPreview {
+            matched_row_count,
+            left_unmatched_row_count,
+            right_unmatched_row_count,
+            left_duplicate_key_count,
+            right_duplicate_key_count,
+        },
+        output_row_count_by_keep_mode,
+        result_columns: selected_preview.handle.columns().to_vec(),
+        preview_rows: preview.rows,
+        risk_summary: risk_summary.clone(),
+        human_summary: build_join_preflight_summary(
+            &keep_mode,
+            selected_preview.dataframe.height(),
+            keep_left.dataframe.height(),
+            keep_right.dataframe.height(),
+            &risk_summary,
+        ),
+    })
 }
 
 // 2026-03-22: 这里单独校验列存在性，目的是在真正关联前先返回更友好的缺列错误。
@@ -319,4 +429,91 @@ fn normalize_join_key(dtype: &polars::prelude::DataType, display_value: &str) ->
             .unwrap_or_else(|| trimmed.to_string()),
         _ => trimmed.to_string(),
     }
+}
+
+fn duplicate_key_count(
+    dataframe: &DataFrame,
+    key_column: &str,
+    side: &'static str,
+) -> Result<usize, JoinError> {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for row_index in 0..dataframe.height() {
+        let key = read_join_key(dataframe, key_column, row_index, side)?;
+        if key.is_empty() {
+            continue;
+        }
+        *counts.entry(key).or_default() += 1;
+    }
+
+    Ok(counts
+        .values()
+        .map(|count| count.saturating_sub(1))
+        .sum::<usize>())
+}
+
+fn build_join_preflight_risk_summary(
+    left_on: &str,
+    right_on: &str,
+    left_unmatched_row_count: usize,
+    right_unmatched_row_count: usize,
+    left_duplicate_key_count: usize,
+    right_duplicate_key_count: usize,
+    left_row_count: usize,
+    right_row_count: usize,
+) -> Vec<String> {
+    let mut summary = Vec::<String>::new();
+
+    if left_unmatched_row_count > 0 || right_unmatched_row_count > 0 {
+        summary.push(format!(
+            "按 `{}` -> `{}` 预估仍有 {} / {} 条记录无法匹配。",
+            left_on, right_on, left_unmatched_row_count, right_unmatched_row_count
+        ));
+    }
+
+    if left_duplicate_key_count > 0 || right_duplicate_key_count > 0 {
+        summary.push(format!(
+            "两边存在重复键（A 表 {} 条、B 表 {} 条），执行后可能扩成多对多结果。",
+            left_duplicate_key_count, right_duplicate_key_count
+        ));
+    }
+
+    if left_row_count > 0 && right_row_count > 0 {
+        let left_match_rate =
+            1.0 - (left_unmatched_row_count as f64 / left_row_count.max(1) as f64);
+        let right_match_rate =
+            1.0 - (right_unmatched_row_count as f64 / right_row_count.max(1) as f64);
+        if left_match_rate < 0.8 || right_match_rate < 0.8 {
+            summary.push(format!(
+                "当前匹配覆盖率约为 {:.0}% / {:.0}%，建议先看预览结果再决定是否正式关联。",
+                left_match_rate * 100.0,
+                right_match_rate * 100.0
+            ));
+        }
+    }
+
+    summary
+}
+
+fn build_join_preflight_summary(
+    keep_mode: &JoinKeepMode,
+    selected_row_count: usize,
+    keep_left_row_count: usize,
+    keep_right_row_count: usize,
+    risk_summary: &[String],
+) -> String {
+    let mode_label = match keep_mode {
+        JoinKeepMode::MatchedOnly => "只保留两边都有的数据",
+        JoinKeepMode::KeepLeft => "优先保留 A 表",
+        JoinKeepMode::KeepRight => "优先保留 B 表",
+    };
+    let risk_suffix = if risk_summary.is_empty() {
+        "当前没有明显的 join 风险提示。".to_string()
+    } else {
+        format!("主要风险：{}", risk_summary.join("；"))
+    };
+
+    format!(
+        "预估{}会得到 {} 行结果；如果优先保留 A 表 / B 表，则大约会得到 {} / {} 行。{}",
+        mode_label, selected_row_count, keep_left_row_count, keep_right_row_count, risk_suffix
+    )
 }

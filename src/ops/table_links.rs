@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use thiserror::Error;
@@ -16,6 +16,15 @@ pub struct LinkKeepModeOption {
 
 // 2026-03-21: 这里定义单个显性关联候选，目的是把列对、覆盖率、原因和提问话术稳定暴露给 Skill。
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TableLinkJoinPreview {
+    pub matched_row_count: usize,
+    pub left_unmatched_row_count: usize,
+    pub right_unmatched_row_count: usize,
+    pub left_duplicate_key_count: usize,
+    pub right_duplicate_key_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TableLinkCandidate {
     pub left_column: String,
     pub right_column: String,
@@ -25,6 +34,9 @@ pub struct TableLinkCandidate {
     pub right_match_rate: f64,
     pub reason: String,
     pub question: String,
+    #[serde(default)]
+    pub risk_summary: Vec<String>,
+    pub join_preview: TableLinkJoinPreview,
     #[serde(default)]
     pub keep_mode_options: Vec<LinkKeepModeOption>,
 }
@@ -50,6 +62,10 @@ struct ColumnMatchProfile {
     match_row_count: usize,
     left_match_rate: f64,
     right_match_rate: f64,
+    left_unmatched_row_count: usize,
+    right_unmatched_row_count: usize,
+    left_duplicate_key_count: usize,
+    right_duplicate_key_count: usize,
 }
 
 // 2026-03-21: 这里提供多表显性关联建议主入口，目的是在真正执行 join 之前先识别最明显的候选关系。
@@ -80,6 +96,8 @@ pub fn suggest_table_links(
                 right_match_rate: profile.right_match_rate,
                 reason: build_reason(left_column, right_column, &profile),
                 question: build_question(left_column, right_column),
+                risk_summary: build_risk_summary(left_column, right_column, &profile),
+                join_preview: build_join_preview(&profile),
                 keep_mode_options: default_keep_mode_options(),
             });
         }
@@ -122,9 +140,10 @@ pub fn suggest_table_links(
         )
     };
     let recommended_next_step = if candidates.is_empty() {
-        "建议先让用户确认哪两列是真正对应的标识列，再决定是否调用 join_tables。".to_string()
+        "建议先让用户确认哪两列是真正对应的标识列，再决定是否先调用 join_preflight 预检关联风险。"
+            .to_string()
     } else {
-        "建议先把第一个候选用业务语言问清楚，如果确认无误，再调用 join_tables。".to_string()
+        "建议先把第一个候选用业务语言问清楚，如果确认无误，先调用 join_preflight 预览风险与结果，再决定是否执行 join_tables。".to_string()
     };
 
     Ok(TableLinkSuggestionResult {
@@ -161,6 +180,10 @@ fn build_match_profile(
             match_row_count: 0,
             left_match_rate: 0.0,
             right_match_rate: 0.0,
+            left_unmatched_row_count: 0,
+            right_unmatched_row_count: 0,
+            left_duplicate_key_count: 0,
+            right_duplicate_key_count: 0,
         });
     }
 
@@ -179,6 +202,10 @@ fn build_match_profile(
         match_row_count: left_match_count.min(right_match_count),
         left_match_rate: left_match_count as f64 / left_values.len() as f64,
         right_match_rate: right_match_count as f64 / right_values.len() as f64,
+        left_unmatched_row_count: left_values.len().saturating_sub(left_match_count),
+        right_unmatched_row_count: right_values.len().saturating_sub(right_match_count),
+        left_duplicate_key_count: duplicate_key_count(&left_values),
+        right_duplicate_key_count: duplicate_key_count(&right_values),
     })
 }
 
@@ -220,6 +247,54 @@ fn build_question(left_column: &str, right_column: &str) -> String {
         "是否用 A 表 `{}` 列去关联 B 表 `{}` 列？如果两边不一致，你希望只保留两边都有的数据，还是优先保留 A 表或 B 表？",
         left_column, right_column
     )
+}
+
+fn build_risk_summary(
+    left_column: &str,
+    right_column: &str,
+    profile: &ColumnMatchProfile,
+) -> Vec<String> {
+    let mut summary = Vec::<String>::new();
+
+    if profile.left_unmatched_row_count > 0 || profile.right_unmatched_row_count > 0 {
+        summary.push(format!(
+            "按当前键预估仍有 {} / {} 条记录无法匹配，建议先确认 `{}` 与 `{}` 是否真是同一业务主键。",
+            profile.left_unmatched_row_count,
+            profile.right_unmatched_row_count,
+            left_column,
+            right_column
+        ));
+    }
+
+    if profile.left_duplicate_key_count > 0 || profile.right_duplicate_key_count > 0 {
+        summary.push(format!(
+            "`{}` / `{}` 存在重复键（A 表 {} 条、B 表 {} 条），真正关联后可能扩成多行结果。",
+            left_column,
+            right_column,
+            profile.left_duplicate_key_count,
+            profile.right_duplicate_key_count
+        ));
+    }
+
+    if profile.left_match_rate < 0.8 || profile.right_match_rate < 0.8 {
+        summary.push(format!(
+            "当前覆盖率约为 {:.0}% / {:.0}%，建议先做 join 前预览，再决定是否直接执行关联。",
+            profile.left_match_rate * 100.0,
+            profile.right_match_rate * 100.0
+        ));
+    }
+
+    summary
+}
+
+fn build_join_preview(profile: &ColumnMatchProfile) -> TableLinkJoinPreview {
+    TableLinkJoinPreview {
+        matched_row_count: profile.match_row_count,
+        left_unmatched_row_count: profile.left_unmatched_row_count,
+        right_unmatched_row_count: profile.right_unmatched_row_count,
+        left_duplicate_key_count: profile.left_duplicate_key_count,
+        right_duplicate_key_count: profile.right_duplicate_key_count,
+    }
 }
 
 // 2026-03-21: 这里给出 keep_mode 的中文选项，目的是让显性 Join 的执行选择继续保持非技术表达。
@@ -274,6 +349,15 @@ fn read_non_blank_values(
     }
 
     Ok(values)
+}
+
+fn duplicate_key_count(values: &[String]) -> usize {
+    let mut counts = BTreeMap::<&str, usize>::new();
+    for value in values {
+        *counts.entry(value.as_str()).or_default() += 1;
+    }
+
+    counts.values().map(|count| count.saturating_sub(1)).sum()
 }
 
 // 2026-03-21: 这里统一做列名规范化，目的是兼容大小写、下划线和短横线差异。

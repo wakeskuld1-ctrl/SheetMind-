@@ -76,13 +76,13 @@ pub fn suggest_table_workflow(
     if !link_result.candidates.is_empty() {
         let first_candidate = &link_result.candidates[0];
         return Ok(TableWorkflowSuggestionResult {
-            recommended_action: "join_tables".to_string(),
+            recommended_action: "join_preflight".to_string(),
             action_reason: "两张表结构不同，但已经识别到明显的显性关联候选。".to_string(),
             human_summary:
                 "当前更像是两张互相补信息的表，建议先确认显性关联列，再决定是否执行关联。"
                     .to_string(),
             recommended_next_step:
-                "建议先把第一个关联候选用业务语言问清楚；如果确认无误，再调用 join_tables。"
+                "建议先把第一个关联候选用业务语言问清楚；如果确认无误，先调用 join_preflight 预览风险与结果，再决定是否执行 join_tables。"
                     .to_string(),
             append_candidate: None,
             suggested_tool_call: Some(build_join_tool_call(left, right, first_candidate)),
@@ -143,14 +143,14 @@ fn build_append_tool_call(left: &LoadedTable, right: &LoadedTable) -> SuggestedT
     }
 }
 
-// 2026-03-22: 这里生成关联执行骨架，目的是让上层确认首个候选后可直接把建议转成 join_tables 调用。
+// 2026-03-22: 这里生成关联预检骨架，目的是让上层确认首个候选后先做 join_preflight，再决定是否执行 join_tables。
 fn build_join_tool_call(
     left: &LoadedTable,
     right: &LoadedTable,
     candidate: &TableLinkCandidate,
 ) -> SuggestedToolCall {
     SuggestedToolCall {
-        tool: "join_tables".to_string(),
+        tool: "join_preflight".to_string(),
         args: json!({
             "left": {
                 "path": left.handle.source_path(),

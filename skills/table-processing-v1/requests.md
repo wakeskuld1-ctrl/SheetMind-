@@ -368,8 +368,8 @@
 
 原因：
 
-- 当前 `dispatcher` 里的 `append_tables` 和 `join_tables` 仍只接受 `path` + `sheet` 输入
-- `step_n_result` 当前主要用于计划解释，不是已经落地的跨请求执行引用
+- 当前 `dispatcher` 已支持 `append_tables` 和 `join_tables` 消费真实 `result_ref`
+- `step_n_result` 仍是计划占位引用；如果后续步骤返回了 `pending_result_bindings`，要把前一步真实产出的 `result_ref` 填进 `result_ref_bindings`
 
 ## 2026-03-23 兼容补充
 - 如果 `open_workbook` 或 `list_sheets` 已返回 `file_ref` 与 `sheets`，后续请求优先使用 `file_ref + sheet_index`。
