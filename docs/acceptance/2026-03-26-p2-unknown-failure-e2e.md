@@ -19,6 +19,7 @@ Observed:
 - `failure_diagnostics.failed_step_id` and `failed_action` are returned
 - `failure_diagnostics.raw_error` mirrors `stop_reason`
 - `failure_diagnostics.recovery_templates` provides deterministic `update_session_state` and resume calls
+- resume calls include both blocked-step replay and full-chain continuation templates
 - session state is written back to `current_stage=table_processing` with a recovery goal
 
 Interpretation:

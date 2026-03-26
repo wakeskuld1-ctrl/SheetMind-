@@ -255,6 +255,7 @@
     "failed_action": "join_tables",
     "failed_tool": "join_tables",
     "raw_error": "join_tables 缺少 left 参数",
+    "state_synced": true,
     "recovery_templates": {
       "update_session_state": {
         "tool": "update_session_state",
@@ -268,9 +269,18 @@
         "tool": "execute_multi_table_plan",
         "args": {
           "session_id": "default",
-          "plan": {"steps": []},
+          "plan": {"steps": [{"step_id": "step_1"}]},
           "auto_confirm_join": false,
           "stop_after_step_id": "step_1",
+          "result_ref_bindings": {}
+        }
+      },
+      "resume_full_chain": {
+        "tool": "execute_multi_table_plan",
+        "args": {
+          "session_id": "default",
+          "plan": {"steps": [{"step_id": "step_1"}]},
+          "auto_confirm_join": false,
           "result_ref_bindings": {}
         }
       }

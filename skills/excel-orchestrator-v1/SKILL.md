@@ -314,6 +314,7 @@ Required fields:
 - `failure_diagnostics.failed_step_id` / `failed_action` for blocked location
 - `failure_diagnostics.raw_error` for internal troubleshooting context
 - `failure_diagnostics.recovery_templates` for deterministic state-sync/resume handoff
+- `failure_diagnostics.state_synced` to confirm whether runtime session writeback succeeded
 
 Routing rule:
 - default route remains `table-processing-v1`;

@@ -477,9 +477,18 @@ If runtime returns unknown failure diagnostics, do diagnostics-first routing bef
         "tool": "execute_multi_table_plan",
         "args": {
           "session_id": "default",
-          "plan": {"steps": []},
+          "plan": {"steps": [{"step_id": "step_1"}]},
           "auto_confirm_join": false,
           "stop_after_step_id": "step_1",
+          "result_ref_bindings": {}
+        }
+      },
+      "resume_full_chain": {
+        "tool": "execute_multi_table_plan",
+        "args": {
+          "session_id": "default",
+          "plan": {"steps": [{"step_id": "step_1"}]},
+          "auto_confirm_join": false,
           "result_ref_bindings": {}
         }
       }
@@ -490,4 +499,6 @@ If runtime returns unknown failure diagnostics, do diagnostics-first routing bef
 
 Interpretation rule:
 - `failure_diagnostics.fallback_route = table_processing_diagnostics` means do not jump directly to analysis/modeling.
-- First restore missing inputs/step args in table-processing flow, then execute `recovery_templates.resume_execution`.
+- First restore missing inputs/step args in table-processing flow, then execute:
+  - `recovery_templates.resume_execution` for blocked-step replay, or
+  - `recovery_templates.resume_full_chain` for full continuation.

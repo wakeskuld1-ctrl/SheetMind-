@@ -1,4 +1,4 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.59s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
      Running unittests src\lib.rs (target\debug\deps\excel_skill-ef2ac20d0c62a87a.exe)
 
 running 0 tests

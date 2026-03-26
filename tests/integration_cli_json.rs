@@ -7924,15 +7924,26 @@ fn execute_multi_table_plan_failed_step_returns_unknown_failure_diagnostics() {
         "table_processing"
     );
     assert_eq!(
-        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]
-            ["stop_after_step_id"],
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["stop_after_step_id"],
         "step_1"
     );
     assert_eq!(
-        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]
-            ["auto_confirm_join"],
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["auto_confirm_join"],
         false
     );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["plan"]["steps"][0]["step_id"],
+        "step_1"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_full_chain"]["args"]["plan"]["steps"][0]["step_id"],
+        "step_1"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["result_ref_bindings"],
+        json!({})
+    );
+    assert_eq!(output["data"]["failure_diagnostics"]["state_synced"], true);
 
     let state_request = json!({
         "tool": "get_session_state",
@@ -7989,10 +8000,18 @@ fn execute_multi_table_plan_missing_tool_call_returns_unknown_failure_diagnostic
         output["data"]["stop_reason"]
     );
     assert_eq!(
-        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]
-            ["stop_after_step_id"],
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["stop_after_step_id"],
         "step_1"
     );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["plan"]["steps"][0]["step_id"],
+        "step_1"
+    );
+    assert_eq!(
+        output["data"]["failure_diagnostics"]["recovery_templates"]["resume_execution"]["args"]["result_ref_bindings"],
+        json!({})
+    );
+    assert_eq!(output["data"]["failure_diagnostics"]["state_synced"], true);
 }
 
 #[test]

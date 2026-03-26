@@ -1,4 +1,4 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
      Running unittests src\lib.rs (target\debug\deps\excel_skill-ef2ac20d0c62a87a.exe)
 
 running 0 tests
@@ -22,7 +22,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; fini
 running 1 test
 test execute_multi_table_plan_stops_when_join_risk_threshold_exceeded ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 201 filtered out; finished in 0.07s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 201 filtered out; finished in 0.15s
 
      Running tests\integration_frame.rs (target\debug\deps\integration_frame-7de56704d945d5e7.exe)
 

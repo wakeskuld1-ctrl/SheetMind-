@@ -2354,13 +2354,19 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
                 &action,
                 None,
                 stop_reason.as_deref(),
+                &plan_payload,
+                &bindings,
             );
-            if let Some(sync_error) = try_sync_multi_table_unknown_failure_state(
+            let sync_error = try_sync_multi_table_unknown_failure_state(
                 &args,
                 &step_id,
                 &action,
                 stop_reason.as_deref(),
-            ) {
+            );
+            if let Some(payload) = diagnostics.as_object_mut() {
+                payload.insert("state_synced".to_string(), json!(sync_error.is_none()));
+            }
+            if let Some(sync_error) = sync_error {
                 if let Some(payload) = diagnostics.as_object_mut() {
                     payload.insert("state_sync_error".to_string(), json!(sync_error));
                 }
@@ -2426,13 +2432,19 @@ fn dispatch_execute_multi_table_plan(args: Value) -> ToolResponse {
                 &action,
                 Some(&suggested_tool_call),
                 stop_reason.as_deref(),
+                &plan_payload,
+                &bindings,
             );
-            if let Some(sync_error) = try_sync_multi_table_unknown_failure_state(
+            let sync_error = try_sync_multi_table_unknown_failure_state(
                 &args,
                 &step_id,
                 &action,
                 stop_reason.as_deref(),
-            ) {
+            );
+            if let Some(payload) = diagnostics.as_object_mut() {
+                payload.insert("state_synced".to_string(), json!(sync_error.is_none()));
+            }
+            if let Some(sync_error) = sync_error {
                 if let Some(payload) = diagnostics.as_object_mut() {
                     payload.insert("state_sync_error".to_string(), json!(sync_error));
                 }
@@ -2522,6 +2534,8 @@ fn build_multi_table_unknown_failure_diagnostics(
     action: &str,
     suggested_tool_call: Option<&Value>,
     raw_error: Option<&str>,
+    plan_payload: &Value,
+    result_ref_bindings: &BTreeMap<String, String>,
 ) -> Value {
     json!({
         "failure_class": MULTI_TABLE_UNKNOWN_FAILURE_CLASS,
@@ -2546,10 +2560,19 @@ fn build_multi_table_unknown_failure_diagnostics(
                 "tool": "execute_multi_table_plan",
                 "args": {
                     "session_id": session_id,
-                    "plan": { "steps": [] },
+                    "plan": plan_payload,
                     "auto_confirm_join": auto_confirm_join,
                     "stop_after_step_id": step_id,
-                    "result_ref_bindings": {},
+                    "result_ref_bindings": result_ref_bindings,
+                }
+            },
+            "resume_full_chain": {
+                "tool": "execute_multi_table_plan",
+                "args": {
+                    "session_id": session_id,
+                    "plan": plan_payload,
+                    "auto_confirm_join": auto_confirm_join,
+                    "result_ref_bindings": result_ref_bindings,
                 }
             }
         }
@@ -2564,7 +2587,13 @@ fn try_sync_multi_table_unknown_failure_state(
 ) -> Option<String> {
     let runtime = match memory_runtime() {
         Ok(runtime) => runtime,
-        Err(error) => return Some(error.error.unwrap_or_else(|| "memory runtime unavailable".to_string())),
+        Err(error) => {
+            return Some(
+                error
+                    .error
+                    .unwrap_or_else(|| "memory runtime unavailable".to_string()),
+            );
+        }
     };
     let session_id = session_id_from_args(args);
     let patch = SessionStatePatch {

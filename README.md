@@ -218,6 +218,7 @@ The current acceptance evidence shows that V1 can already:
 - recover ingress/runtime stops with deterministic A/B/C/D routing and unified UX wording
 - expose deterministic `failure_diagnostics` for unknown runtime/tool failure routing
 - provide deterministic state-sync/resume templates for unknown-failure recovery replay
+- support both blocked-step replay and full-chain resume templates after diagnostics
 
 ## Quick Start / 快速开始
 

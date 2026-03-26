@@ -373,7 +373,8 @@ If `execute_multi_table_plan` returns:
 Then table-processing should:
 1. Explain this is an unclassified runtime/tool failure, not a completed plan result.
 2. Use `failure_diagnostics.failed_step_id` and `failed_action` to localize the blocked step.
-3. Prefer `failure_diagnostics.recovery_templates` to sync session state and resume execution from the blocked step.
-4. Keep default route as diagnostics-first in table-processing, then retry after inputs are fixed.
+3. Check `failure_diagnostics.state_synced`; if false, run `recovery_templates.update_session_state` first.
+4. Prefer `failure_diagnostics.recovery_templates` to resume execution from the blocked step or full chain.
+5. Keep default route as diagnostics-first in table-processing, then retry after inputs are fixed.
 
 Do not route this branch directly into analysis-modeling or decision-assistant.
