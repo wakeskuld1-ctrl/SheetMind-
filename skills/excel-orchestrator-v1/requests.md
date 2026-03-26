@@ -347,3 +347,25 @@ in one call.
 
 `template_overrides` can patch only selected template args without rebuilding full `recovery_templates`.
 When `strict_template_overrides=true`, unknown override keys are rejected instead of silently ignored.
+
+## 2026-03-26 cross-layer template: route to analytics chain
+
+Use this state handoff when user asks forecast/alert, contribution attribution, or scenario simulation and table is already confirmed.
+
+```json
+{
+  "tool": "update_session_state",
+  "args": {
+    "session_id": "default",
+    "current_stage": "analysis_modeling",
+    "schema_status": "confirmed",
+    "active_table_ref": "table_1234567890",
+    "last_user_goal": "forecast -> attribution -> scenario analysis"
+  }
+}
+```
+
+Then handoff to `analysis-modeling-v1` with this execution preference:
+1) `short_term_forecast_alert`
+2) `contribution_attribution` (when warning is medium/high)
+3) `scenario_simulation`

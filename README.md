@@ -224,6 +224,9 @@ The current acceptance evidence shows that V1 can already:
 - provide one-call recovery macro (`recover_multi_table_failure`) for replay + continuation
 - allow per-template recovery arg patching via `template_overrides` (or legacy `template_arg_overrides`)
 - expose `applied_template_overrides` / `ignored_template_overrides`, and support strict override key validation
+- support short-term warning forecast via `short_term_forecast_alert`
+- support period-over-period driver decomposition via `contribution_attribution`
+- support what-if impact comparison via `scenario_simulation`
 
 ## Quick Start / 快速开始
 

@@ -528,3 +528,20 @@ Interpretation rule:
 This macro performs blocked-step replay first, then continues full chain when replay succeeds.
 Use `template_overrides` when you only need to patch selected replay/continue args.
 Use `strict_template_overrides=true` when override keys must be fully validated.
+
+### E) handoff template to analytics chain
+
+Use after table structure is confirmed and user asks forecast/attribution/scenario:
+
+```json
+{
+  "tool": "update_session_state",
+  "args": {
+    "session_id": "default",
+    "current_stage": "analysis_modeling",
+    "schema_status": "confirmed",
+    "active_table_ref": "table_1234567890",
+    "last_user_goal": "forecast -> attribution -> scenario analysis"
+  }
+}
+```

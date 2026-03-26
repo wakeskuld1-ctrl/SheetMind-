@@ -374,3 +374,70 @@
 
 - 当前分析建模层 V1 的目标是“稳态路由 + 传统计算 Tool 调用”，不是自动替用户做建模决策
 - Skill 只能组织调用，不能替 Tool 发明协议字段
+
+## 2026-03-26 templates: forecast -> attribution -> scenario
+
+### 1) short-term forecast alert
+
+```json
+{
+  "tool": "short_term_forecast_alert",
+  "args": {
+    "table_ref": "table_1234567890",
+    "time_column": "week",
+    "value_column": "sales",
+    "horizon": 4,
+    "sensitivity": 2.5
+  }
+}
+```
+
+### 2) contribution attribution
+
+```json
+{
+  "tool": "contribution_attribution",
+  "args": {
+    "table_ref": "table_1234567890",
+    "period_column": "month",
+    "dimension_column": "region",
+    "value_column": "revenue",
+    "baseline_period": "2026-01",
+    "current_period": "2026-02",
+    "top_k": 5
+  }
+}
+```
+
+### 3) scenario simulation
+
+```json
+{
+  "tool": "scenario_simulation",
+  "args": {
+    "table_ref": "table_1234567890",
+    "target_column": "revenue",
+    "driver_columns": ["price_index", "ad_spend"],
+    "scenarios": [
+      {
+        "name": "price_up_3pct",
+        "driver_changes": {
+          "price_index": 0.03
+        }
+      },
+      {
+        "name": "cut_ad_10pct",
+        "driver_changes": {
+          "ad_spend": -0.10
+        }
+      }
+    ]
+  }
+}
+```
+
+### 4) chain sequencing rule
+
+- Start from `short_term_forecast_alert` when user asks end-to-end diagnosis.
+- If watch level is medium/high, continue with `contribution_attribution`.
+- Then run `scenario_simulation` for action comparison.

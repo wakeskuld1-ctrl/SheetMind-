@@ -87,3 +87,27 @@
   - `failure_diagnostics.recovery_templates.resume_full_chain` for full continuation.
 - If replay returns `continuation_templates`, prefer `continuation_templates.resume_full_chain` as the immediate next call.
 - If user asks for one-call recovery, use `recover_multi_table_failure` with `failure_diagnostics`.
+
+## Scenario 11: user asks for short-term warning / forecast
+
+- User says: "先看未来几周有没有预警风险。"
+- Current status: `active_table_ref` is already available.
+- Target layer: `analysis-modeling-v1`.
+- Routing reason: this is analysis diagnostics intent, not table-cleanup and not pure decision-prioritization.
+- Expected first tool in target layer: `short_term_forecast_alert`.
+
+## Scenario 12: user asks who drove current change
+
+- User says: "本月变化是谁贡献的，谁在拖累？"
+- Current status: confirmed table is already active.
+- Target layer: `analysis-modeling-v1`.
+- Routing reason: this is period-over-period attribution intent.
+- Expected first tool in target layer: `contribution_attribution`.
+
+## Scenario 13: user asks for what-if action comparison
+
+- User says: "如果提价 3% 或砍投放 10%，会怎样？"
+- Current status: confirmed table is already active.
+- Target layer: `analysis-modeling-v1`.
+- Routing reason: this is scenario simulation intent.
+- Expected first tool in target layer: `scenario_simulation`.

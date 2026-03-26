@@ -323,3 +323,24 @@ Routing rule:
 - For execution handoff, you may call `recover_multi_table_failure` with `failure_diagnostics` to run replay + continuation in one request.
 - Use `template_overrides` when only selected replay/continuation args need adjustment.
 - Check `applied_template_overrides` / `ignored_template_overrides`; set `strict_template_overrides=true` when typo tolerance is not acceptable.
+
+## 2026-03-26 P1 analytics-chain routing (forecast -> attribution -> simulation)
+
+When user intent is one of:
+- short-term forecast / warning / early alert
+- explain what drove period-over-period change
+- compare what-if scenarios before action
+
+and `active_table_ref` already exists, route to `analysis-modeling-v1` directly.
+
+Default intent mapping:
+- "预警/预测/未来几周" -> `short_term_forecast_alert`
+- "贡献度/是谁拉动/拖累" -> `contribution_attribution`
+- "如果...会怎样/情景模拟" -> `scenario_simulation`
+
+If user asks for end-to-end diagnostics in one thread:
+1) run short-term forecast alert first,
+2) if warning level is medium/high, run contribution attribution,
+3) then run scenario simulation with 2-3 candidate actions.
+
+This chain stays in `analysis-modeling-v1` unless the user explicitly asks for decision prioritization, then handoff to `decision-assistant-v1`.

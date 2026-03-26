@@ -276,3 +276,78 @@ Route: `table-processing-v1`.
 - Routes directly to analysis/modeling.
 - Treats unknown failure as completed result.
 - Tries blind rerun without diagnostics.
+
+---
+
+## Scenario 10: route forecast intent to analysis-modeling
+
+### User
+
+先看未来几周有没有预警风险。
+
+### Expected Skill reply
+
+Current understanding: you want short-term risk baseline first.
+Current status: confirmed table context already exists.
+Next action: I will route to `analysis-modeling-v1` and start with `short_term_forecast_alert`.
+Route: `analysis-modeling-v1`.
+
+### Pass criteria
+
+- Routes forecast intent to analysis-modeling.
+- Uses forecast tool as first action.
+
+### Fail criteria
+
+- Routes to table-processing without need.
+- Jumps directly to scenario simulation.
+
+---
+
+## Scenario 11: route contribution intent to analysis-modeling
+
+### User
+
+这次变化是谁拉动、谁拖累？
+
+### Expected Skill reply
+
+Current understanding: you need period-over-period contribution decomposition.
+Current status: table is already confirmed for analysis.
+Next action: I will route to `analysis-modeling-v1` and call `contribution_attribution`.
+Route: `analysis-modeling-v1`.
+
+### Pass criteria
+
+- Keeps routing inside analysis-modeling.
+- Targets contribution attribution tool.
+
+### Fail criteria
+
+- Treats this as generic decision-assistant question.
+- Produces guessed ranking without tool execution.
+
+---
+
+## Scenario 12: route what-if intent to analysis-modeling
+
+### User
+
+如果提价 3% 或降投放 10%，结果会怎样？
+
+### Expected Skill reply
+
+Current understanding: you want action impact comparison before execution.
+Current status: confirmed table is available.
+Next action: I will route to `analysis-modeling-v1` and run `scenario_simulation` with your action options.
+Route: `analysis-modeling-v1`.
+
+### Pass criteria
+
+- Routes to scenario simulation path.
+- Keeps output as projected range, not deterministic promise.
+
+### Fail criteria
+
+- Routes to decision-assistant first without simulation request.
+- Commits to one action without scenario tool output.

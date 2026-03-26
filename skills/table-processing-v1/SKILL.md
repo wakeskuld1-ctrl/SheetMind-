@@ -382,3 +382,15 @@ Then table-processing should:
 9. Read `applied_template_overrides` / `ignored_template_overrides`; use `strict_template_overrides=true` if unknown override keys must fail fast.
 
 Do not route this branch directly into analysis-modeling or decision-assistant.
+
+## 2026-03-26 handoff to analytics chain
+
+After table-processing confirms a stable table (`table_ref`) and user intent changes to:
+- short-term warning forecast,
+- contribution attribution,
+- what-if scenario simulation,
+
+handoff target should be `analysis-modeling-v1`, not continued table-cleaning.
+
+Recommended handoff goal text:
+- `forecast -> attribution -> scenario analysis`

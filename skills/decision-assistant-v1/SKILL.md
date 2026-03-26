@@ -140,3 +140,12 @@ description: Use when users want a non-technical next-step recommendation on an 
 - 先说风险，再说动作
 - 先说优先级，再说可选项
 - 只用 Tool 给出的依据说人话
+
+## 2026-03-26 recommendation extension
+
+When `next_tool_suggestions` indicates operational diagnostics intent, decision-assistant may now recommend:
+- `short_term_forecast_alert` (warning baseline)
+- `contribution_attribution` (driver decomposition)
+- `scenario_simulation` (action impact comparison)
+
+Keep recommendation order as: forecast -> attribution -> scenario, unless user explicitly asks to skip steps.
