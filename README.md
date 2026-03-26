@@ -199,6 +199,9 @@ This repository already includes real-file acceptance writeups and artifacts.
 - Trial guide / 试用说明: `docs/acceptance/2026-03-22-customer-binary-trial-guide.md`
 - Real-file validation / 真实文件走查: `docs/acceptance/2026-03-22-v1-final-e2e-real-file.md`
 - Acceptance artifacts / 验收工件: `docs/acceptance/artifacts/2026-03-22-v1-final-e2e-real-file`
+- P0 risk-threshold trial guide: `docs/acceptance/2026-03-26-p0-join-risk-threshold-trial-guide.md`
+- P0 risk-threshold E2E record: `docs/acceptance/2026-03-26-p0-join-risk-threshold-e2e.md`
+- P0 risk-threshold artifacts: `docs/acceptance/artifacts/2026-03-26-p0-join-risk-threshold`
 
 The current acceptance evidence shows that V1 can already:
 

@@ -1,0 +1,14 @@
+﻿{
+    "generated_at":  "2026-03-26T10:57:30",
+    "scenarios":  [
+                      "step_01_suggest_multi_table_plan",
+                      "step_02_execute_default_guard",
+                      "step_03_execute_strict_guard",
+                      "step_04_execute_relaxed_guard"
+                  ],
+    "notes":  [
+                  "default guard is auto applied when auto_confirm_join=true",
+                  "strict guard should stop with stopped_join_risk_threshold",
+                  "relaxed guard should complete execution"
+              ]
+}
