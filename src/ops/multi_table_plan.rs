@@ -7,7 +7,16 @@ use thiserror::Error;
 use crate::frame::loader::LoadedTable;
 use crate::ops::append::{AppendError, append_tables};
 use crate::ops::join::{JoinError, JoinKeepMode, join_tables};
-use crate::ops::table_links::{TableLinkSuggestionError, suggest_table_links};
+use crate::ops::table_links::{
+    TableLinkCandidate, TableLinkJoinPreview, TableLinkSuggestionError, suggest_table_links,
+};
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct MultiTablePlanBinding {
+    pub alias: String,
+    pub from_step_id: String,
+    pub target_path: String,
+}
 
 // 2026-03-22: 这里定义多表计划步骤，目的是把“先追加、再关联”的顺序建议稳定暴露给上层 Skill。
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -17,6 +26,15 @@ pub struct MultiTablePlanStep {
     #[serde(default)]
     pub input_refs: Vec<String>,
     pub result_ref: String,
+    pub execution_status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preflight_step_id: Option<String>,
+    #[serde(default)]
+    pub pending_result_bindings: Vec<MultiTablePlanBinding>,
+    #[serde(default)]
+    pub risk_summary: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub join_preview: Option<TableLinkJoinPreview>,
     pub confidence: String,
     pub reason: String,
     pub question: String,
@@ -103,7 +121,7 @@ pub fn suggest_multi_table_plan(
     let recommended_next_step = if steps.is_empty() {
         "建议先人工确认每张表的用途，再决定是否追加或关联。".to_string()
     } else {
-        "建议先从第一步开始确认；如果确认无误，再按计划顺序执行 append_tables 或 join_tables。"
+        "建议先从第一步开始确认；追加步骤可直接执行，关联步骤建议先用 join_preflight 预览风险与结果，再执行 join_tables。"
             .to_string()
     };
 
@@ -148,12 +166,21 @@ fn build_append_steps(
             let step_id = format!("step_{}", *step_index);
             let result_ref = format!("{}_result", step_id);
             let appended = append_tables(&current.loaded, &next.loaded)?;
+            let pending_result_bindings = collect_bindings(vec![
+                binding_for_execution_ref("args.top.result_ref", &current.execution_ref),
+                binding_for_execution_ref("args.bottom.result_ref", &next.execution_ref),
+            ]);
 
             steps.push(MultiTablePlanStep {
                 step_id: step_id.clone(),
                 action: "append_tables".to_string(),
                 input_refs: vec![current.table_ref.clone(), next.table_ref.clone()],
                 result_ref: result_ref.clone(),
+                execution_status: execution_status(&pending_result_bindings, false),
+                preflight_step_id: None,
+                pending_result_bindings,
+                risk_summary: Vec::new(),
+                join_preview: None,
                 confidence: "high".to_string(),
                 reason: "这两张表列结构一致，建议先纵向追加，形成统一代表表后再继续后续分析。"
                     .to_string(),
@@ -192,7 +219,7 @@ fn build_join_steps(
     step_index: &mut usize,
 ) -> Result<Vec<PlanNode>, MultiTablePlanError> {
     loop {
-        let Some((left_index, right_index, left_on, right_on, reason, question, confidence)) =
+        let Some((left_index, right_index, candidate)) =
             find_best_join_pair(&nodes, max_link_candidates)?
         else {
             break;
@@ -203,31 +230,78 @@ fn build_join_steps(
         let right_node = nodes.remove(high_index);
         let left_node = nodes.remove(low_index);
 
+        let preflight_step_id = format!("step_{}", *step_index);
+        let preflight_result_ref = format!("{}_preflight", preflight_step_id);
+        let preflight_bindings = collect_bindings(vec![
+            binding_for_execution_ref("args.left.result_ref", &left_node.execution_ref),
+            binding_for_execution_ref("args.right.result_ref", &right_node.execution_ref),
+        ]);
+        steps.push(MultiTablePlanStep {
+            step_id: preflight_step_id.clone(),
+            action: "join_preflight".to_string(),
+            input_refs: vec![left_node.table_ref.clone(), right_node.table_ref.clone()],
+            result_ref: preflight_result_ref,
+            execution_status: execution_status(&preflight_bindings, false),
+            preflight_step_id: None,
+            pending_result_bindings: preflight_bindings.clone(),
+            risk_summary: candidate.risk_summary.clone(),
+            join_preview: Some(candidate.join_preview.clone()),
+            confidence: candidate.confidence.clone(),
+            reason: candidate.reason.clone(),
+            question: format!(
+                "是否先对 `{}` 与 `{}` 做 join_preflight，先看风险和结果规模，再决定是否正式关联？",
+                left_node.table_ref, right_node.table_ref
+            ),
+            suggested_tool_call: json!({
+                "tool": "join_preflight",
+                "args": {
+                    "left": execution_ref_payload(&left_node.execution_ref),
+                    "right": execution_ref_payload(&right_node.execution_ref),
+                    "left_on": candidate.left_column,
+                    "right_on": candidate.right_column,
+                    "keep_mode": "matched_only",
+                }
+            }),
+        });
+        *step_index += 1;
+
         let step_id = format!("step_{}", *step_index);
         let result_ref = format!("{}_result", step_id);
         let joined = join_tables(
             &left_node.loaded,
             &right_node.loaded,
-            &left_on,
-            &right_on,
+            &candidate.left_column,
+            &candidate.right_column,
             JoinKeepMode::MatchedOnly,
         )?;
+        let join_bindings = collect_bindings(vec![
+            binding_for_execution_ref("args.left.result_ref", &left_node.execution_ref),
+            binding_for_execution_ref("args.right.result_ref", &right_node.execution_ref),
+        ]);
 
         steps.push(MultiTablePlanStep {
             step_id: step_id.clone(),
             action: "join_tables".to_string(),
             input_refs: vec![left_node.table_ref.clone(), right_node.table_ref.clone()],
             result_ref: result_ref.clone(),
-            confidence,
-            reason,
-            question,
+            execution_status: execution_status(&join_bindings, true),
+            preflight_step_id: Some(preflight_step_id.clone()),
+            pending_result_bindings: join_bindings,
+            risk_summary: candidate.risk_summary.clone(),
+            join_preview: Some(candidate.join_preview.clone()),
+            confidence: candidate.confidence.clone(),
+            reason: candidate.reason.clone(),
+            question: format!(
+                "如果 `{}` 的预检结果可接受，是否确认执行 join_tables 生成 `{}`？",
+                preflight_step_id, result_ref
+            ),
             suggested_tool_call: json!({
                 "tool": "join_tables",
                 "args": {
                     "left": execution_ref_payload(&left_node.execution_ref),
                     "right": execution_ref_payload(&right_node.execution_ref),
-                    "left_on": left_on,
-                    "right_on": right_on,
+                    "left_on": candidate.left_column,
+                    "right_on": candidate.right_column,
                     "keep_mode": "matched_only",
                 }
             }),
@@ -248,18 +322,8 @@ fn build_join_steps(
 fn find_best_join_pair(
     nodes: &[PlanNode],
     max_link_candidates: usize,
-) -> Result<Option<(usize, usize, String, String, String, String, String)>, MultiTablePlanError> {
-    let mut best_pair: Option<(
-        usize,
-        usize,
-        String,
-        String,
-        String,
-        String,
-        String,
-        usize,
-        usize,
-    )> = None;
+) -> Result<Option<(usize, usize, TableLinkCandidate)>, MultiTablePlanError> {
+    let mut best_pair: Option<(usize, usize, TableLinkCandidate, usize, usize)> = None;
 
     for left_index in 0..nodes.len() {
         for right_index in (left_index + 1)..nodes.len() {
@@ -281,7 +345,7 @@ fn find_best_join_pair(
 
             // 2026-03-22: 这里显式跳过 confidence 原文、只取排序权重和命中行数，目的是修复候选元组解包错位导致的编译失败。
             let should_replace = match &best_pair {
-                Some((_, _, _, _, _, _, _, best_rank, best_match_rows)) => {
+                Some((_, _, _, best_rank, best_match_rows)) => {
                     confidence_rank > *best_rank
                         || (confidence_rank == *best_rank && match_rows > *best_match_rows)
                 }
@@ -292,11 +356,7 @@ fn find_best_join_pair(
                 best_pair = Some((
                     left_index,
                     right_index,
-                    candidate.left_column.clone(),
-                    candidate.right_column.clone(),
-                    candidate.reason.clone(),
-                    candidate.question.clone(),
-                    candidate.confidence.clone(),
+                    candidate.clone(),
                     confidence_rank,
                     match_rows,
                 ));
@@ -304,19 +364,8 @@ fn find_best_join_pair(
         }
     }
 
-    Ok(best_pair.map(
-        |(left_index, right_index, left_on, right_on, reason, question, confidence, _, _)| {
-            (
-                left_index,
-                right_index,
-                left_on,
-                right_on,
-                reason,
-                question,
-                confidence,
-            )
-        },
-    ))
+    Ok(best_pair
+        .map(|(left_index, right_index, candidate, _, _)| (left_index, right_index, candidate)))
 }
 
 // 2026-03-22: 这里把原始表引用和中间结果引用统一转成 JSON，目的是让计划步骤既能指向源表，也能指向前一步结果。
@@ -330,4 +379,42 @@ fn execution_ref_payload(reference: &ExecutionRef) -> Value {
             "result_ref": result_ref,
         }),
     }
+}
+
+fn collect_bindings(bindings: Vec<Option<MultiTablePlanBinding>>) -> Vec<MultiTablePlanBinding> {
+    bindings.into_iter().flatten().collect()
+}
+
+fn execution_status(
+    bindings: &[MultiTablePlanBinding],
+    needs_preflight_confirmation: bool,
+) -> String {
+    match (needs_preflight_confirmation, bindings.is_empty()) {
+        (true, true) => "needs_preflight_confirmation".to_string(),
+        (true, false) => "needs_preflight_confirmation_and_result_bindings".to_string(),
+        (false, true) => "ready".to_string(),
+        (false, false) => "needs_result_bindings".to_string(),
+    }
+}
+
+fn binding_for_execution_ref(
+    target_path: &str,
+    reference: &ExecutionRef,
+) -> Option<MultiTablePlanBinding> {
+    let ExecutionRef::Result { result_ref } = reference else {
+        return None;
+    };
+
+    Some(MultiTablePlanBinding {
+        alias: result_ref.clone(),
+        from_step_id: step_id_from_result_ref(result_ref),
+        target_path: target_path.to_string(),
+    })
+}
+
+fn step_id_from_result_ref(result_ref: &str) -> String {
+    result_ref
+        .strip_suffix("_result")
+        .unwrap_or(result_ref)
+        .to_string()
 }

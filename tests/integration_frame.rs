@@ -4841,7 +4841,7 @@ fn suggest_table_workflow_recommends_join_for_linkable_tables() {
     let result = suggest_table_workflow(&left, &right, 3).unwrap();
 
     // 2026-03-22: 杩欓噷閿佸畾缁撴瀯涓嶄竴鑷翠絾鏄炬€ч敭娓呮鏃朵細鎺ㄨ崘鍏宠仈锛岀洰鐨勬槸鎶娾€滃厛鍒ゆ柇鍔ㄤ綔绫诲瀷鈥濈ǔ瀹氭矇娣€鍒板伐浣滄祦灞傘€?
-    assert_eq!(result.recommended_action, "join_tables");
+    assert_eq!(result.recommended_action, "join_preflight");
     assert!(result.append_candidate.is_none());
     assert!(!result.link_candidates.is_empty());
     assert_eq!(result.link_candidates[0].left_column, "user_id");
@@ -4849,7 +4849,7 @@ fn suggest_table_workflow_recommends_join_for_linkable_tables() {
     // 2026-03-22: 杩欓噷閿佸畾宸ヤ綔娴佸缓璁細鐩存帴缁欏嚭鍏宠仈璋冪敤楠ㄦ灦锛岀洰鐨勬槸璁?Skill 鑳界洿鎺ユ壙鎺ラ涓樉鎬у€欓€夈€?
     assert_eq!(
         result.suggested_tool_call.as_ref().unwrap().tool,
-        "join_tables"
+        "join_preflight"
     );
     assert_eq!(
         result.suggested_tool_call.as_ref().unwrap().args["left_on"],
@@ -4974,11 +4974,12 @@ fn suggest_multi_table_plan_builds_join_step_for_linkable_tables() {
     .unwrap();
 
     // 2026-03-22: 杩欓噷閿佸畾鏄炬€у彲鍏宠仈鐨勫弻琛ㄤ細鐢熸垚 join 璁″垝锛岀洰鐨勬槸璁╁琛ㄨ鍒掑櫒鑳界洿鎺ユ壙鎺ュ凡瀹屾垚鐨勫叧绯诲缓璁兘鍔涖€?
-    assert_eq!(result.steps.len(), 1);
-    assert_eq!(result.steps[0].action, "join_tables");
+    assert_eq!(result.steps.len(), 2);
+    assert_eq!(result.steps[0].action, "join_preflight");
     assert_eq!(result.steps[0].input_refs, vec!["customers", "orders"]);
-    assert!(result.steps[0].question.contains("是否用"));
-    assert_eq!(result.steps[0].suggested_tool_call["tool"], "join_tables");
+    assert_eq!(result.steps[0].execution_status, "ready");
+    assert_eq!(result.steps[0].preflight_step_id, None);
+    assert_eq!(result.steps[0].suggested_tool_call["tool"], "join_preflight");
     assert_eq!(
         result.steps[0].suggested_tool_call["args"]["left_on"],
         "user_id"
@@ -4987,6 +4988,24 @@ fn suggest_multi_table_plan_builds_join_step_for_linkable_tables() {
         result.steps[0].suggested_tool_call["args"]["right_on"],
         "user_id"
     );
+
+    assert_eq!(result.steps[1].action, "join_tables");
+    assert_eq!(result.steps[1].input_refs, vec!["customers", "orders"]);
+    assert_eq!(
+        result.steps[1].execution_status,
+        "needs_preflight_confirmation"
+    );
+    assert_eq!(result.steps[1].preflight_step_id.as_deref(), Some("step_1"));
+    assert_eq!(result.steps[1].suggested_tool_call["tool"], "join_tables");
+    assert_eq!(
+        result.steps[1].suggested_tool_call["args"]["left_on"],
+        "user_id"
+    );
+    assert_eq!(
+        result.steps[1].suggested_tool_call["args"]["right_on"],
+        "user_id"
+    );
+    assert_eq!(result.unresolved_refs, vec!["step_2_result"]);
 }
 
 #[test]
@@ -5070,21 +5089,33 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_for_mixed_tables() {
     .unwrap();
 
     // 2026-03-22: 杩欓噷閿佸畾娣峰悎鍦烘櫙浼氬厛杩藉姞锛岀洰鐨勬槸闃叉璁″垝鍣ㄥ湪鍙拷鍔犳椂鐩存帴璺冲幓 join锛屽鑷存壒娆℃暟鎹病鏈夊厛鏀跺彛銆?
-    assert_eq!(result.steps.len(), 2);
+    assert_eq!(result.steps.len(), 3);
     assert_eq!(result.steps[0].action, "append_tables");
     assert_eq!(result.steps[0].input_refs, vec!["sales_a", "sales_b"]);
     assert_eq!(result.steps[0].result_ref, "step_1_result");
+    assert_eq!(result.steps[0].execution_status, "ready");
     // 2026-03-23: 这里把历史乱码断言恢复为稳定 UTF-8 文本，原因是原断言已退化成编码噪声；目的是继续校验混合计划第一步仍然是先追加。
     assert!(result.steps[0].question.contains("追加"));
     // 2026-03-22: 杩欓噷閿佸畾绗簩姝ヤ細寮曠敤绗竴姝ヤ腑闂寸粨鏋滃幓鍋氭樉鎬у叧鑱旓紝鐩殑鏄‘淇濆琛ㄨ鍒掔湡姝ｅ叿澶囬摼寮忕紪鎺掕兘鍔涳紝鑰屼笉鏄彧浼氱嫭绔嬬粰鍗曟寤鸿銆?
-    assert_eq!(result.steps[1].action, "join_tables");
+    assert_eq!(result.steps[1].action, "join_preflight");
     assert_eq!(
         result.steps[1].input_refs,
         vec!["customers", "step_1_result"]
     );
-    assert_eq!(result.steps[1].result_ref, "step_2_result");
-    assert!(result.steps[1].question.contains("是否用"));
-    assert_eq!(result.steps[1].suggested_tool_call["tool"], "join_tables");
+    assert_eq!(result.steps[1].result_ref, "step_2_preflight");
+    assert_eq!(result.steps[1].execution_status, "needs_result_bindings");
+    assert_eq!(result.steps[1].preflight_step_id, None);
+    assert_eq!(result.steps[1].pending_result_bindings.len(), 1);
+    assert_eq!(result.steps[1].pending_result_bindings[0].alias, "step_1_result");
+    assert_eq!(
+        result.steps[1].pending_result_bindings[0].from_step_id,
+        "step_1"
+    );
+    assert_eq!(
+        result.steps[1].pending_result_bindings[0].target_path,
+        "args.right.result_ref"
+    );
+    assert_eq!(result.steps[1].suggested_tool_call["tool"], "join_preflight");
     assert_eq!(
         result.steps[1].suggested_tool_call["args"]["left"]["path"],
         "tests/fixtures/join-customers.xlsx"
@@ -5101,5 +5132,20 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_for_mixed_tables() {
         result.steps[1].suggested_tool_call["args"]["right_on"],
         "user_id"
     );
-    assert_eq!(result.unresolved_refs, vec!["step_2_result"]);
+
+    assert_eq!(result.steps[2].action, "join_tables");
+    assert_eq!(
+        result.steps[2].input_refs,
+        vec!["customers", "step_1_result"]
+    );
+    assert_eq!(result.steps[2].result_ref, "step_3_result");
+    assert_eq!(
+        result.steps[2].execution_status,
+        "needs_preflight_confirmation_and_result_bindings"
+    );
+    assert_eq!(result.steps[2].preflight_step_id.as_deref(), Some("step_2"));
+    assert_eq!(result.steps[2].pending_result_bindings.len(), 1);
+    assert_eq!(result.steps[2].pending_result_bindings[0].alias, "step_1_result");
+    assert_eq!(result.steps[2].suggested_tool_call["tool"], "join_tables");
+    assert_eq!(result.unresolved_refs, vec!["step_3_result"]);
 }

@@ -2432,6 +2432,89 @@ fn join_tables_returns_reusable_result_ref_for_follow_up_analysis() {
 }
 
 #[test]
+fn join_preflight_returns_estimates_risks_and_preview_rows_in_cli() {
+    let request = json!({
+        "tool": "join_preflight",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-customers.xlsx",
+                "sheet": "Customers"
+            },
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only",
+            "limit": 5
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["left_on"], "user_id");
+    assert_eq!(output["data"]["right_on"], "user_id");
+    assert_eq!(output["data"]["selected_keep_mode"], "matched_only");
+    assert!(output["data"]["preview_rows"].is_array());
+    assert!(output["data"]["risk_summary"].is_array());
+    assert_eq!(
+        output["data"]["suggested_join_tool_call"]["tool"],
+        "join_tables"
+    );
+    assert_eq!(
+        output["data"]["suggested_join_tool_call"]["args"]["left_on"],
+        "user_id"
+    );
+    assert_eq!(
+        output["data"]["suggested_join_tool_call"]["args"]["right_on"],
+        "user_id"
+    );
+}
+
+#[test]
+fn join_preflight_confirm_join_returns_confirmed_join_tool_call_in_cli() {
+    let preflight_request = json!({
+        "tool": "join_preflight",
+        "args": {
+            "left": {
+                "path": "tests/fixtures/join-customers.xlsx",
+                "sheet": "Customers"
+            },
+            "right": {
+                "path": "tests/fixtures/join-orders.xlsx",
+                "sheet": "Orders"
+            },
+            "left_on": "user_id",
+            "right_on": "user_id",
+            "keep_mode": "matched_only",
+            "confirm_join": true
+        }
+    });
+
+    let preflight_output = run_cli_with_json(&preflight_request.to_string());
+    assert_eq!(preflight_output["status"], "ok");
+    assert_eq!(
+        preflight_output["data"]["confirmed_join_tool_call"]["tool"],
+        "join_tables"
+    );
+    assert!(
+        preflight_output["data"]["recommended_next_step"]
+            .as_str()
+            .unwrap()
+            .contains("confirmed_join_tool_call")
+    );
+
+    let confirmed_join_request = json!({
+        "tool": preflight_output["data"]["confirmed_join_tool_call"]["tool"],
+        "args": preflight_output["data"]["confirmed_join_tool_call"]["args"]
+    });
+    let join_output = run_cli_with_json(&confirmed_join_request.to_string());
+    assert_eq!(join_output["status"], "ok");
+    assert_eq!(join_output["data"]["row_count"], 3);
+}
+
+#[test]
 fn join_tables_accepts_casts_before_matching() {
     let request = json!({
         "tool": "join_tables",
@@ -5928,7 +6011,7 @@ fn suggest_table_links_returns_join_candidate_in_cli() {
         output["data"]["recommended_next_step"]
             .as_str()
             .unwrap()
-            .contains("join_tables")
+            .contains("join_preflight")
     );
 }
 
@@ -7081,17 +7164,11 @@ fn suggest_multi_table_plan_builds_join_step_in_cli() {
     let output = run_cli_with_json(&request.to_string());
 
     assert_eq!(output["status"], "ok");
-    // 2026-03-22: 这里锁定 CLI 层会把双表显性关联沉淀成一步 join 计划，目的是让 Skill 直接消费计划步骤。
-    assert_eq!(output["data"]["steps"][0]["action"], "join_tables");
-    assert!(
-        output["data"]["steps"][0]["question"]
-            .as_str()
-            .unwrap()
-            .contains("是否用")
-    );
+    assert_eq!(output["data"]["steps"][0]["action"], "join_preflight");
+    assert_eq!(output["data"]["steps"][0]["execution_status"], "ready");
     assert_eq!(
         output["data"]["steps"][0]["suggested_tool_call"]["tool"],
-        "join_tables"
+        "join_preflight"
     );
     assert_eq!(
         output["data"]["steps"][0]["suggested_tool_call"]["args"]["left_on"],
@@ -7101,6 +7178,26 @@ fn suggest_multi_table_plan_builds_join_step_in_cli() {
         output["data"]["steps"][0]["suggested_tool_call"]["args"]["right_on"],
         "user_id"
     );
+
+    assert_eq!(output["data"]["steps"][1]["action"], "join_tables");
+    assert_eq!(
+        output["data"]["steps"][1]["execution_status"],
+        "needs_preflight_confirmation"
+    );
+    assert_eq!(output["data"]["steps"][1]["preflight_step_id"], "step_1");
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["tool"],
+        "join_tables"
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["args"]["left_on"],
+        "user_id"
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["suggested_tool_call"]["args"]["right_on"],
+        "user_id"
+    );
+    assert_eq!(output["data"]["unresolved_refs"], json!(["step_2_result"]));
 }
 
 #[test]
@@ -7146,21 +7243,24 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_in_cli() {
             .contains("追加")
     );
     // 2026-03-22: 这里锁定第二步会直接引用 step_1_result 做 join，目的是确保 CLI 返回的建议调用骨架可以被 Skill 原样串接执行。
-    assert_eq!(output["data"]["steps"][1]["action"], "join_tables");
+    assert_eq!(output["data"]["steps"][1]["action"], "join_preflight");
     assert_eq!(
         output["data"]["steps"][1]["input_refs"],
         json!(["customers", "step_1_result"])
     );
-    assert_eq!(output["data"]["steps"][1]["result_ref"], "step_2_result");
-    assert!(
-        output["data"]["steps"][1]["question"]
-            .as_str()
-            .unwrap()
-            .contains("是否用")
+    assert_eq!(output["data"]["steps"][1]["result_ref"], "step_2_preflight");
+    assert_eq!(output["data"]["steps"][1]["execution_status"], "needs_result_bindings");
+    assert_eq!(
+        output["data"]["steps"][1]["pending_result_bindings"][0]["alias"],
+        "step_1_result"
+    );
+    assert_eq!(
+        output["data"]["steps"][1]["pending_result_bindings"][0]["from_step_id"],
+        "step_1"
     );
     assert_eq!(
         output["data"]["steps"][1]["suggested_tool_call"]["tool"],
-        "join_tables"
+        "join_preflight"
     );
     assert_eq!(
         output["data"]["steps"][1]["suggested_tool_call"]["args"]["left"]["path"],
@@ -7178,7 +7278,95 @@ fn suggest_multi_table_plan_builds_append_then_join_chain_in_cli() {
         output["data"]["steps"][1]["suggested_tool_call"]["args"]["right_on"],
         "user_id"
     );
-    assert_eq!(output["data"]["unresolved_refs"], json!(["step_2_result"]));
+
+    assert_eq!(output["data"]["steps"][2]["action"], "join_tables");
+    assert_eq!(
+        output["data"]["steps"][2]["input_refs"],
+        json!(["customers", "step_1_result"])
+    );
+    assert_eq!(output["data"]["steps"][2]["result_ref"], "step_3_result");
+    assert_eq!(
+        output["data"]["steps"][2]["execution_status"],
+        "needs_preflight_confirmation_and_result_bindings"
+    );
+    assert_eq!(output["data"]["steps"][2]["preflight_step_id"], "step_2");
+    assert_eq!(
+        output["data"]["steps"][2]["suggested_tool_call"]["tool"],
+        "join_tables"
+    );
+    assert_eq!(output["data"]["unresolved_refs"], json!(["step_3_result"]));
+}
+
+#[test]
+fn suggest_multi_table_plan_join_steps_can_run_preflight_then_join_in_cli() {
+    let plan_request = json!({
+        "tool": "suggest_multi_table_plan",
+        "args": {
+            "tables": [
+                {
+                    "path": "tests/fixtures/join-customers.xlsx",
+                    "sheet": "Customers",
+                    "alias": "customers"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-a.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_a"
+                },
+                {
+                    "path": "tests/fixtures/append-sales-b.xlsx",
+                    "sheet": "Sales",
+                    "alias": "sales_b"
+                }
+            ],
+            "max_link_candidates": 3
+        }
+    });
+
+    let plan_output = run_cli_with_json(&plan_request.to_string());
+    assert_eq!(plan_output["status"], "ok");
+    assert_eq!(plan_output["data"]["steps"][0]["action"], "append_tables");
+    assert_eq!(plan_output["data"]["steps"][1]["action"], "join_preflight");
+    assert_eq!(plan_output["data"]["steps"][2]["action"], "join_tables");
+
+    let append_request = json!({
+        "tool": plan_output["data"]["steps"][0]["suggested_tool_call"]["tool"],
+        "args": plan_output["data"]["steps"][0]["suggested_tool_call"]["args"]
+    });
+    let append_output = run_cli_with_json(&append_request.to_string());
+    assert_eq!(append_output["status"], "ok");
+    let append_result_ref = append_output["data"]["result_ref"]
+        .as_str()
+        .expect("append should return result_ref")
+        .to_string();
+
+    let preflight_tool = plan_output["data"]["steps"][1]["suggested_tool_call"]["tool"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut preflight_args = plan_output["data"]["steps"][1]["suggested_tool_call"]["args"].clone();
+    preflight_args["confirm_join"] = json!(true);
+    preflight_args["result_ref_bindings"] = json!({
+        "step_1_result": append_result_ref
+    });
+    let preflight_request = json!({
+        "tool": preflight_tool,
+        "args": preflight_args
+    });
+    let preflight_output = run_cli_with_json(&preflight_request.to_string());
+    assert_eq!(preflight_output["status"], "ok");
+    assert_eq!(
+        preflight_output["data"]["confirmed_join_tool_call"]["tool"],
+        "join_tables"
+    );
+
+    let join_request = json!({
+        "tool": preflight_output["data"]["confirmed_join_tool_call"]["tool"],
+        "args": preflight_output["data"]["confirmed_join_tool_call"]["args"]
+    });
+    let join_output = run_cli_with_json(&join_request.to_string());
+    assert_eq!(join_output["status"], "ok");
+    assert!(join_output["data"]["row_count"].as_u64().unwrap() > 0);
 }
 
 #[test]
@@ -7248,13 +7436,22 @@ fn suggest_multi_table_plan_preserves_mixed_source_payloads() {
         output["data"]["steps"][0]["suggested_tool_call"]["args"]["bottom"]["path"],
         "tests/fixtures/append-sales-b.xlsx"
     );
-    assert_eq!(output["data"]["steps"][1]["action"], "join_tables");
+    assert_eq!(output["data"]["steps"][1]["action"], "join_preflight");
     assert_eq!(
         output["data"]["steps"][1]["suggested_tool_call"]["args"]["left"]["table_ref"],
         customers_table_ref
     );
     assert_eq!(
         output["data"]["steps"][1]["suggested_tool_call"]["args"]["right"]["result_ref"],
+        "step_1_result"
+    );
+    assert_eq!(output["data"]["steps"][2]["action"], "join_tables");
+    assert_eq!(
+        output["data"]["steps"][2]["suggested_tool_call"]["args"]["left"]["table_ref"],
+        customers_table_ref
+    );
+    assert_eq!(
+        output["data"]["steps"][2]["suggested_tool_call"]["args"]["right"]["result_ref"],
         "step_1_result"
     );
 }
