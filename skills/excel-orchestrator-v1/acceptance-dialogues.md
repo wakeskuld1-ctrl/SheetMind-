@@ -193,3 +193,31 @@
 - 验收对话里如果提到 ASCII 临时副本，必须先出现“如果你同意”或“请先确认”这类表述。
 - 一旦文件已经打开，后续对话优先改成“第几个 Sheet”的说法。
 - 不要把内部引用名或内部链路细节直接讲给非技术用户。
+
+---
+
+## Scenario 7: controlled stop on join risk threshold
+
+### User
+
+Continue running the multi-table plan.
+
+### Expected Skill reply
+
+Current understanding: the plan did run, but runtime paused at join preflight because risk exceeded the configured safety threshold.
+Current status: this is a controlled safety stop (`stopped_join_risk_threshold`), not a generic execution failure.
+Next action: I will route to table-processing flow first to reduce unmatched/duplicate key risk, or if you confirm, we can rerun with higher thresholds.
+Route: `table-processing-v1` by default.
+
+### Pass criteria
+
+- Clearly distinguishes safety stop vs system failure.
+- Surfaces breach metrics in plain language.
+- Does not auto-retry with higher thresholds.
+- Asks user to confirm before any threshold increase rerun.
+
+### Fail criteria
+
+- Treats risk-threshold stop as generic crash.
+- Retries automatically with looser guard.
+- Skips user confirmation for threshold increase.

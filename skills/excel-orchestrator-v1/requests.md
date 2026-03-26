@@ -151,3 +151,58 @@
 - 如果总入口已经拿到 `file_ref` 与 `sheets`，后续交接优先让下层按 `file_ref + sheet_index` 继续。
 - 面向用户时统一说“第几个 Sheet”，不要再要求用户重复输入中文 Sheet 名。
 - 如果需要复制到 ASCII 临时路径，必须先征求用户确认。
+
+## 2026-03-26 cross-layer template: stopped_join_risk_threshold
+
+### Trigger payload (from runtime)
+
+```json
+{
+  "execution_status": "stopped_join_risk_threshold",
+  "stopped_at_step_id": "step_2",
+  "executed_steps": [
+    {
+      "step_id": "step_2",
+      "action": "join_preflight",
+      "join_risk_guard_breaches": [
+        "left_unmatched_row_count=28 exceeds max_left_unmatched_rows=10"
+      ]
+    }
+  ]
+}
+```
+
+### Orchestrator response template
+
+- Current understanding: execution paused by safety guard, not by parser/runtime crash.
+- Current status: join preflight indicates risk above threshold.
+- Next action: ask user to choose safe cleanup first or explicit threshold increase and rerun.
+
+### Optional state write before routing to cleanup
+
+```json
+{
+  "tool": "update_session_state",
+  "args": {
+    "session_id": "default",
+    "current_stage": "table_processing",
+    "last_user_goal": "resolve join risk threshold stop"
+  }
+}
+```
+
+### Follow-up rerun request template (only after explicit user confirmation)
+
+```json
+{
+  "tool": "execute_multi_table_plan",
+  "args": {
+    "plan": {"steps": []},
+    "auto_confirm_join": true,
+    "max_left_unmatched_rows": 30,
+    "max_right_unmatched_rows": 30,
+    "max_left_duplicate_keys": 10,
+    "max_right_duplicate_keys": 10
+  }
+}
+```

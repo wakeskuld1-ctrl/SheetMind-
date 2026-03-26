@@ -245,3 +245,31 @@ description: Use when users interact with this Excel product from a single conve
 - 如果已经拿到 `file_ref` 与 `sheets`，后续优先按“第几个 Sheet”继续，不要再要求用户重复输入中文 Sheet 名。
 - 如果需要走 ASCII 临时副本恢复，必须先征求用户确认；在用户确认前，只能说明方案，不能直接复制。
 - 只要系统能定位文件，但 Tool 在中文路径上失败，就先解释为“路径/兼容问题”，不要直接说成文件损坏。
+
+## 2026-03-26 P0 risk-threshold stop handling
+
+When `execute_multi_table_plan` returns `execution_status = "stopped_join_risk_threshold"`, orchestrator must treat it as a controlled safety stop, not a generic failure.
+
+Required behavior:
+- Explain that runtime stopped at `join_preflight` because risk exceeded configured guard.
+- Read and surface `executed_steps[n].join_risk_guard_breaches` in plain business language.
+- Do not auto-retry with looser thresholds.
+- Ask user to choose one path:
+  1) go back to table-processing flow to clean keys / reduce unmatched rows;
+  2) keep current data and rerun with explicitly higher thresholds.
+
+Routing rule:
+- Default route: `table-processing-v1` (safe-first).
+- Only route to direct rerun path after explicit user confirmation.
+
+State sync recommendation (if explicit write is needed):
+```json
+{
+  "tool": "update_session_state",
+  "args": {
+    "session_id": "default",
+    "current_stage": "table_processing",
+    "last_user_goal": "resolve join risk threshold stop"
+  }
+}
+```

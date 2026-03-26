@@ -59,3 +59,11 @@
 ## 2026-03-23 兼容补充
 - 涉及中文路径恢复的案例里，要先明确这是“路径/兼容问题”，不要提前说成文件损坏。
 - 一旦文件成功打开，后续案例默认按“第几个 Sheet”继续，不再要求用户重复输入中文 Sheet 名。
+
+## Scenario 8: auto plan execution stopped by join risk threshold
+
+- User says: continue execution, but keep it safe.
+- Current status: runtime returned `execution_status=stopped_join_risk_threshold` with breach metrics.
+- Target layer: `table-processing-v1` by default.
+- Routing reason: this is a controlled risk gate; first action should be key cleanup / join condition correction, not blind retry.
+- Alternative path: rerun with custom thresholds only after explicit user confirmation.
