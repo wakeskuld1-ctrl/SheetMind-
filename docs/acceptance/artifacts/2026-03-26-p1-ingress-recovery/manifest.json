@@ -1,0 +1,19 @@
+{
+  "generated_at": "2026-03-26T23:00:00+08:00",
+  "scope": "P1 ingress recovery hardening",
+  "evidence": [
+    "step_00_path_input_validation.log",
+    "step_01_stopped_needs_preflight_confirmation.log",
+    "step_02_stopped_missing_result_bindings.log",
+    "step_03_stopped_join_risk_threshold.log",
+    "step_04_default_guard_auto_confirm.log",
+    "step_05_chinese_path_windows.log",
+    "step_06_chinese_path_gbk_payload.log"
+  ],
+  "notes": [
+    "All listed tests were executed on branch codex/p0-preflight-chain.",
+    "Step 00 covers path-input validation guard for open_workbook.",
+    "Step 02 covers controlled stop status stopped_missing_result_bindings.",
+    "Steps 05-06 cover Chinese path ingestion compatibility in CLI runtime."
+  ]
+}

@@ -7818,6 +7818,53 @@ fn execute_multi_table_plan_dry_run_still_honors_preflight_gate() {
 }
 
 #[test]
+fn execute_multi_table_plan_stops_when_result_bindings_are_missing() {
+    let request = json!({
+        "tool": "execute_multi_table_plan",
+        "args": {
+            "plan": {
+                "steps": [
+                    {
+                        "step_id": "step_1",
+                        "action": "join_tables",
+                        "pending_result_bindings": [
+                            {
+                                "alias": "step_0_result",
+                                "from_step_id": "step_0"
+                            }
+                        ],
+                        "suggested_tool_call": {
+                            "tool": "join_tables",
+                            "args": {}
+                        }
+                    }
+                ]
+            }
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["execution_status"],
+        "stopped_missing_result_bindings"
+    );
+    assert_eq!(output["data"]["stopped_at_step_id"], "step_1");
+    assert_eq!(output["data"]["executed_steps"][0]["action"], "join_tables");
+    assert_eq!(output["data"]["executed_steps"][0]["status"], "skipped");
+    assert_eq!(
+        output["data"]["executed_steps"][0]["missing_aliases"][0],
+        "step_0_result"
+    );
+    assert!(
+        output["data"]["stop_reason"]
+            .as_str()
+            .unwrap()
+            .contains("missing result_ref_bindings")
+    );
+}
+
+#[test]
 fn execute_multi_table_plan_accepts_explicit_plan_payload() {
     let plan_request = json!({
         "tool": "suggest_multi_table_plan",
