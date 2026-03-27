@@ -93,3 +93,26 @@
 ### 记忆点（可选）
 - 在 Windows PowerShell 下不要把需要串行依赖的 Git 命令并行执行，也不要直接用 `&&`；切分支、合并、推送要分步做，否则容易出现状态判断错位。
 - 处理 Rust 子仓 gate 问题时，先确认 `cargo` 是不是从正确仓库根目录执行，避免把 `.cargo/config.toml` 没生效误判成代码故障。
+## 2026-03-27
+### 修改内容
+- [docs/plans/2026-03-27-scenes-handoff-index.md](/E:/Excel/SheetMind-/docs/plans/2026-03-27-scenes-handoff-index.md) 新增系统级 handoff 索引文档，明确 `SheetMind-` 与 `SheetMind-Scenes` 的仓库边界、依赖关系、当前进度、关键文件和推荐接续顺序，目的是让其他 AI 在 GitHub 上先从主仓理解系统能力，再进入场景仓继续开发。
+
+### 修改原因
+- `SheetMind-Scenes` 当前虽然已经推进到补货影子运行阶段，但它直接依赖主仓的 `join_preflight`、多表执行、`result_ref` 和运行时约定。
+- 如果 handoff 只放在 `SheetMind-Scenes`，其他 AI 容易丢掉主仓能力上下文，导致后续扩展时重复造轮子或偏离现有口径。
+- 因此需要在主仓保留一份系统级接续索引，作为 GitHub 上的统一入口。
+
+### 方案还差什么?
+- [ ] 把 `SheetMind-Scenes` 初始化为独立 Git 仓库并提交当前实现与日志。
+- [ ] 视情况为 `SheetMind-Scenes` 创建远端仓库，形成“主仓索引 + 场景仓实现”的双仓结构。
+- [ ] 后续如真实业务接入补货影子运行，需要再把真实数据目录规范和主仓导出格式写成可执行接入文档。
+
+### 潜在问题
+- [ ] 当前主仓只记录系统级 handoff，场景实现代码仍在 `SheetMind-Scenes` 本地目录，GitHub 上还不能直接查看全部补货代码。
+- [ ] `SheetMind-` 当前工作树存在未提交的用户改动 `tests/integration_cli_json.rs`，本次提交必须继续严格隔离，避免混入无关内容。
+
+### 关闭项
+- 已补充 `SheetMind-` 主仓 handoff 索引文档，能明确回答“补货线做到哪了、依赖主仓什么能力、其他 AI 应该先看哪里”。
+
+### 记忆点（可选）
+- 用户确认 handoff 不能只放在 `SheetMind-Scenes`，因为它依赖 `SheetMind-` 本身能力；后续仓库组织要坚持“主仓记系统级边界，场景仓记实现细节”。
