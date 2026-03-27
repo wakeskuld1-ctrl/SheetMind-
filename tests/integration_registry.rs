@@ -80,7 +80,7 @@ fn stored_region_table_ref_round_trips_and_reloads_same_region() {
     std::fs::create_dir_all(&store_dir).unwrap();
     let store = TableRefStore::new(store_dir);
 
-    let _record = PersistedTableRef::new_for_test(
+    let record = PersistedTableRef::new_for_test(
         "table_region_roundtrip",
         "tests/runtime_fixtures/generated_workbooks/region_seed_placeholder.xlsx",
         "Report",
@@ -94,6 +94,8 @@ fn stored_region_table_ref_round_trips_and_reloads_same_region() {
         Some("B3:D5".to_string()),
     );
 
+    // 2026-03-27: 这里补回 region table_ref 的显式落盘步骤，原因是这条回归测试要验证“保存后再读回”的真实 round-trip，而不是只构造内存对象；目的是修复主线既有的漏存盘假阳性用例。
+    store.save(&record).unwrap();
     let loaded = store.load("table_region_roundtrip").unwrap();
     assert_eq!(loaded.region.as_deref(), Some("B3:D5"));
 }
