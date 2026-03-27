@@ -422,6 +422,15 @@ For customer-safe P0 execution, the recommended path is:
 }
 ```
 
+<!-- 2026-03-27 20:21:00 +08:00 修改原因与目的：新增跨仓门禁入口说明，支持 SheetMind- 与 SheetMind-Scenes 一次性联跑回归。 -->
+## Cross-Repo Gates
+
+Run unified regression + contract gates across both repositories:
+
+```powershell
+E:\Excel\SheetMind-\scripts\run_cross_repo_gates.ps1 -Suite all
+```
+
 When `auto_confirm_join=true` and no thresholds are provided, runtime applies defaults:
 
 - `max_left_unmatched_rows = 10`

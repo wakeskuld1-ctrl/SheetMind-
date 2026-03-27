@@ -7006,8 +7006,8 @@ fn suggest_table_workflow_recommends_join_in_cli() {
     let output = run_cli_with_json(&request.to_string());
 
     assert_eq!(output["status"], "ok");
-    // 2026-03-22: 这里锁定 CLI 层会把显性关联作为下一步动作推荐，目的是让上层直接承接 join 确认问题。
-    assert_eq!(output["data"]["recommended_action"], "join_tables");
+    // 2026-03-22: 这里锁定 CLI 层会先推荐显性关联预检，目的是让上层先承接 join 风险确认，再决定是否执行 join_tables。
+    assert_eq!(output["data"]["recommended_action"], "join_preflight");
     assert_eq!(
         output["data"]["link_candidates"][0]["left_column"],
         "user_id"
@@ -7016,7 +7016,7 @@ fn suggest_table_workflow_recommends_join_in_cli() {
         output["data"]["link_candidates"][0]["right_column"],
         "user_id"
     );
-    assert_eq!(output["data"]["suggested_tool_call"]["tool"], "join_tables");
+    assert_eq!(output["data"]["suggested_tool_call"]["tool"], "join_preflight");
     assert_eq!(
         output["data"]["suggested_tool_call"]["args"]["left_on"],
         "user_id"
@@ -7071,7 +7071,7 @@ fn suggest_table_workflow_preserves_nested_source_payloads_in_tool_call() {
 
     let output = run_cli_with_json(&request.to_string());
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["recommended_action"], "join_tables");
+    assert_eq!(output["data"]["recommended_action"], "join_preflight");
     assert_eq!(
         output["data"]["suggested_tool_call"]["args"]["left"]["table_ref"],
         table_ref
