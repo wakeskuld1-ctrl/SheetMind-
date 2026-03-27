@@ -19,3 +19,6 @@
 - 2026-03-27: Landed `tradingagents.disclosure_runner` as the unified orchestration layer that builds stable runtime paths, runs CNInfo ingestion plus SSE verification, and writes `run_summary.json`.
 - 2026-03-27: Reproduced and fixed a Typer CLI packaging bug where the single-command app swallowed the `run` subcommand; `cli.disclosure` now keeps an explicit root callback so `run` remains stable.
 - 2026-03-27: Verified the M3-4 slice with `python -m pytest tests/test_disclosure_runner.py` and the broader disclosure regression suite with `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py tests/test_disclosure_runner.py`.
+- 2026-03-27: Added market-routing red tests so `tradingagents.disclosure_runner` must explicitly distinguish SSE, SZSE, and BSE tickers instead of hard-coding `CN-SH`.
+- 2026-03-27: Implemented `DisclosureMarketRoute` and `resolve_disclosure_market_route()` so the unified runner now records market metadata and only invokes the SSE verifier on SSE-routed tickers.
+- 2026-03-27: Verified the M3-5 routing slice with `python -m pytest tests/test_disclosure_runner.py` and re-ran the disclosure regression suite with `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py tests/test_disclosure_runner.py`.

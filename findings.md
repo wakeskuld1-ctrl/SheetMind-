@@ -14,3 +14,5 @@
 - A live SSE verification against stored CNInfo rows for ticker `600519` over `2026-03-01` to `2026-03-27` produced a full match set: 2 matched rows, 0 SSE-only rows, and 0 CNInfo-only rows.
 - Typer will collapse a single-command application into that command unless the app is forced to stay as a group; this breaks a future packaged entry when users invoke `disclosure run ...`.
 - A stable M3-4 seam is now in place: one runner function owns runtime-path selection, SQLite location, snapshot root, and JSON summary emission, which keeps later no-Python packaging work isolated from fetcher internals.
+- The unified runner originally normalized every ticker as `CN-SH` during verification; without explicit routing, Shenzhen and Beijing symbols would silently enter the wrong comparison path.
+- A workable M3-5 compromise is to make routing market-aware now, but keep verification-source enablement conservative: only SSE-routed tickers invoke the SSE verifier until SZSE/BSE verifiers exist.

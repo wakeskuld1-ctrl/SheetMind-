@@ -133,3 +133,34 @@
 ### 记忆点（可选）
 - 用户要求“先给方案、批准后再改代码”，本轮继续按已批准的方案 1 执行，不擅自扩范围。
 - 用户希望最终交付降低门槛，不要求普通用户安装完整 Python 环境；因此实现上要优先收敛统一入口和固定产物路径。
+
+## 2026-03-27
+### 修改内容
+- `tests/test_disclosure_runner.py`：追加 M3-5 市场路由失败测试，覆盖 `600519 -> SSE`、`000001 -> SZSE`、`430047 -> BSE` 的路由判定，以及非沪市样本在 `verify_sse=True` 时不得误调用上交所校验器，目的是先把 runner 的市场分流行为钉死。
+- `tradingagents/disclosure_runner.py`：新增 `DisclosureMarketRoute`、`resolve_disclosure_market_route()`、`_build_market_route()`，并让 `DisclosureRunSummary` 输出 `market_key`、`exchange`、`verification_source`，目的是移除统一入口对 `CN-SH` 的硬编码假设。
+- `tradingagents/disclosure_runner.py`：调整 `run_disclosure_pipeline()`，仅在路由到 `SSE` 时才启用 `SseAnnouncementVerifier`，其余市场先保持“可抓取、可落盘、校验跳过”的稳定行为，避免深市/北交所样本误走上交所校验逻辑。
+- `task_plan.md`、`progress.md`、`findings.md`：追加 M3-5 完成记录与新发现，目的是让后续 AI 能直接看出“市场感知路由已完成，但非沪市校验器尚未接入”。
+
+### 修改原因
+- 用户批准按方案 2 推进，当前目标是先修正架构层面的市场路由问题，而不是继续扩新数据源。
+- 现有 runner 在校验阶段把所有 ticker 都按 `CN-SH` 规范化，这会让深市和北交所代码得到错误的规范化结果，并存在误用 SSE 校验器的风险。
+- 在深市/北交所官方校验链路尚未实现前，最稳妥的策略是先把“识别对、只在支持的市场启用校验器”落实到统一入口。
+
+### 方案还差什么?
+- [ ] 还未实现深交所官方披露校验器，因此 `CN-SZ` 路由当前只做抓取与落盘，不做官方交叉校验。
+- [ ] 还未实现北交所或港股官方披露校验器，因此 `CN-BJ`、`HK` 仍处于“路由已识别、校验未启用”的阶段。
+- [ ] 还未把市场路由信息在 CLI 文本输出中显式打印，当前先写入 `run_summary.json`。
+
+### 潜在问题
+- [ ] 当前路由判定优先依赖代码后缀和常见前缀规则，若后续接入更复杂证券类型，可能需要引入源级元数据确认。
+- [ ] `verification_source=None` 目前代表“当前无可用官方校验器”，后续若增加多市场校验器，需要补更细的状态字段，避免和“用户主动关闭校验”混淆。
+- [ ] 这次修复只解决了 runner 的市场分流问题，并没有新增深市/北交所真实校验覆盖率。
+
+### 关闭项
+- 已通过 `python -m pytest tests/test_disclosure_runner.py`。
+- 已通过 `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py tests/test_disclosure_runner.py`。
+- 已复现并修复“统一 runner 在校验阶段硬编码 `CN-SH` 导致非沪市样本路由错误”的问题。
+
+### 记忆点（可选）
+- 用户当前接受“先把架构边界修正，再决定是否扩新源或新校验器”的推进方式，因此这轮只做市场感知路由，不额外扩范围。
+- 用户希望后续能继续推送给其他 AI 接续，所以记录文件和 `CHANGELOG_TASK.MD` 必须持续保持可交接状态。

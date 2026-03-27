@@ -15,7 +15,7 @@ from tradingagents.dataflows.disclosure_sse_verifier import (
 from tradingagents.dataflows.disclosure_store import DisclosureStore
 
 
-# 2026-03-27: M3-4 统一运行时路径先集中定义，目的是让后续打包成便携版或 exe 时不依赖开发目录结构。
+# 2026-03-27: M3-4 统一运行时路径集中定义，目的是让后续便携版或 exe 包装时不依赖开发目录结构。
 @dataclass(slots=True)
 class DisclosureRuntimePaths:
     db_path: Path
@@ -23,7 +23,17 @@ class DisclosureRuntimePaths:
     report_path: Path
 
 
+# 2026-03-27: M3-5 新增市场路由对象，目的是把“代码 -> 市场 -> 校验源”的决策从 runner 主流程中拆出来。
+@dataclass(slots=True)
+class DisclosureMarketRoute:
+    market_key: str
+    exchange: str
+    normalized_ticker: str
+    verification_source: str | None = None
+
+
 # 2026-03-27: M3-4 统一摘要对象用于 CLI 输出和 JSON 报告落盘，目的是固定入口行为便于打包与自动化。
+# 2026-03-27 追加：M3-5 补充市场路由元数据，原因是后续深市/北交所/港股扩展需要在报告里明确当前运行按哪个市场决策。
 @dataclass(slots=True)
 class DisclosureRunSummary:
     ticker: str
@@ -37,6 +47,9 @@ class DisclosureRunSummary:
     db_path: Path
     snapshot_root: Path
     report_path: Path
+    market_key: str | None = None
+    exchange: str | None = None
+    verification_source: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         # 2026-03-27: JSON 报告对 Path 做显式字符串化，避免不同运行环境序列化结果不一致。
@@ -58,7 +71,7 @@ def build_disclosure_runtime_paths(
     start_date: str,
     end_date: str,
 ) -> DisclosureRuntimePaths:
-    # 2026-03-27: 运行时路径按“缓存”和“报告”分层，目的是让最终便携版或 exe 使用时目录结构稳定可预期。
+    # 2026-03-27: 运行时路径按“缓存”和“报告”分层，目的是让最终便携版使用时目录结构稳定可预期。
     root = Path(data_root) if data_root else get_default_disclosure_data_root()
     safe_ticker = _slugify_runtime_part(ticker)
     safe_range = f"{_slugify_runtime_part(start_date)}_{_slugify_runtime_part(end_date)}"
@@ -78,6 +91,39 @@ def get_default_disclosure_data_root() -> Path:
     return Path.home() / ".tradingagents" / "disclosure"
 
 
+def resolve_disclosure_market_route(ticker: str) -> DisclosureMarketRoute:
+    # 2026-03-27: M3-5 先用轻量代码规则做市场路由，目的是先移除 runner 对 `CN-SH` 的硬编码依赖。
+    # 2026-03-27 追加：当前只给上交所挂接校验器，其它市场保持“可抓取、可落盘、校验先跳过”的稳定行为。
+    compact = re.sub(r"[^0-9A-Za-z.]", "", ticker or "").upper()
+    if not compact:
+        raise ValueError("ticker must not be empty")
+
+    code = compact
+    suffix = None
+    if "." in compact:
+        code, suffix = compact.rsplit(".", 1)
+        suffix = suffix.upper()
+
+    if suffix == "SH":
+        return _build_market_route("CN-SH", "SSE", compact, "sse")
+    if suffix == "SZ":
+        return _build_market_route("CN-SZ", "SZSE", compact, None)
+    if suffix == "BJ":
+        return _build_market_route("CN-BJ", "BSE", compact, None)
+    if suffix == "HK":
+        return _build_market_route("HK", "HKEX", compact, None)
+
+    # 2026-03-27: A 股首版先按常见证券代码前缀做显式分流，避免 000001 这类深市代码被误当成沪市去校验。
+    if code.startswith(("4", "8")):
+        return _build_market_route("CN-BJ", "BSE", code, None)
+    if code.startswith(("0", "1", "2", "3")):
+        return _build_market_route("CN-SZ", "SZSE", code, None)
+    if code.startswith(("5", "6", "7", "9")):
+        return _build_market_route("CN-SH", "SSE", code, "sse")
+
+    raise ValueError(f"Unable to resolve disclosure market route for ticker '{ticker}'")
+
+
 def run_disclosure_pipeline(
     ticker: str,
     start_date: str,
@@ -89,19 +135,21 @@ def run_disclosure_pipeline(
     sse_verifier: SseAnnouncementVerifier | None = None,
 ) -> DisclosureRunSummary:
     # 2026-03-27: 统一入口先串起“巨潮抓取 + 上交所校验”，目的是给未来免环境交付提供稳定编排层。
+    # 2026-03-27 追加：M3-5 在入口处先解析市场路由，原因是校验器选择和 ticker 规范化不能再默认按沪市处理。
     paths = build_disclosure_runtime_paths(
         data_root=data_root,
         ticker=ticker,
         start_date=start_date,
         end_date=end_date,
     )
+    route = resolve_disclosure_market_route(ticker)
+
     paths.db_path.parent.mkdir(parents=True, exist_ok=True)
     paths.snapshot_root.mkdir(parents=True, exist_ok=True)
     paths.report_path.parent.mkdir(parents=True, exist_ok=True)
 
     store = DisclosureStore(paths.db_path)
     cninfo_client = cninfo_client or CninfoDisclosureClient()
-    sse_verifier = sse_verifier or SseAnnouncementVerifier()
 
     cninfo_events = []
     if fetch_cninfo:
@@ -117,7 +165,9 @@ def run_disclosure_pipeline(
     matched_count = 0
     sse_only_count = 0
     cninfo_only_count = 0
-    if verify_sse:
+    if verify_sse and route.verification_source == "sse":
+        # 2026-03-27: 当前只有上交所校验器已实现，因此只在沪市路由下启用它，避免深市/北交所误走错误对比逻辑。
+        sse_verifier = sse_verifier or SseAnnouncementVerifier()
         sse_records = sse_verifier.fetch_bulletins(
             ticker=ticker,
             start_date=start_date,
@@ -125,7 +175,7 @@ def run_disclosure_pipeline(
         )
         comparison = compare_sse_bulletins_with_store(
             store=store,
-            ticker_normalized=normalize_disclosure_ticker("CN-SH", ticker),
+            ticker_normalized=route.normalized_ticker,
             start_date=start_date,
             end_date=end_date,
             sse_rows=[
@@ -157,12 +207,30 @@ def run_disclosure_pipeline(
         db_path=paths.db_path,
         snapshot_root=paths.snapshot_root,
         report_path=paths.report_path,
+        market_key=route.market_key,
+        exchange=route.exchange,
+        verification_source=route.verification_source,
     )
     paths.report_path.write_text(
         json.dumps(summary.to_dict(), ensure_ascii=False, indent=2, sort_keys=True),
         encoding="utf-8",
     )
     return summary
+
+
+def _build_market_route(
+    market_key: str,
+    exchange: str,
+    ticker: str,
+    verification_source: str | None,
+) -> DisclosureMarketRoute:
+    # 2026-03-27: 路由构造单独收口，目的是避免每个分支重复 ticker 规范化和对象拼装逻辑。
+    return DisclosureMarketRoute(
+        market_key=market_key,
+        exchange=exchange,
+        normalized_ticker=normalize_disclosure_ticker(market_key, ticker),
+        verification_source=verification_source,
+    )
 
 
 def _slugify_runtime_part(value: str) -> str:

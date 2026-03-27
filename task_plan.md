@@ -11,6 +11,7 @@ Build the first M3 disclosure-data foundation for TradingAgents: a unified discl
 - [x] Phase 5: Run targeted verification, execute one live fetch, and update task records
 - [x] Phase 6: Implement the first SSE bulletin verification path against stored CNInfo events
 - [x] Phase 7: Add the M3-4 unified disclosure runner and CLI entry oriented to future environment-light packaging
+- [x] Phase 8: Add market-aware routing so the unified runner no longer assumes every disclosure ticker is CN-SH
 
 ## Notes
 - This slice intentionally excludes HKEXnews live crawling and SSE formal event ingestion.
@@ -27,3 +28,4 @@ Build the first M3 disclosure-data foundation for TradingAgents: a unified discl
 | SSE bulletin API returns JSONP and nests each row inside a one-element list | 1 | Added a failing parser/normalizer test first, then implemented JSONP unwrapping and row flattening |
 | Existing `tests/test_ticker_symbol_handling.py` import path triggers `torch` DLL initialization failure through `langchain_openai` in this machine environment | 1 | Logged as pre-existing environment issue; scoped verification to the new disclosure tests for this task |
 | Typer collapsed the disclosure CLI into a single-command app, so invoking `run` was treated as an unexpected extra argument | 1 | Reproduced with the existing failing CLI test first, then added an explicit root callback to keep the packaged interface in command-group form |
+| The unified runner hard-coded `CN-SH` during verification, so Shenzhen and Beijing tickers would be normalized against the wrong market and could incorrectly hit the SSE verifier | 1 | Added failing runner tests first, then introduced explicit market-route resolution and limited SSE verification to SSE-routed tickers |
