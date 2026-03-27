@@ -112,6 +112,88 @@ SheetMind is built to turn that path into a local, shippable, low-friction produ
   - reusable `table_ref`
   - stage-aware routing across Skills
 
+<!-- 2026-03-25: 这里补充结果交付能力说明，原因是本轮已经把条件格式表达从基础预警扩到区间阈值和复合键重复检查；目的是让 README 能准确反映当前 V1 补完后的可交付边界。 -->
+## Report Delivery / 结果交付
+
+### 中文
+
+当前 V1 补充版已经可以把分析结果继续收口成可交付的 Excel 工作簿，不只是“算完结果”，而是开始支持“把结果做成业务人员能直接看的报表”。
+
+当前可用能力包括：
+
+- `compose_workbook`：把多个结果表组织成一个 workbook 草稿
+- `report_delivery`：生成面向汇报的标题、摘要、分析页、图表页草稿
+- `export_excel_workbook`：把 workbook 草稿导出成 `.xlsx`
+- `format_table_for_export`：统一列顺序、列名、数字格式和导出前布局
+- `build_chart`：生成折线图、柱状图、饼图、散点图所需的图表草稿
+
+当前已经支持的条件格式类型：
+
+- `negative_red`
+- `null_warning`
+- `duplicate_warn`
+- `high_value_highlight`
+- `percent_low_warn`
+- `between_warn`
+- `composite_duplicate_warn`
+
+这些能力都走 Rust 二进制导出链路，Skill 只负责理解意图、组织调用顺序和解释结果，不负责任何实际计算。
+
+### English
+
+The current V1-plus build can now carry analysis outputs into deliverable Excel workbooks instead of stopping at raw computation.
+
+Available delivery capabilities include:
+
+- `compose_workbook` for workbook draft composition
+- `report_delivery` for report-oriented sheet assembly
+- `export_excel_workbook` for `.xlsx` export
+- `format_table_for_export` for export-ready table shaping
+- `build_chart` for line, column, pie, and scatter chart drafts
+
+Supported conditional format kinds:
+
+- `negative_red`
+- `null_warning`
+- `duplicate_warn`
+- `high_value_highlight`
+- `percent_low_warn`
+- `between_warn`
+- `composite_duplicate_warn`
+
+The delivery path remains Rust binary only. Skills orchestrate and explain; they do not compute.
+
+<!-- 2026-03-25: 这里补一个最小 JSON 示例，原因是 GitHub 访问者需要快速看懂“条件格式是怎么声明进去的”；目的是降低试用门槛，同时避免把实现细节写成长篇说明。 -->
+### Minimal JSON example / 最小 JSON 示例
+
+```json
+{
+  "tool": "compose_workbook",
+  "args": {
+    "worksheets": [
+      {
+        "sheet_name": "客户分析",
+        "source": { "result_ref": "result_ref_xxx" },
+        "format": {
+          "conditional_formats": [
+            { "column": "收入", "kind": "negative_red" },
+            {
+              "column": "毛利率",
+              "kind": "between_warn",
+              "min_threshold": "0",
+              "max_threshold": "0.15"
+            },
+            {
+              "columns": ["客户ID", "月份"],
+              "kind": "composite_duplicate_warn"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
+```
 ## Why Rust Binary Only / 为什么坚持纯二进制
 
 ### 中文

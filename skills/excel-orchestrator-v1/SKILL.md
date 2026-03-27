@@ -228,6 +228,43 @@ description: Use when users interact with this Excel product from a single conve
 
 正确做法：识别意图切换，切回分析建模层。
 
+<!-- 2026-03-25: 这里补充报表交付路由说明，原因是结果交付层已经支持更强的条件格式表达；目的是让总入口 Skill 能在用户说“导出报表/加预警样式”时给出稳定、统一的话术与路由。 -->
+## 报表交付补充
+
+当用户已经完成表处理或分析建模，并开始表达下面这类意图时，总入口 Skill 要把它识别成“结果交付”诉求，而不是重新回到纯计算解释：
+
+- “帮我导出一个 Excel 报表”
+- “把异常值和重复项高亮出来再导出”
+- “做一个给业务同事直接看的 workbook”
+- “把图表页和数据页一起导出来”
+
+总入口 Skill 在这里的职责仍然只有三件事：
+
+1. 先确认当前是否已经有可复用的 `table_ref` / `result_ref`
+2. 再确认用户要的是“继续计算”还是“把结果交付出去”
+3. 最后把调用组织到 Rust Tool 链路，而不是在 Skill 里做任何样式判断或数值计算
+
+推荐 Tool 链路：
+
+- 单结果表导出：`format_table_for_export` -> `compose_workbook` -> `export_excel_workbook`
+- 汇报式交付：`report_delivery` -> `export_excel_workbook`
+- 需要图表：先 `build_chart`，再进入 `report_delivery` 或 `compose_workbook`
+
+当前可直接声明的条件格式包括：
+
+- `negative_red`
+- `null_warning`
+- `duplicate_warn`
+- `high_value_highlight`
+- `percent_low_warn`
+- `between_warn`
+- `composite_duplicate_warn`
+
+如果用户只说“帮我做得更像报表”，可以优先用下面的话术澄清，但仍然不要把计算搬进 Skill：
+
+- 当前理解：你不是要继续建模，而是要把现有结果整理成可交付的 Excel 报表。
+- 当前状态：如果已经有 `table_ref` 或分析结果，就可以直接进入结果交付链路。
+- 下一步动作：我会用 Rust 导出 Tool 组织数据页、图表页和条件格式，然后输出 workbook。
 ## Quick Reference
 
 - 首次打开失败：先判断是否属于入口恢复问题，再回 `table-processing-v1`
