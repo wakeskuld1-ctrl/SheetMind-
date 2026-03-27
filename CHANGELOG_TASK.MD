@@ -37,3 +37,29 @@
 ### 记忆点（可选）
 - 用户当前希望先收口出“最领先且最稳定”的主版本，再考虑删除其他开发分支；分支清理必须晚于统一验证，不要先删后验。
 - 用户要求所有后续响应、过程说明和备注保持中文，并在代码/文档变更后补 task journal。
+
+## 2026-03-27
+### 修改内容
+- `skills/analysis-modeling-v1/SKILL.md`：从 `63aba7d` 恢复较完整正文，并补回 `2026-03-26 P1 operational analytics chain`，修正历史坏字节导致的中文样例乱码。目的：恢复分析建模 Skill 的细节密度，同时保留 UTF-8 与 binary-only runtime 约束。
+- `skills/excel-orchestrator-v1/SKILL.md`、`skills/table-processing-v1/SKILL.md`、`skills/decision-assistant-v1/SKILL.md`：从 Git 历史恢复较完整版本，而不是继续使用之前为过测试而精简后的短版文案。目的：恢复路由规则、异常分流和操作约束等细节沉淀。
+- `skills/analysis-modeling-v1/acceptance-dialogues.md`、`skills/analysis-modeling-v1/cases.md`、`skills/excel-orchestrator-v1/acceptance-dialogues.md`、`skills/table-processing-v1/acceptance-dialogues.md`、`skills/table-processing-v1/cases.md`：恢复为历史里可读、可作为 UTF-8 正常消费的版本。目的：修复先前转码导致的对话验收稿和案例文档乱码。
+
+### 修改原因
+- 用户明确指出当前顶层 Skill 被我收得过短，担心丢掉后续还要用到的经验沉淀。
+- 上一轮为快速收口主版本，优先保证了测试与边界约束，但 Skill 文案细节确实被压缩过。
+- 之前对部分 support 文档做编码修复时，存在把文档“转成 UTF-8 但语义展示变脏”的风险，需要回退到历史干净版本。
+
+### 方案还差什么
+- [ ] 决定这些恢复后的 Skill 文案是否还要继续做结构化整理，还是先保持历史完整度。
+- [ ] 如果后续要继续增强 Skill，建议单独起一轮“Skill 资产整理”而不是混进主版本分支清理。
+
+### 潜在问题
+- [ ] `analysis-modeling-v1` 的 `2026-03-26 P1 operational analytics chain` 是基于历史增量手工纠正坏字节后补回的；虽然测试不覆盖这段自然语言，但若你后续想严格对齐历史原稿，仍建议再做一次人工校对。
+- [ ] `excel-orchestrator-v1` 与 `table-processing-v1` 的 support 文档恢复到了最近可读版本，而不是所有后续脏编码提交里的全部增量；影响范围：可能仍少量缺失更晚期但未清洗的验收话术细节。
+
+### 关闭项
+- 已通过 `cargo test --test integration_binary_only_runtime`。
+- 已通过 `cargo test`：恢复 Skill 资产后，`SheetMind-` 全量测试仍然全绿。
+
+### 记忆点（可选）
+- 用户对 Skill 资产完整度敏感，后续不要为了短期过测试就默认大幅缩写 Skill 文案；优先恢复历史完整内容，再做最小修补。
