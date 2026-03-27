@@ -1,0 +1,21 @@
+# Progress
+
+- 2026-03-27: Confirmed the current project still routes data through `tradingagents.dataflows.interface` and has no disclosure-data contract yet.
+- 2026-03-27: Added failing test file `tests/test_disclosure_store.py` to drive ticker normalization, dedupe key stability, and SQLite event round-trip behavior.
+- 2026-03-27: Implemented `tradingagents.dataflows.disclosure_models` and `tradingagents.dataflows.disclosure_store` as the first M3 disclosure foundation.
+- 2026-03-27: Found and fixed a Windows file-lock bug caused by relying on `sqlite3.Connection` context management without explicit close.
+- 2026-03-27: Verified with `python -m pytest tests/test_disclosure_store.py` and `python -m compileall tradingagents/dataflows/disclosure_models.py tradingagents/dataflows/disclosure_store.py`.
+- 2026-03-27: Attempted to run `python -m pytest tests/test_ticker_symbol_handling.py`, but collection failed in the existing environment because `langchain_openai -> transformers -> torch` could not initialize `c10.dll`.
+- 2026-03-27: Added failing test file `tests/test_cninfo_disclosure.py` to drive CNInfo security resolution, snapshot persistence, and disclosure-event mapping.
+- 2026-03-27: Implemented `tradingagents.dataflows.disclosure_cninfo` to support live CNInfo security lookup, announcement list paging, bulletin detail fetch, snapshot JSON writes, and SQLite ingestion.
+- 2026-03-27: Added `.BJ` ticker normalization after a failing regression test exposed the missing Beijing exchange branch.
+- 2026-03-27: Verified the new disclosure tests with `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py`.
+- 2026-03-27: Executed one live CNInfo fetch for ticker `600519` over `2026-03-01` to `2026-03-27`, ingesting 2 announcements into `tradingagents/dataflows/data_cache/disclosure/disclosures.sqlite3`.
+- 2026-03-27: Added failing test file `tests/test_sse_disclosure_verifier.py` to drive SSE JSONP parsing, bulletin normalization, and SSE-vs-CNInfo comparison behavior.
+- 2026-03-27: Implemented `tradingagents.dataflows.disclosure_sse_verifier` and added `DisclosureStore.list_events_by_ticker_and_date_range()` for verification queries.
+- 2026-03-27: Verified all disclosure tests with `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py`.
+- 2026-03-27: Executed one live SSE verification for ticker `600519` over `2026-03-01` to `2026-03-27`, yielding 2/2 matches, 0 SSE-only rows, and 0 CNInfo-only rows.
+- 2026-03-27: Added `tests/test_disclosure_runner.py` as the M3-4 red test for fixed runtime paths, summary-report persistence, and the unified CLI entry.
+- 2026-03-27: Landed `tradingagents.disclosure_runner` as the unified orchestration layer that builds stable runtime paths, runs CNInfo ingestion plus SSE verification, and writes `run_summary.json`.
+- 2026-03-27: Reproduced and fixed a Typer CLI packaging bug where the single-command app swallowed the `run` subcommand; `cli.disclosure` now keeps an explicit root callback so `run` remains stable.
+- 2026-03-27: Verified the M3-4 slice with `python -m pytest tests/test_disclosure_runner.py` and the broader disclosure regression suite with `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py tests/test_disclosure_runner.py`.
