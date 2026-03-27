@@ -63,3 +63,33 @@
 
 ### 记忆点（可选）
 - 用户对 Skill 资产完整度敏感，后续不要为了短期过测试就默认大幅缩写 Skill 文案；优先恢复历史完整内容，再做最小修补。
+
+## 2026-03-27
+### 修改内容
+- Git 主版本收口：将本地 `main` 先快进到 `origin/main`，再快进到稳定分支提交 `dc8934a`，并推送到 GitHub。目的：把“最领先且最稳定”的版本正式切成主版本。
+- Git 清理：删除远端与本地的 `codex/mainline-integration`、`codex/p0-preflight-chain`、`codex/merge-cli-mod-batches`、`refactor/cli-modularization`。目的：清理已被主版本吸收的开发分支，收口仓库视图。
+- Git 回退锚点：创建并推送标签 `mainline-20260327-stable`。目的：在删分支后仍保留一个明确的可回退稳定落点。
+- 跨仓门禁验证：重新从正确工作目录执行 `SheetMind-Scenes` contract gate 与 `SheetMind-` cross-repo gate。目的：确认之前的失败来自调用环境差异，而不是主版本代码回退。
+
+### 修改原因
+- 用户要求把主版本切清楚，并清理掉其他版本，确保仓库结构和后续协作入口足够清晰。
+- 在删除分支前，需要先把稳定主线明确落到 `main`，否则远端仍会保留多个并行候选版本。
+- 前一次 `SheetMind-Scenes` gate 失败被确认是从错误目录调用 `cargo` 引起，需要先验证跨仓门禁全绿后再删分支。
+
+### 方案还差什么
+- [ ] 如果后续还要继续推进 `SheetMind-Scenes` 的私有演进，需要单独决定它自己的版本管理方式；当前它仍不是 Git 仓库。
+- [ ] 如果之后需要对外发布说明，可再补一份“主版本切换说明”到 README 或发布日志。
+
+### 潜在问题
+- [ ] 已删除的开发分支不再保留为分支名入口；虽然已有标签 `mainline-20260327-stable` 可回退，但如果后续有人还按旧分支名协作，需要先通知切换到 `main`。
+- [ ] `SheetMind-Scenes` 的 gate 成功依赖从正确仓库根目录运行，以便加载 `.cargo/config.toml`；如果后续从错误目录直接调用 `cargo`，仍可能再次触发默认源/证书问题。
+
+### 关闭项
+- 已执行 `powershell -ExecutionPolicy Bypass -File E:\Excel\SheetMind-Scenes\scripts\run_contract_gates.ps1 -Suite all -LowMemory`：通过。
+- 已执行 `powershell -ExecutionPolicy Bypass -File E:\Excel\SheetMind-\scripts\run_cross_repo_gates.ps1 -Suite all -LowMemory`：通过。
+- 已完成 `main` 推送：`origin/main -> dc8934a`。
+- 已完成远端与本地分支清理，当前远端仅保留 `main`。
+
+### 记忆点（可选）
+- 在 Windows PowerShell 下不要把需要串行依赖的 Git 命令并行执行，也不要直接用 `&&`；切分支、合并、推送要分步做，否则容易出现状态判断错位。
+- 处理 Rust 子仓 gate 问题时，先确认 `cargo` 是不是从正确仓库根目录执行，避免把 `.cargo/config.toml` 没生效误判成代码故障。
