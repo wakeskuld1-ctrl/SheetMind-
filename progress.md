@@ -22,3 +22,4 @@
 - 2026-03-27: Added market-routing red tests so `tradingagents.disclosure_runner` must explicitly distinguish SSE, SZSE, and BSE tickers instead of hard-coding `CN-SH`.
 - 2026-03-27: Implemented `DisclosureMarketRoute` and `resolve_disclosure_market_route()` so the unified runner now records market metadata and only invokes the SSE verifier on SSE-routed tickers.
 - 2026-03-27: Verified the M3-5 routing slice with `python -m pytest tests/test_disclosure_runner.py` and re-ran the disclosure regression suite with `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py tests/test_disclosure_runner.py`.
+- 2026-03-27: Added `docs/plans/2026-03-27-m3-next-steps.md` as the standalone roadmap for the next M3 and M4 slices so another AI can continue without rebuilding context from scratch.

@@ -19,6 +19,7 @@ Build the first M3 disclosure-data foundation for TradingAgents: a unified discl
 - Cross-source dedupe is currently conservative: ticker + normalized title + hourly bucket + document filename.
 - The first live fetch path is now CNInfo-only: security lookup -> historical announcement list -> bulletin detail -> snapshot JSON -> SQLite event row.
 - The first SSE path is verification-only: SSE bulletin list -> normalized comparable rows -> compare with stored CNInfo events.
+- The current handoff roadmap for the next slices is documented in `docs/plans/2026-03-27-m3-next-steps.md`.
 
 ## Errors Encountered
 | Error | Attempt | Resolution |
