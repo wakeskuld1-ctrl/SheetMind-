@@ -23,6 +23,7 @@
   - `src/ops/import_stock_price_history.rs`
   - `src/ops/sync_stock_price_history.rs`
   - `src/ops/technical_consultation_basic.rs`
+- GUI 授权页在当前最新工作里新增了“后台刷新授权状态”的异步反馈闭环，相关文件包括 `src/gui/app.rs`、`src/gui/bridge/license_bridge.rs`、`src/gui/pages/license.rs`、`src/gui/state.rs` 与 `tests/gui_license_page_state.rs`。
 - `technical_consultation_basic` 当前已累计接入方向、强度、量能、背离、KDJ、RSRS、MFI、CCI、Williams %R、布林带位置/带宽/中轨等语义，继续沿既定模块渐进扩展，不新开第二条技术面架构。
 - 工作树还包含 GUI、License、运行时和计划文档的并行改动，因此这次上传是“当前分支最新状态同步”，不是单一股票功能提交。
 
@@ -32,6 +33,8 @@
   - 结果：通过，`2 passed`
 - `cargo test --test technical_consultation_basic_cli technical_consultation_basic_returns_snapshot_and_guidance_from_sqlite_history -- --nocapture --test-threads=1`
   - 结果：通过，`1 passed`
+- `cargo test --test gui_license_page_state -- --nocapture --test-threads=1`
+  - 结果：通过，`9 passed`
 - `cargo test --test stock_price_history_import_cli sync_stock_price_history -- --nocapture --test-threads=1`
   - 结果：未通过，但不是业务断言失败；当前环境在 Windows GNU 链接阶段报错 `ld: cannot find -lshlwapi`
 

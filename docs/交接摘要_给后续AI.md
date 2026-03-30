@@ -11,6 +11,7 @@
 
 - 主入口仍然是 `src/main.rs`，空输入返回工具目录，正常请求走 `ToolRequest -> dispatch`。
 - 工具暴露统一收口在 `src/tools/catalog.rs`，新能力已经注册到 catalog，而不是停留在内部模块。
+- GUI 当前还有一条并行落地中的授权页刷新闭环：刷新动作已从同步阻塞改成后台线程 + 页面反馈状态，避免 GUI 刷新时看不到“刷新中”。
 - 股票技术面主线已经成形：
   - 数据入口：`import_stock_price_history` 与 `sync_stock_price_history`
   - 存储底座：`src/runtime/stock_history_store.rs`
@@ -56,6 +57,14 @@
 - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\capacity_assessment.rs`
 - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\capacity_assessment_excel_report.rs`
 
+### 3.4 GUI 授权页关键文件
+
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\app.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\bridge\license_bridge.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\pages\license.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\state.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\tests\gui_license_page_state.rs`
+
 ## 4. 当前数据源与配置来源
 
 - 股票历史持久化默认写入 workspace 下的 SQLite，走 `StockHistoryStore::workspace_default()`。
@@ -87,6 +96,11 @@
 - 本次会话里 `sync_stock_price_history` 相关测试复验失败不是断言失败，而是 Windows GNU 链接阶段缺少 `shlwapi`。
 - 这更像环境/工具链问题，不应直接当作 `sync_stock_price_history` 回归。
 
+### 5.5 GUI 授权刷新闭环
+
+- 结论：授权页刷新动作已经开始走后台线程与页面反馈，不再只是同步按钮。
+- 处理方式：`SheetMindApp` 现在会持有刷新结果通道，在每帧轮询结果；`LicensePageState` 新增 `refresh_in_progress` 与反馈级别；对应测试已覆盖成功、警告、失败三类回写。
+
 ## 6. 当前最新产物
 
 - 新增上传说明：`D:\Rust\Excel_Skill\.worktrees\SheetMind-\docs\execution-notes-2026-03-30.md`
@@ -105,6 +119,8 @@
   - 结果：`2 passed`
 - `cargo test --test technical_consultation_basic_cli technical_consultation_basic_returns_snapshot_and_guidance_from_sqlite_history -- --nocapture --test-threads=1`
   - 结果：`1 passed`
+- `cargo test --test gui_license_page_state -- --nocapture --test-threads=1`
+  - 结果：`9 passed`
 - `cargo test --test stock_price_history_import_cli sync_stock_price_history -- --nocapture --test-threads=1`
   - 结果：失败，报 `ld: cannot find -lshlwapi`
 

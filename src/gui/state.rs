@@ -510,6 +510,15 @@ pub struct LicenseActionItem {
     pub summary: &'static str,
 }
 
+// 2026-03-30 CST: 这里定义授权页刷新反馈级别，原因是“刷新中 / 警告 / 失败”不能继续混成一条普通字符串；
+// 目的：让授权页在不引入完整通知系统的前提下，先具备稳定的刷新反馈语义，方便页面渲染不同提示样式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LicenseRefreshFeedbackKind {
+    Info,
+    Warning,
+    Error,
+}
+
 // 2026-03-29 CST: 这里定义授权与设置页状态，原因是授权中心需要承载动作区、本地设置区和排障说明；
 // 目的：把授权页骨架单独沉淀成状态模型，避免只是把顶部授权文字重复展示一遍。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -517,6 +526,9 @@ pub struct LicensePageState {
     pub available_actions: Vec<LicenseActionItem>,
     pub local_settings_hint: String,
     pub troubleshooting_notes: Vec<&'static str>,
+    pub refresh_in_progress: bool,
+    pub refresh_feedback_message: Option<String>,
+    pub refresh_feedback_kind: LicenseRefreshFeedbackKind,
 }
 
 impl Default for LicensePageState {
@@ -545,7 +557,44 @@ impl Default for LicensePageState {
                 "如果设备状态异常，后续可尝试刷新状态或重新绑定。",
                 "正式售卖版需要保持授权页和顶部状态使用同一份摘要来源。",
             ],
+            refresh_in_progress: false,
+            refresh_feedback_message: None,
+            refresh_feedback_kind: LicenseRefreshFeedbackKind::Info,
         }
+    }
+}
+
+impl LicensePageState {
+    // 2026-03-30 CST: 这里补充刷新开始入口，原因是授权页需要在后台校验期间明确进入“处理中”状态；
+    // 目的：让按钮禁用、提示文案和后续轮询共享同一个状态落点，而不是由页面层零散拼接。
+    pub fn begin_refresh(&mut self) {
+        self.refresh_in_progress = true;
+        self.refresh_feedback_kind = LicenseRefreshFeedbackKind::Info;
+        self.refresh_feedback_message = Some("正在刷新授权状态...".to_string());
+    }
+
+    // 2026-03-30 CST: 这里补充刷新成功落点，原因是刷新结束后要退出 loading，并清理或更新页面反馈；
+    // 目的：让成功路径和警告/失败路径保持同一套状态收口，减少后续授权动作扩展时的分叉。
+    pub fn finish_refresh_success(&mut self, message: Option<String>) {
+        self.refresh_in_progress = false;
+        self.refresh_feedback_kind = LicenseRefreshFeedbackKind::Info;
+        self.refresh_feedback_message = message;
+    }
+
+    // 2026-03-30 CST: 这里补充刷新警告落点，原因是在线校验失败但回退到本地状态时，不应该和真正失败混为一谈；
+    // 目的：让页面既能继续展示最新摘要，又能明确提示用户这次刷新存在风险。
+    pub fn finish_refresh_warning(&mut self, message: String) {
+        self.refresh_in_progress = false;
+        self.refresh_feedback_kind = LicenseRefreshFeedbackKind::Warning;
+        self.refresh_feedback_message = Some(message);
+    }
+
+    // 2026-03-30 CST: 这里补充刷新失败落点，原因是真正失败时必须保留旧摘要并明确暴露错误原因；
+    // 目的：把失败处理收口到状态层，避免后续页面或应用壳各自维护错误文案。
+    pub fn finish_refresh_failure(&mut self, message: String) {
+        self.refresh_in_progress = false;
+        self.refresh_feedback_kind = LicenseRefreshFeedbackKind::Error;
+        self.refresh_feedback_message = Some(message);
     }
 }
 

@@ -1,6 +1,11 @@
 use eframe::egui;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::thread;
+use std::time::Duration;
 
-use crate::gui::bridge::license_bridge::{load_license_summary, LicenseSummary};
+use crate::gui::bridge::license_bridge::{
+    load_license_summary, refresh_license_summary, LicenseRefreshResult, LicenseSummary,
+};
 use crate::gui::pages::{ai, analysis, dashboard, data_processing, files, license, reports};
 use crate::gui::state::{AppPage, AppState};
 use crate::gui::theme::{APP_BACKGROUND, APP_PRIMARY, APP_TEXT};
@@ -12,6 +17,9 @@ pub struct SheetMindApp {
     // 2026-03-29 CST: 这里把授权摘要保留在应用壳上，原因是顶部状态和“授权与设置”页要共用同一份摘要来源。
     // 目的：避免授权页重复读取授权服务，并为后续刷新授权状态预留统一落点。
     license_summary: LicenseSummary,
+    // 2026-03-30 CST: 这里保留后台授权刷新接收端，原因是“刷新中”必须跨帧可见，不能继续在 UI 线程里同步阻塞执行。
+    // 目的：让授权页刷新动作可以后台执行，并在后续帧里统一轮询结果、落地摘要和错误提示。
+    license_refresh_rx: Option<Receiver<Result<LicenseRefreshResult, String>>>,
 }
 
 impl Default for SheetMindApp {
@@ -19,6 +27,7 @@ impl Default for SheetMindApp {
         Self {
             state: AppState::default(),
             license_summary: LicenseSummary::default(),
+            license_refresh_rx: None,
         }
     }
 }
@@ -53,16 +62,64 @@ impl SheetMindApp {
         self.store_license_summary(loader());
     }
 
+    // 2026-03-30 CST: 这里补充授权刷新启动入口，原因是真实“刷新状态”动作需要后台执行，才能让加载态在 GUI 上真正可见。
+    // 目的：把刷新线程创建、页面 loading 标记和结果通道收口到应用壳，避免页面层直接触碰异步细节。
+    pub fn start_license_refresh(&mut self) {
+        self.start_license_refresh_with(refresh_license_summary);
+    }
+
+    // 2026-03-30 CST: 这里提供可注入加载器的异步刷新入口，原因是测试需要稳定构造后台刷新结果而不依赖真实授权服务。
+    // 目的：让“开始刷新”这一步既能服务正式 GUI，也能为 TDD 提供可控入口。
+    pub fn start_license_refresh_with<F>(&mut self, loader: F)
+    where
+        F: FnOnce() -> Result<LicenseRefreshResult, String> + Send + 'static,
+    {
+        if self.state.license_page.refresh_in_progress {
+            return;
+        }
+
+        self.state.license_page.begin_refresh();
+        let (sender, receiver) = mpsc::channel();
+        self.license_refresh_rx = Some(receiver);
+
+        thread::spawn(move || {
+            let _ = sender.send(loader());
+        });
+    }
+
+    // 2026-03-30 CST: 这里统一落地授权刷新结果，原因是成功、警告和失败都要通过同一条路径更新 GUI 状态。
+    // 目的：确保顶部授权文案、授权摘要和授权页反馈始终一致，不会因为刷新结果不同而分叉失控。
+    pub fn apply_license_refresh_result(
+        &mut self,
+        result: Result<LicenseRefreshResult, String>,
+    ) {
+        match result {
+            Ok(refresh_result) => {
+                self.store_license_summary(refresh_result.summary);
+                if let Some(warning_message) = refresh_result.warning_message {
+                    self.state
+                        .license_page
+                        .finish_refresh_warning(warning_message);
+                } else {
+                    self.state.license_page.finish_refresh_success(None);
+                }
+            }
+            Err(error) => {
+                self.state.license_page.finish_refresh_failure(error);
+            }
+        }
+    }
+
     // 2026-03-30 CST: 这里补充授权页动作统一处理入口，原因是授权页按钮已经改为返回页面事件，不能再停留在只渲染不执行的状态。
     // 目的：把“刷新状态”这类动作统一收口到应用壳，避免页面层直接依赖授权加载细节，同时满足红测对页面动作回写闭环的验证。
     pub fn handle_license_page_action(&mut self, action: license::LicensePageAction) {
         match action {
-            license::LicensePageAction::RefreshStatus => self.refresh_license_summary(),
+            license::LicensePageAction::RefreshStatus => self.start_license_refresh(),
         }
     }
 
-    // 2026-03-30 CST: 这里提供可注入加载器的页面动作处理入口，原因是 TDD 需要绕开真实授权服务，直接验证动作触发后的状态同步结果。
-    // 目的：让授权页动作测试可以稳定构造刷新结果，同时和正式处理路径保持同一套动作分发结构。
+    // 2026-03-30 CST: 这里保留可注入加载器的页面动作处理入口，原因是现有红绿测试需要在不启动后台线程轮询的情况下直接验证动作落地结果。
+    // 目的：让测试继续聚焦“动作触发后的状态结果”，同时不影响真实 GUI 使用后台刷新通道。
     pub fn handle_license_page_action_with<F>(
         &mut self,
         action: license::LicensePageAction,
@@ -71,7 +128,10 @@ impl SheetMindApp {
         F: FnOnce() -> LicenseSummary,
     {
         match action {
-            license::LicensePageAction::RefreshStatus => self.refresh_license_summary_with(loader),
+            license::LicensePageAction::RefreshStatus => {
+                self.state.license_page.begin_refresh();
+                self.apply_license_refresh_result(Ok(LicenseRefreshResult::success(loader())));
+            }
         }
     }
 
@@ -104,6 +164,26 @@ impl SheetMindApp {
         self.state
             .apply_license_summary(summary.status_text.clone(), None, None);
         self.license_summary = summary;
+    }
+
+    // 2026-03-30 CST: 这里轮询后台授权刷新结果，原因是后台线程完成后必须在 UI 线程里安全回写状态。
+    // 目的：让刷新动作真正具备跨帧 loading / warning / error 闭环，而不是点击后静默阻塞。
+    fn poll_license_refresh(&mut self) {
+        let Some(receiver) = self.license_refresh_rx.take() else {
+            return;
+        };
+
+        match receiver.try_recv() {
+            Ok(result) => self.apply_license_refresh_result(result),
+            Err(TryRecvError::Empty) => {
+                self.license_refresh_rx = Some(receiver);
+            }
+            Err(TryRecvError::Disconnected) => {
+                self.state
+                    .license_page
+                    .finish_refresh_failure("授权刷新任务已中断".to_string());
+            }
+        }
     }
 
     // 2026-03-29 CST: 这里渲染顶部栏，原因是项目、文件和授权状态属于全局上下文。
@@ -222,6 +302,13 @@ impl eframe::App for SheetMindApp {
         visuals.selection.bg_fill =
             egui::Color32::from_rgb(APP_PRIMARY[0], APP_PRIMARY[1], APP_PRIMARY[2]);
         ctx.set_visuals(visuals);
+
+        // 2026-03-30 CST: 这里在每帧开头轮询授权刷新结果，原因是后台刷新完成后必须尽快回写到应用壳和授权页。
+        // 目的：让 loading 状态、警告提示和错误提示都能随着下一帧稳定落地。
+        self.poll_license_refresh();
+        if self.state.license_page.refresh_in_progress {
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
 
         self.render_top_bar(ctx);
         self.render_left_nav(ctx);

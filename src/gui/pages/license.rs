@@ -1,7 +1,9 @@
 use eframe::egui;
 
 use crate::gui::bridge::license_bridge::LicenseSummary;
-use crate::gui::state::{AppState, LicenseActionItem};
+use crate::gui::state::{
+    AppState, LicenseActionItem, LicensePageState, LicenseRefreshFeedbackKind,
+};
 
 // 2026-03-29 CST: 这里定义授权页可发出的动作事件，原因是授权页不能直接依赖应用壳细节。
 // 目的：把页面点击行为收口成稳定事件，再由应用壳统一决定如何执行刷新或后续动作。
@@ -55,11 +57,13 @@ fn render_action_panel(ui: &mut egui::Ui, state: &AppState) -> Option<LicensePag
 
     let mut action = None;
     for item in &state.license_page.available_actions {
-        if let Some(next_action) = render_action_item(ui, item) {
+        if let Some(next_action) = render_action_item(ui, item, &state.license_page) {
             action = Some(next_action);
         }
         ui.add_space(6.0);
     }
+
+    render_refresh_feedback(ui, &state.license_page);
 
     ui.add_space(8.0);
     ui.group(|ui| {
@@ -72,7 +76,11 @@ fn render_action_panel(ui: &mut egui::Ui, state: &AppState) -> Option<LicensePag
 
 // 2026-03-29 CST: 这里统一渲染授权动作项，原因是每个授权动作都需要一致的标题、说明和触发入口。
 // 目的：让“刷新状态”先具备真实可触发入口，其余动作保留同样结构，后续逐步接线。
-fn render_action_item(ui: &mut egui::Ui, action: &LicenseActionItem) -> Option<LicensePageAction> {
+fn render_action_item(
+    ui: &mut egui::Ui,
+    action: &LicenseActionItem,
+    license_page: &LicensePageState,
+) -> Option<LicensePageAction> {
     let mut next_action = None;
 
     ui.group(|ui| {
@@ -83,7 +91,18 @@ fn render_action_item(ui: &mut egui::Ui, action: &LicenseActionItem) -> Option<L
         if action.id == "refresh" {
             // 2026-03-29 CST: 这里先把刷新动作接成真实按钮，原因是授权状态同步闭环要从页面动作进入应用壳。
             // 目的：让授权页可以显式请求刷新状态，并由上层统一执行状态回写。
-            if ui.button("刷新状态").clicked() {
+            let button_label = if license_page.refresh_in_progress {
+                "刷新中..."
+            } else {
+                "刷新状态"
+            };
+            if ui
+                .add_enabled(
+                    !license_page.refresh_in_progress,
+                    egui::Button::new(button_label),
+                )
+                .clicked()
+            {
                 next_action = Some(LicensePageAction::RefreshStatus);
             }
         } else {
@@ -92,6 +111,34 @@ fn render_action_item(ui: &mut egui::Ui, action: &LicenseActionItem) -> Option<L
     });
 
     next_action
+}
+
+// 2026-03-30 CST: 这里统一渲染授权刷新反馈，原因是刷新中的提示、在线失败警告和真正错误都需要稳定落点。
+// 目的：让授权页动作区在不引入完整消息中心的前提下，先具备可见的反馈闭环。
+fn render_refresh_feedback(ui: &mut egui::Ui, license_page: &LicensePageState) {
+    if license_page.refresh_in_progress {
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.add(egui::Spinner::new());
+                ui.small("正在刷新授权状态，请稍候。");
+            });
+        });
+        return;
+    }
+
+    let Some(message) = &license_page.refresh_feedback_message else {
+        return;
+    };
+
+    let color = match license_page.refresh_feedback_kind {
+        LicenseRefreshFeedbackKind::Info => egui::Color32::from_rgb(46, 125, 50),
+        LicenseRefreshFeedbackKind::Warning => egui::Color32::from_rgb(245, 124, 0),
+        LicenseRefreshFeedbackKind::Error => egui::Color32::from_rgb(198, 40, 40),
+    };
+
+    ui.group(|ui| {
+        ui.colored_label(color, message);
+    });
 }
 
 // 2026-03-29 CST: 这里渲染排障与说明区，原因是授权问题通常需要用户知道该怎么判断和下一步怎么做。
