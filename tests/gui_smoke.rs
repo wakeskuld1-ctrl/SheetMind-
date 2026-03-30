@@ -1,3 +1,7 @@
+// 2026-03-31 CST: 这里给 GUI 烟雾测试补 feature 门，原因是桌面启动与页面导航不应进入默认测试主线；
+// 目的：仅在显式开启 `gui` feature 时验证 GUI 可启动、可导航。
+#![cfg(feature = "gui")]
+
 use assert_cmd::Command;
 use excel_skill::gui::app::SheetMindApp;
 use excel_skill::gui::bridge::tool_runner::ToolRunner;

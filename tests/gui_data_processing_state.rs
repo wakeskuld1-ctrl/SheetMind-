@@ -1,3 +1,7 @@
+// 2026-03-31 CST: 这里给 GUI 数据处理状态测试补 feature 门，原因是默认构建不应强依赖桌面层；
+// 目的：把 GUI 专属页面状态验证限制在 `gui` feature 下，保持主业务链独立。
+#![cfg(feature = "gui")]
+
 use excel_skill::gui::state::DataProcessingState;
 
 #[test]

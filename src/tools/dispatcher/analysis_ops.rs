@@ -1,38 +1,31 @@
 use serde_json::{Value, json};
 
-use crate::ops::analyze::analyze_table;
-use crate::ops::capacity_assessment::{CapacityAssessmentRequest, capacity_assessment};
-use crate::ops::capacity_assessment_excel_report::{
+use crate::ops::foundation::analyze::analyze_table;
+use crate::ops::foundation::capacity_assessment::{
+    CapacityAssessmentRequest, capacity_assessment,
+};
+use crate::ops::foundation::capacity_assessment_excel_report::{
     CapacityAssessmentExcelReportRequest, capacity_assessment_excel_report,
 };
-use crate::ops::capacity_assessment_from_inventory::{
+use crate::ops::foundation::capacity_assessment_from_inventory::{
     CapacityAssessmentFromInventoryRequest, capacity_assessment_from_inventory,
 };
-use crate::ops::cluster_kmeans::cluster_kmeans;
-use crate::ops::correlation_analysis::correlation_analysis;
-use crate::ops::decision_assistant::decision_assistant;
-use crate::ops::diagnostics_report::{DiagnosticsReportRequest, diagnostics_report};
-use crate::ops::diagnostics_report_excel_report::{
+use crate::ops::foundation::cluster_kmeans::cluster_kmeans;
+use crate::ops::foundation::correlation_analysis::correlation_analysis;
+use crate::ops::foundation::decision_assistant::decision_assistant;
+use crate::ops::foundation::diagnostics_report::{DiagnosticsReportRequest, diagnostics_report};
+use crate::ops::foundation::diagnostics_report_excel_report::{
     DiagnosticsReportExcelReportRequest, diagnostics_report_excel_report,
 };
-use crate::ops::distribution_analysis::distribution_analysis;
-use crate::ops::import_stock_price_history::{
-    ImportStockPriceHistoryRequest, import_stock_price_history,
-};
-use crate::ops::linear_regression::linear_regression;
-use crate::ops::logistic_regression::logistic_regression;
-use crate::ops::outlier_detection::{OutlierDetectionMethod, outlier_detection};
-use crate::ops::preview::preview_table;
-use crate::ops::ssh_inventory::{SshInventoryRequest, ssh_inventory};
-use crate::ops::stat_summary::stat_summary;
-use crate::ops::summary::summarize_table;
-use crate::ops::sync_stock_price_history::{
-    SyncStockPriceHistoryRequest, sync_stock_price_history,
-};
-use crate::ops::technical_consultation_basic::{
-    TechnicalConsultationBasicRequest, technical_consultation_basic,
-};
-use crate::ops::trend_analysis::trend_analysis;
+use crate::ops::foundation::distribution_analysis::distribution_analysis;
+use crate::ops::foundation::linear_regression::linear_regression;
+use crate::ops::foundation::logistic_regression::logistic_regression;
+use crate::ops::foundation::outlier_detection::{OutlierDetectionMethod, outlier_detection};
+use crate::ops::foundation::preview::preview_table;
+use crate::ops::foundation::ssh_inventory::{SshInventoryRequest, ssh_inventory};
+use crate::ops::foundation::stat_summary::stat_summary;
+use crate::ops::foundation::summary::summarize_table;
+use crate::ops::foundation::trend_analysis::trend_analysis;
 use crate::runtime::local_memory::SessionStage;
 use crate::tools::contracts::ToolResponse;
 use crate::tools::session;
@@ -323,48 +316,6 @@ pub(super) fn dispatch_trend_analysis(args: Value) -> ToolResponse {
             Err(error) => ToolResponse::error(error),
         },
         Err(response) => response,
-    }
-}
-
-pub(super) fn dispatch_import_stock_price_history(args: Value) -> ToolResponse {
-    // 2026-03-28 CST: 这里先把股票历史导入请求收口成强类型，原因是第一刀只做稳定的 CSV -> SQLite 合同；
-    // 目的：避免 dispatcher 层散落手工取字段，并为后续 Skill 调用保留统一入口。
-    let request = match serde_json::from_value::<ImportStockPriceHistoryRequest>(args) {
-        Ok(request) => request,
-        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
-    };
-
-    match import_stock_price_history(&request) {
-        Ok(result) => ToolResponse::ok(json!(result)),
-        Err(error) => ToolResponse::error(error.to_string()),
-    }
-}
-
-pub(super) fn dispatch_sync_stock_price_history(args: Value) -> ToolResponse {
-    // 2026-03-29 CST: 这里先把股票历史 HTTP 同步请求收口成强类型，原因是 provider 顺序、日期区间和复权参数都要稳定解析；
-    // 目的：避免 dispatcher 层散落手工字段判断，并为后续继续加 provider 保留统一入口。
-    let request = match serde_json::from_value::<SyncStockPriceHistoryRequest>(args) {
-        Ok(request) => request,
-        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
-    };
-
-    match sync_stock_price_history(&request) {
-        Ok(result) => ToolResponse::ok(json!(result)),
-        Err(error) => ToolResponse::error(error.to_string()),
-    }
-}
-
-pub(super) fn dispatch_technical_consultation_basic(args: Value) -> ToolResponse {
-    // 2026-03-28 CST: 这里先把股票技术面基础请求收口成强类型，原因是新 Tool 也要沿现有 Rust 主链稳定暴露；
-    // 目的：避免 dispatcher 层散落解析 `symbol / lookback_days`，并为后续 Skill 承接保留统一入口。
-    let request = match serde_json::from_value::<TechnicalConsultationBasicRequest>(args) {
-        Ok(request) => request,
-        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
-    };
-
-    match technical_consultation_basic(&request) {
-        Ok(result) => ToolResponse::ok(json!(result)),
-        Err(error) => ToolResponse::error(error.to_string()),
     }
 }
 

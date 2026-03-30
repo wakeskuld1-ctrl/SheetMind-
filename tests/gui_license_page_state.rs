@@ -1,3 +1,7 @@
+// 2026-03-31 CST: 这里给 GUI 授权页面状态测试补 feature 门，原因是授权页面属于桌面交互层；
+// 目的：避免默认测试因为页面状态而引入 GUI 构建，仅在 `gui` feature 下做页面验证。
+#![cfg(feature = "gui")]
+
 use excel_skill::gui::app::SheetMindApp;
 use excel_skill::gui::bridge::license_bridge::{LicenseRefreshResult, LicenseSummary};
 use excel_skill::gui::pages::license::LicensePageAction;

@@ -1,5 +1,5 @@
 # 项目交接摘要（给后续 AI）
-更新日期：2026-03-30
+更新日期：2026-03-31
 
 ## 1. 项目目标
 
@@ -11,6 +11,13 @@
 
 - 主入口仍然是 `src/main.rs`，空输入返回工具目录，正常请求走 `ToolRequest -> dispatch`。
 - 工具暴露统一收口在 `src/tools/catalog.rs`，新能力已经注册到 catalog，而不是停留在内部模块。
+- GUI 现在已经被正式隔离成可选能力：
+  - `Cargo.toml` 有 `gui` feature
+  - `eframe / egui_extras / rfd` 已改为 optional
+  - `sheetmind_app` 只有在 `--features gui` 下才会编译
+  - `src/lib.rs` 的 `pub mod gui;` 已加 `#[cfg(feature = "gui")]`
+  - 所有 `tests/gui*.rs` 也已挂到 `#![cfg(feature = "gui")]`
+- 这条边界很重要：用户当前产品主线不是 GUI，所以默认验证必须继续保持“无 GUI 主线”，以后非必要不要再把 GUI 混回默认 Cargo 链路。
 - GUI 当前还有一条并行落地中的授权页刷新闭环：刷新动作已从同步阻塞改成后台线程 + 页面反馈状态，避免 GUI 刷新时看不到“刷新中”。
 - 授权页这轮新增的确认口径是：
   - 点击“刷新状态”后，先进入 `refresh_in_progress`
@@ -66,6 +73,8 @@
 
 ### 3.4 GUI 授权页关键文件
 
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\Cargo.toml`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\lib.rs`
 - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\app.rs`
 - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\bridge\license_bridge.rs`
 - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\pages\license.rs`
@@ -100,8 +109,9 @@
 
 ### 5.4 当前环境级阻塞
 
-- 本次会话里 `sync_stock_price_history` 相关测试复验失败不是断言失败，而是 Windows GNU 链接阶段缺少 `shlwapi`。
-- 这更像环境/工具链问题，不应直接当作 `sync_stock_price_history` 回归。
+- 2026-03-31 已确认：之前 `sync_stock_price_history` 相关命令卡在 `-lshlwapi`，根因不是股票工具本身，而是 GUI 依赖无条件混入默认编译链。
+- 这轮已经把 GUI 改成可选 feature，默认主线下重新验证 `stock_price_history_import_cli` 与 `technical_consultation_basic_cli` 都已恢复通过。
+- 因此后续如果再看到同类错误，先检查是否误开了 GUI 编译链，而不是先怀疑股票历史同步逻辑回归。
 
 ### 5.5 GUI 授权刷新闭环
 
@@ -134,12 +144,18 @@
   - 结果：`2 passed`
 - `cargo test --test technical_consultation_basic_cli technical_consultation_basic_returns_snapshot_and_guidance_from_sqlite_history -- --nocapture --test-threads=1`
   - 结果：`1 passed`
+- `cargo test --test stock_price_history_import_cli -- --nocapture --test-threads=1`
+  - 结果：`8 passed`
+- `cargo test --features gui --test gui_bootstrap_cli -- --nocapture --test-threads=1`
+  - 结果：`1 passed`
+- `cargo test --features gui --test gui_smoke -- --nocapture --test-threads=1`
+  - 结果：`2 passed`
 - `cargo test --test gui_license_page_state -- --nocapture --test-threads=1`
   - 结果：`9 passed`
 - `cargo test --test gui_state_navigation --test gui_dashboard_state --test gui_files_flow --test gui_data_processing_state --test gui_analysis_state --test gui_reports_ai_state --test gui_license_page_state --test gui_smoke -- --nocapture`
   - 结果：通过，GUI 相关 `19` 个测试全部通过
 - `cargo test --test stock_price_history_import_cli sync_stock_price_history -- --nocapture --test-threads=1`
-  - 结果：失败，报 `ld: cannot find -lshlwapi`
+  - 历史上曾报 `ld: cannot find -lshlwapi`，但 2026-03-31 已明确这是 GUI 编译链污染默认主线导致；当前应优先使用“默认主线无 GUI”与“显式 GUI feature”分开验证。
 
 ### 7.2 历史真实记录
 
@@ -155,13 +171,15 @@
 - 当前 worktree 很脏，上传是同步当前累计最新状态，不是精细化挑文件的小提交。
 - `technical_consultation_basic.rs` 里仍有历史注释编码噪声，后续改这个文件时继续用小补丁策略，不要顺手做大清洗。
 - GUI 相关 warning 和 dispatcher `dead_code` warning 目前仍存在，但暂不作为本轮阻塞。
-- Windows GNU 环境下跑部分 Cargo 测试时，可能需要在沙箱外执行才能拿到完整系统链接库；这次 `gui_license_page_state` 与 GUI 回归就是提权后重新通过的。
+- 以后默认不要用 GUI 测试结果代替主线结果：默认链路验证请直接跑不带 feature 的 CLI / stock / Tool 测试，GUI 只在显式 `--features gui` 时单独验。
 - 若要重新声明整仓绿色，必须单独做更大范围验证，不要复用旧结论。
 
 ## 9. 后续 AI 建议从这里开始
 
 1. 先读本文。
 2. 再看这几个文件：
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\Cargo.toml`
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\lib.rs`
    - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\app.rs`
    - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\bridge\license_bridge.rs`
    - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\pages\license.rs`
@@ -184,6 +202,7 @@
 ## 10. 对后续 AI 的明确提醒
 
 - 不要把这次架构再推回“重新设计一遍”。
+- 不要把 GUI 再混回默认 Cargo 主线；以后 GUI 相关入口、依赖、测试都默认按 feature 隔离处理。
 - 不要把历史记录里的“切片级通过”误写成“整仓全绿”。
 - 不要顺手清理整份 `technical_consultation_basic.rs` 的旧注释编码噪声，除非单独立项。
 - 不要把授权页的后台刷新线程和结果轮询重新塞回页面模块，应用壳现在就是这条链路的统一落点。

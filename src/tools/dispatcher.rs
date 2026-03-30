@@ -74,6 +74,7 @@ mod analysis_ops;
 mod multi_table;
 mod shared;
 mod single_table;
+mod stock_ops;
 mod workbook_io;
 
 // 2026-03-22: 杩欓噷闆嗕腑鍒嗗彂 Tool 璇锋眰锛岀洰鐨勬槸璁?CLI 鍙礋璐?JSON 鏀跺彂锛岃€屾妸鍏蜂綋鑳藉姏涓嬫矇鍒板悇鑷搷浣滃眰銆?
@@ -132,19 +133,19 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "outlier_detection" => analysis_ops::dispatch_outlier_detection(request.args),
         "distribution_analysis" => analysis_ops::dispatch_distribution_analysis(request.args),
         "trend_analysis" => analysis_ops::dispatch_trend_analysis(request.args),
-        // 2026-03-28 CST: 这里把股票技术面基础 Tool 接入主 dispatcher，原因是历史导入之后要沿同一条 Rust / exe 主链继续往上承接分析；
-        // 目的：让 CLI、外部 EXE 封装和后续 Skill 都能直接调用 `technical_consultation_basic`。
+        // 2026-03-31 CST: 这里把股票技术面 Tool 明确切到 stock dispatcher，原因是股票业务域不应继续挂在通用分析 dispatcher 上。
+        // 目的：先在分发入口建立 foundation / stock 边界，避免后续继续把股票能力写回 analysis_ops。
         "technical_consultation_basic" => {
-            analysis_ops::dispatch_technical_consultation_basic(request.args)
+            stock_ops::dispatch_technical_consultation_basic(request.args)
         }
-        // 2026-03-28 CST: 这里把股票历史导入 Tool 接入主 dispatcher，原因是 CSV -> SQLite 是股票技术面主线的起点；
-        // 目的：让 CLI、外部 EXE 封装和后续 Skill 都能通过统一 Tool 主链调用这个入口。
+        // 2026-03-31 CST: 这里把股票历史导入 Tool 切到 stock dispatcher，原因是股票历史导入属于股票业务域而不是通用分析域。
+        // 目的：把 “CSV -> SQLite” 明确收口到 stock 模块，和 foundation 底座入口隔离开。
         "import_stock_price_history" => {
-            analysis_ops::dispatch_import_stock_price_history(request.args)
+            stock_ops::dispatch_import_stock_price_history(request.args)
         }
-        // 2026-03-29 CST: 这里把股票历史 HTTP 同步 Tool 接入主 dispatcher，原因是腾讯/新浪双源也必须沿现有 Rust / exe 主链暴露；
-        // 目的：让 CLI、外部 EXE 封装和后续 Skill 都能通过统一 Tool 主链调用这个同步入口。
-        "sync_stock_price_history" => analysis_ops::dispatch_sync_stock_price_history(request.args),
+        // 2026-03-31 CST: 这里把股票历史 HTTP 同步 Tool 切到 stock dispatcher，原因是联网行情补数已经是股票域专属能力。
+        // 目的：让 provider、日期和技术咨询前置数据准备继续停留在 stock 模块里独立演进。
+        "sync_stock_price_history" => stock_ops::dispatch_sync_stock_price_history(request.args),
         // 2026-03-28 23:54 CST: 这里把统计诊断组合 Tool 接入主 dispatcher，原因是高层组合能力也必须沿现有 Rust Tool 主链暴露；
         // 目的是让统一 JSON 诊断包可以和其它 Tool 一样被 CLI 与后续编排直接调用。
         "diagnostics_report" => analysis_ops::dispatch_diagnostics_report(request.args),

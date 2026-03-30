@@ -69,3 +69,22 @@
 - 若后续优先继续股票能力，直接从 `src/ops/technical_consultation_basic.rs` 沿当前架构增量推进。
 - 若后续优先恢复更强验证，先单独处理 `sync_stock_price_history` 在当前 Windows GNU 环境下的链接问题，再决定是否做更大范围回归。
 - 非必要不重构，后续继续按当前 Rust / EXE / SQLite / Skill 主线往前走。
+
+## 2026-03-31 补充说明
+
+- 本次会话进一步确认并落地了一个关键边界：GUI 不能继续污染默认主线。
+- 已完成的边界收口包括：
+  - `Cargo.toml` 新增 `gui` feature
+  - `eframe / egui_extras / rfd` 改为 optional
+  - `sheetmind_app` 改成 `required-features = ["gui"]`
+  - `src/lib.rs` 的 `pub mod gui;` 改为 `#[cfg(feature = "gui")] pub mod gui;`
+  - 所有 `tests/gui*.rs` 统一挂到 `#![cfg(feature = "gui")]`
+- 本次会话同时把 `ops` / `dispatcher` 的股票能力边界继续向 `stock` 模块收口，默认方向已经更清楚：
+  - 通用底座能力走 `foundation`
+  - 股票导入 / 同步 / 技术咨询走 `stock`
+- 这轮的最新验证应以“默认主线”和“显式 GUI feature”分开理解，不要再混成一条：
+  - 默认主线：`cargo test --test stock_price_history_import_cli -- --nocapture --test-threads=1`
+  - 默认主线：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_returns_snapshot_and_guidance_from_sqlite_history -- --nocapture --test-threads=1`
+  - GUI feature：`cargo test --features gui --test gui_bootstrap_cli -- --nocapture --test-threads=1`
+  - GUI feature：`cargo test --features gui --test gui_smoke -- --nocapture --test-threads=1`
+- 经过这轮边界修复后，之前 `sync_stock_price_history` 命令遇到的 `-lshlwapi`，已经可以判定为“GUI 依赖误入默认编译链”导致，而不是股票业务逻辑本身回归。
