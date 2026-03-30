@@ -118,12 +118,20 @@ fn render_next_steps(ui: &mut egui::Ui, task: AnalysisTaskKind) {
     ui.group(|ui| {
         ui.label("下一步建议");
         ui.small(match task {
-            AnalysisTaskKind::Overview => "先确认样本量、字段类型和分布，再进入质量诊断或关系分析。",
-            AnalysisTaskKind::QualityDiagnosis => "先修复缺失值和异常值，再决定是否进入相关性或建模阶段。",
-            AnalysisTaskKind::RelationshipAnalysis => "先看关键变量关系，再收敛到趋势分析或模型分析。",
+            AnalysisTaskKind::Overview => {
+                "先确认样本量、字段类型和分布，再进入质量诊断或关系分析。"
+            }
+            AnalysisTaskKind::QualityDiagnosis => {
+                "先修复缺失值和异常值，再决定是否进入相关性或建模阶段。"
+            }
+            AnalysisTaskKind::RelationshipAnalysis => {
+                "先看关键变量关系，再收敛到趋势分析或模型分析。"
+            }
             AnalysisTaskKind::TrendAnalysis => "先确认时间粒度和波动周期，再补充预测或策略判断。",
             AnalysisTaskKind::Modeling => "先明确目标列和训练字段，再进入回归、分类或聚类。",
-            AnalysisTaskKind::DecisionSupport => "把已得到的发现转成结论、风险与建议动作，准备导出交付。",
+            AnalysisTaskKind::DecisionSupport => {
+                "把已得到的发现转成结论、风险与建议动作，准备导出交付。"
+            }
         });
     });
 }

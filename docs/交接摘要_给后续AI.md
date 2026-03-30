@@ -12,6 +12,13 @@
 - 主入口仍然是 `src/main.rs`，空输入返回工具目录，正常请求走 `ToolRequest -> dispatch`。
 - 工具暴露统一收口在 `src/tools/catalog.rs`，新能力已经注册到 catalog，而不是停留在内部模块。
 - GUI 当前还有一条并行落地中的授权页刷新闭环：刷新动作已从同步阻塞改成后台线程 + 页面反馈状态，避免 GUI 刷新时看不到“刷新中”。
+- 授权页这轮新增的确认口径是：
+  - 点击“刷新状态”后，先进入 `refresh_in_progress`
+  - 后台线程完成后由应用壳统一轮询结果
+  - 成功时更新摘要
+  - 在线校验失败但回退到本地状态时，摘要照样更新，同时给授权页 warning
+  - 真正失败时保留旧摘要，只在授权页显示 error
+- 授权页的“刷新状态”现在会走在线校验桥接，不再只是重复读取本地快照。
 - 股票技术面主线已经成形：
   - 数据入口：`import_stock_price_history` 与 `sync_stock_price_history`
   - 存储底座：`src/runtime/stock_history_store.rs`
@@ -99,7 +106,15 @@
 ### 5.5 GUI 授权刷新闭环
 
 - 结论：授权页刷新动作已经开始走后台线程与页面反馈，不再只是同步按钮。
-- 处理方式：`SheetMindApp` 现在会持有刷新结果通道，在每帧轮询结果；`LicensePageState` 新增 `refresh_in_progress` 与反馈级别；对应测试已覆盖成功、警告、失败三类回写。
+- 处理方式：
+  - `SheetMindApp` 现在会持有刷新结果通道，在每帧轮询结果。
+  - `LicensePageState` 新增 `refresh_in_progress`、`refresh_feedback_message` 和 `refresh_feedback_kind`。
+  - `license_bridge` 新增 `LicenseRefreshResult`，把“摘要更新”和“warning 提示”拆开返回。
+  - `license.rs` 现在会显示 `刷新中...` 按钮态、spinner、warning 和 error。
+- 当前别再走回头路的点：
+  - 不要把刷新逻辑再改回同步调用，否则“加载态”会重新失效。
+  - 不要把 warning 当成 error 直接丢弃，因为在线失败但本地回退仍然有展示价值。
+  - 顶部授权状态仍然和授权摘要共用同一来源，不要拆成双源状态。
 
 ## 6. 当前最新产物
 
@@ -121,6 +136,8 @@
   - 结果：`1 passed`
 - `cargo test --test gui_license_page_state -- --nocapture --test-threads=1`
   - 结果：`9 passed`
+- `cargo test --test gui_state_navigation --test gui_dashboard_state --test gui_files_flow --test gui_data_processing_state --test gui_analysis_state --test gui_reports_ai_state --test gui_license_page_state --test gui_smoke -- --nocapture`
+  - 结果：通过，GUI 相关 `19` 个测试全部通过
 - `cargo test --test stock_price_history_import_cli sync_stock_price_history -- --nocapture --test-threads=1`
   - 结果：失败，报 `ld: cannot find -lshlwapi`
 
@@ -138,12 +155,17 @@
 - 当前 worktree 很脏，上传是同步当前累计最新状态，不是精细化挑文件的小提交。
 - `technical_consultation_basic.rs` 里仍有历史注释编码噪声，后续改这个文件时继续用小补丁策略，不要顺手做大清洗。
 - GUI 相关 warning 和 dispatcher `dead_code` warning 目前仍存在，但暂不作为本轮阻塞。
+- Windows GNU 环境下跑部分 Cargo 测试时，可能需要在沙箱外执行才能拿到完整系统链接库；这次 `gui_license_page_state` 与 GUI 回归就是提权后重新通过的。
 - 若要重新声明整仓绿色，必须单独做更大范围验证，不要复用旧结论。
 
 ## 9. 后续 AI 建议从这里开始
 
 1. 先读本文。
 2. 再看这几个文件：
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\app.rs`
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\bridge\license_bridge.rs`
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\pages\license.rs`
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\gui\state.rs`
    - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\technical_consultation_basic.rs`
    - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\sync_stock_price_history.rs`
    - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\tools\catalog.rs`
@@ -154,6 +176,7 @@
    - `D:\Rust\Excel_Skill\findings.md`
    - `D:\Rust\Excel_Skill\.trae\CHANGELOG_TASK.md`
 4. 再决定下一步：
+   - 如果继续 GUI 授权主线，优先补“刷新失败后的按钮重试体验”和“激活/解绑动作沿同一事件模式接线”。
    - 如果继续股票能力，优先继续在 `technical_consultation_basic` 内按单指标家族渐进扩展。
    - 如果优先补数据同步，先处理 `sync_stock_price_history` 的当前链接环境问题，再补 provider/date 边界。
    - 如果优先做整仓验证，先把环境与并行模块编译问题单独切片，不要把股票能力和仓库级清障混做一刀。
@@ -163,6 +186,7 @@
 - 不要把这次架构再推回“重新设计一遍”。
 - 不要把历史记录里的“切片级通过”误写成“整仓全绿”。
 - 不要顺手清理整份 `technical_consultation_basic.rs` 的旧注释编码噪声，除非单独立项。
+- 不要把授权页的后台刷新线程和结果轮询重新塞回页面模块，应用壳现在就是这条链路的统一落点。
 - 继续遵守用户已经反复确认的原则：以后按照架构来干，非必要不重构。
 
 ## 11. 一句话总结

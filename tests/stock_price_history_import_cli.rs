@@ -287,7 +287,10 @@ fn sync_stock_price_history_imports_tencent_daily_history_into_sqlite() {
         &runtime_db_path,
         &[
             ("EXCEL_SKILL_TENCENT_KLINE_URL", tencent_url),
-            ("EXCEL_SKILL_SINA_KLINE_URL", "http://127.0.0.1:9".to_string()),
+            (
+                "EXCEL_SKILL_SINA_KLINE_URL",
+                "http://127.0.0.1:9".to_string(),
+            ),
         ],
     );
 

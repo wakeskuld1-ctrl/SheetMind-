@@ -1274,7 +1274,9 @@ fn build_recommended_actions_with_timing_and_rsrs_and_money_flow_and_mean_revers
         "oversold_rebound_candidate" => {
             "Williams %R 已进入区间下沿，优先观察止跌与反抽是否同步出现，再决定是否参与低位修复"
         }
-        _ => "Williams %R 仍处区间中性位置，建议继续结合趋势、量能与关键价位等待更清晰的区间方向信号",
+        _ => {
+            "Williams %R 仍处区间中性位置，建议继续结合趋势、量能与关键价位等待更清晰的区间方向信号"
+        }
     };
     actions.push(range_position_action.to_string());
     actions
@@ -1335,7 +1337,9 @@ fn build_recommended_actions_with_timing_and_rsrs_and_money_flow_and_mean_revers
     };
     let bollinger_bandwidth_action = match bollinger_bandwidth_signal {
         "expanding" => "布林带带宽正在扩张，执行上要预留更大的波动缓冲，不要用过紧的节奏处理仓位。",
-        "contracting" => "布林带带宽正在收敛，优先等待放量扩张后的方向选择，而不是在窄幅区间内频繁追价。",
+        "contracting" => {
+            "布林带带宽正在收敛，优先等待放量扩张后的方向选择，而不是在窄幅区间内频繁追价。"
+        }
         _ => "布林带带宽维持常态，可继续结合趋势、量能与关键价位做常规确认。",
     };
     actions.push(bollinger_position_action.to_string());
@@ -1447,7 +1451,9 @@ fn build_watch_points_with_timing_and_rsrs_and_money_flow(
         "oversold_accumulation" => {
             "留意 MFI 是否从 20 下方回升并配合价格止跌，确认低位超卖是否开始转向修复吸筹"
         }
-        _ => "留意 MFI 是否从中性区间继续向 80 或 20 两端扩张，判断资金流是否正在形成新的过热或过冷结构",
+        _ => {
+            "留意 MFI 是否从中性区间继续向 80 或 20 两端扩张，判断资金流是否正在形成新的过热或过冷结构"
+        }
     };
     watch_points.push(money_flow_watch_point.to_string());
     watch_points
@@ -1528,7 +1534,9 @@ fn build_watch_points_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and
         "oversold_rebound_candidate" => {
             "留意 Williams %R 是否从 -80 下方回升并配合价格止跌，确认近期区间低位是否开始进入修复反抽"
         }
-        _ => "留意 Williams %R 是否继续在中性区间内收敛或向 -20、-80 两端扩张，判断近期区间位置是否正在形成新的方向倾向",
+        _ => {
+            "留意 Williams %R 是否继续在中性区间内收敛或向 -20、-80 两端扩张，判断近期区间位置是否正在形成新的方向倾向"
+        }
     };
     watch_points.push(range_position_watch_point.to_string());
     watch_points
@@ -2435,7 +2443,10 @@ mod tests {
         // 目的：确保带宽精确等于 0.05 时正式进入 contracting，而不是在低波动边界含糊处理。
         let snapshot = bollinger_test_snapshot(100.0, 102.5, 100.0, 97.5, 0.05);
 
-        assert_eq!(classify_bollinger_bandwidth_signal(&snapshot), "contracting");
+        assert_eq!(
+            classify_bollinger_bandwidth_signal(&snapshot),
+            "contracting"
+        );
     }
 
     #[test]
@@ -2453,7 +2464,10 @@ mod tests {
         // 目的：明确正负资金流都为 0 时必须返回 50.0，后续继续扩展资金流家族时也不能把这个稳定中性口径改漂。
         let rows = zero_volume_test_rows(15);
 
-        assert_eq!(mfi_last(&rows, 14).expect("mfi should stay computable"), 50.0);
+        assert_eq!(
+            mfi_last(&rows, 14).expect("mfi should stay computable"),
+            50.0
+        );
     }
 
     #[test]

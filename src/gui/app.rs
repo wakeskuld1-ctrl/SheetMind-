@@ -4,7 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::gui::bridge::license_bridge::{
-    load_license_summary, refresh_license_summary, LicenseRefreshResult, LicenseSummary,
+    LicenseRefreshResult, LicenseSummary, load_license_summary, refresh_license_summary,
 };
 use crate::gui::pages::{ai, analysis, dashboard, data_processing, files, license, reports};
 use crate::gui::state::{AppPage, AppState};
@@ -89,10 +89,7 @@ impl SheetMindApp {
 
     // 2026-03-30 CST: 这里统一落地授权刷新结果，原因是成功、警告和失败都要通过同一条路径更新 GUI 状态。
     // 目的：确保顶部授权文案、授权摘要和授权页反馈始终一致，不会因为刷新结果不同而分叉失控。
-    pub fn apply_license_refresh_result(
-        &mut self,
-        result: Result<LicenseRefreshResult, String>,
-    ) {
+    pub fn apply_license_refresh_result(&mut self, result: Result<LicenseRefreshResult, String>) {
         match result {
             Ok(refresh_result) => {
                 self.store_license_summary(refresh_result.summary);
@@ -255,8 +252,11 @@ impl eframe::App for SheetMindApp {
     // 2026-03-29 CST: 这里实现中心区页面路由，原因是 eframe 需要应用对象提供具体 UI 内容。
     // 目的：根据当前页面状态切换到对应页面模块，同时保留既定导航结构和页面职责边界。
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        ui.visuals_mut().override_text_color =
-            Some(egui::Color32::from_rgb(APP_TEXT[0], APP_TEXT[1], APP_TEXT[2]));
+        ui.visuals_mut().override_text_color = Some(egui::Color32::from_rgb(
+            APP_TEXT[0],
+            APP_TEXT[1],
+            APP_TEXT[2],
+        ));
 
         ui.heading(Self::page_title(self.state.current_page()));
         ui.separator();

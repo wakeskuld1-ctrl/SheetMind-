@@ -147,7 +147,11 @@ pub fn sync_stock_price_history(
                 let store = StockHistoryStore::workspace_default()?;
                 let summary = store.import_rows(
                     &request.symbol,
-                    &format!("{}_http_{}", provider_rows.provider.as_str(), request.adjustment),
+                    &format!(
+                        "{}_http_{}",
+                        provider_rows.provider.as_str(),
+                        request.adjustment
+                    ),
                     &provider_rows.rows,
                 )?;
                 return Ok(build_sync_result(
@@ -225,9 +229,7 @@ fn parse_sync_date_window(
 
 // 2026-03-29 CST: 这里统一归一化 A 股 symbol，原因是腾讯/新浪老接口都要求 `sh600519` / `sz000001` 这类前缀格式；
 // 目的：兼容现有 `.SH / .SZ` 主线 symbol，同时不给后续 provider 解析层增加重复判断。
-fn normalize_provider_symbol(
-    symbol: &str,
-) -> Result<ProviderSymbol, SyncStockPriceHistoryError> {
+fn normalize_provider_symbol(symbol: &str) -> Result<ProviderSymbol, SyncStockPriceHistoryError> {
     let trimmed = symbol.trim().to_uppercase();
     let (code, exchange) = if let Some((code, exchange)) = trimmed.split_once('.') {
         (code.to_string(), exchange.to_string())
@@ -317,12 +319,12 @@ fn fetch_tencent_rows(
         .ok_or_else(|| SyncStockPriceHistoryError::ProviderEmpty {
             provider: SyncProvider::Tencent.as_str().to_string(),
         })?;
-    let provider_data = data
-        .get(&provider_symbol.prefixed_symbol)
-        .ok_or_else(|| SyncStockPriceHistoryError::ProviderParse {
+    let provider_data = data.get(&provider_symbol.prefixed_symbol).ok_or_else(|| {
+        SyncStockPriceHistoryError::ProviderParse {
             provider: SyncProvider::Tencent.as_str().to_string(),
             message: "响应里缺少目标 symbol".to_string(),
-        })?;
+        }
+    })?;
     let field_name = format!("{}day", adjustment.trim().to_lowercase());
     let kline_rows = provider_data
         .get(&field_name)
@@ -335,10 +337,12 @@ fn fetch_tencent_rows(
 
     let mut rows = Vec::new();
     for item in kline_rows {
-        let values = item.as_array().ok_or_else(|| SyncStockPriceHistoryError::ProviderParse {
-            provider: SyncProvider::Tencent.as_str().to_string(),
-            message: "腾讯日线行不是数组".to_string(),
-        })?;
+        let values = item
+            .as_array()
+            .ok_or_else(|| SyncStockPriceHistoryError::ProviderParse {
+                provider: SyncProvider::Tencent.as_str().to_string(),
+                message: "腾讯日线行不是数组".to_string(),
+            })?;
         if values.len() < 6 {
             return Err(SyncStockPriceHistoryError::ProviderParse {
                 provider: SyncProvider::Tencent.as_str().to_string(),
@@ -349,15 +353,30 @@ fn fetch_tencent_rows(
         if !date_in_window(trade_date, window)? {
             continue;
         }
-        let close = parse_provider_f64(SyncProvider::Tencent, value_as_str(values, 2, SyncProvider::Tencent)?)?;
+        let close = parse_provider_f64(
+            SyncProvider::Tencent,
+            value_as_str(values, 2, SyncProvider::Tencent)?,
+        )?;
         rows.push(StockHistoryRow {
             trade_date: trade_date.to_string(),
-            open: parse_provider_f64(SyncProvider::Tencent, value_as_str(values, 1, SyncProvider::Tencent)?)?,
+            open: parse_provider_f64(
+                SyncProvider::Tencent,
+                value_as_str(values, 1, SyncProvider::Tencent)?,
+            )?,
             close,
-            high: parse_provider_f64(SyncProvider::Tencent, value_as_str(values, 3, SyncProvider::Tencent)?)?,
-            low: parse_provider_f64(SyncProvider::Tencent, value_as_str(values, 4, SyncProvider::Tencent)?)?,
+            high: parse_provider_f64(
+                SyncProvider::Tencent,
+                value_as_str(values, 3, SyncProvider::Tencent)?,
+            )?,
+            low: parse_provider_f64(
+                SyncProvider::Tencent,
+                value_as_str(values, 4, SyncProvider::Tencent)?,
+            )?,
             adj_close: close,
-            volume: parse_provider_i64(SyncProvider::Tencent, value_as_str(values, 5, SyncProvider::Tencent)?)?,
+            volume: parse_provider_i64(
+                SyncProvider::Tencent,
+                value_as_str(values, 5, SyncProvider::Tencent)?,
+            )?,
         });
     }
 
@@ -429,24 +448,22 @@ fn build_sina_url(provider_symbol: &ProviderSymbol, window: &SyncDateWindow) -> 
     let datalen = ((window.end_date - window.start_date).num_days().max(30) + 30) as i64;
     format!(
         "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?symbol={}&scale=240&ma=no&datalen={}",
-        provider_symbol.prefixed_symbol,
-        datalen
+        provider_symbol.prefixed_symbol, datalen
     )
 }
 
 // 2026-03-29 CST: 这里统一执行 GET 请求，原因是腾讯和新浪都走简单 GET；
 // 目的：把状态码、网络异常和 body 读取错误统一翻译成 provider 级中文错误。
-fn http_get_text(
-    provider: SyncProvider,
-    url: &str,
-) -> Result<String, SyncStockPriceHistoryError> {
+fn http_get_text(provider: SyncProvider, url: &str) -> Result<String, SyncStockPriceHistoryError> {
     match ureq::get(url).set("Accept", "application/json").call() {
-        Ok(response) => response.into_string().map_err(|error| {
-            SyncStockPriceHistoryError::ProviderTransport {
-                provider: provider.as_str().to_string(),
-                message: error.to_string(),
-            }
-        }),
+        Ok(response) => {
+            response
+                .into_string()
+                .map_err(|error| SyncStockPriceHistoryError::ProviderTransport {
+                    provider: provider.as_str().to_string(),
+                    message: error.to_string(),
+                })
+        }
         Err(ureq::Error::Status(status, response)) => {
             let body = response.into_string().unwrap_or_default();
             Err(SyncStockPriceHistoryError::ProviderApi {
@@ -458,12 +475,10 @@ fn http_get_text(
                 },
             })
         }
-        Err(ureq::Error::Transport(error)) => Err(
-            SyncStockPriceHistoryError::ProviderTransport {
-                provider: provider.as_str().to_string(),
-                message: error.to_string(),
-            },
-        ),
+        Err(ureq::Error::Transport(error)) => Err(SyncStockPriceHistoryError::ProviderTransport {
+            provider: provider.as_str().to_string(),
+            message: error.to_string(),
+        }),
     }
 }
 
@@ -489,12 +504,12 @@ fn parse_provider_f64(
     provider: SyncProvider,
     value: &str,
 ) -> Result<f64, SyncStockPriceHistoryError> {
-    value.parse::<f64>().map_err(|error| {
-        SyncStockPriceHistoryError::ProviderParse {
+    value
+        .parse::<f64>()
+        .map_err(|error| SyncStockPriceHistoryError::ProviderParse {
             provider: provider.as_str().to_string(),
             message: format!("无法解析数值 `{value}`: {error}"),
-        }
-    })
+        })
 }
 
 // 2026-03-29 CST: 这里统一解析 provider 成交量字段，原因是 volume 最终需要以整数落 SQLite；

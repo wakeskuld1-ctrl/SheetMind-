@@ -49,7 +49,10 @@ fn technical_consultation_basic_marks_mfi_overbought_distribution() {
     // 2026-03-29 09:35 CST: 这里先锁 MFI“高位资金过热”红测，原因是资金流能力第一版要先把顶部极值场景钉成正式合同；
     // 目的：确保 technical_consultation_basic 会同时暴露 `money_flow_signal` 与 `indicator_snapshot.mfi_14`，而不是只补一个内部数值。
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["money_flow_signal"], "overbought_distribution");
+    assert_eq!(
+        output["data"]["money_flow_signal"],
+        "overbought_distribution"
+    );
     assert!(
         output["data"]["indicator_snapshot"]["mfi_14"]
             .as_f64()
@@ -468,8 +471,7 @@ fn technical_consultation_basic_marks_williams_r_oversold_rebound_candidate() {
 
 #[test]
 fn technical_consultation_basic_keeps_williams_r_neutral_in_balanced_range() {
-    let runtime_db_path =
-        create_test_runtime_db("technical_consultation_basic_williams_r_neutral");
+    let runtime_db_path = create_test_runtime_db("technical_consultation_basic_williams_r_neutral");
     let csv_path = create_stock_history_csv(
         "technical_consultation_basic_williams_r_neutral",
         "williams_r_neutral.csv",
@@ -610,8 +612,7 @@ fn technical_consultation_basic_marks_bollinger_lower_band_rebound_candidate() {
 
 #[test]
 fn technical_consultation_basic_keeps_bollinger_neutral_in_tight_range() {
-    let runtime_db_path =
-        create_test_runtime_db("technical_consultation_basic_bollinger_neutral");
+    let runtime_db_path = create_test_runtime_db("technical_consultation_basic_bollinger_neutral");
     let csv_path = create_stock_history_csv(
         "technical_consultation_basic_bollinger_neutral",
         "bollinger_neutral.csv",
@@ -1271,7 +1272,10 @@ fn build_mfi_overbought_rows(day_count: usize) -> Vec<String> {
             (close + 0.42, 920_000 + offset as i64 * 2_800)
         } else {
             let phase = offset - (day_count - 20);
-            (close + 1.10 + phase as f64 * 0.06, 2_600_000 + phase as i64 * 110_000)
+            (
+                close + 1.10 + phase as f64 * 0.06,
+                2_600_000 + phase as i64 * 110_000,
+            )
         };
 
         let open = close;
@@ -1301,7 +1305,10 @@ fn build_mfi_oversold_rows(day_count: usize) -> Vec<String> {
             (close - 0.38, 900_000 + offset as i64 * 2_300)
         } else {
             let phase = offset - (day_count - 20);
-            (close - 1.15 - phase as f64 * 0.05, 2_550_000 + phase as i64 * 105_000)
+            (
+                close - 1.15 - phase as f64 * 0.05,
+                2_550_000 + phase as i64 * 105_000,
+            )
         };
 
         let open = close;

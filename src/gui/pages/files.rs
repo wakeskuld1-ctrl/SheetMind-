@@ -69,12 +69,7 @@ fn render_preview_panel(ui: &mut egui::Ui, state: &FilesPageState) {
 fn render_schema_panel(ui: &mut egui::Ui, state: &FilesPageState) {
     ui.heading("字段与确认");
     ui.separator();
-    ui.label(
-        state
-            .selected_sheet
-            .as_deref()
-            .unwrap_or("尚未选中工作表"),
-    );
+    ui.label(state.selected_sheet.as_deref().unwrap_or("尚未选中工作表"));
     ui.separator();
     ui.label("这里将承载表头确认、字段结构和数据集建立。");
 }

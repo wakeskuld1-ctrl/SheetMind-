@@ -260,7 +260,8 @@ impl DataProcessingState {
     // 目的：让页面层和后续 Tool 桥接层共用同一个动作定位入口。
     pub fn selected_preset(&self) -> Option<&DataProcessingPreset> {
         self.selected_group().and_then(|group| {
-            group.presets
+            group
+                .presets
                 .iter()
                 .find(|preset| preset.id == self.selected_preset_id)
         })
@@ -357,7 +358,8 @@ impl Default for AnalysisState {
                 },
             ],
             selected_task: AnalysisTaskKind::Overview,
-            parameter_hint: "先选择一个分析任务，右侧会显示该任务的输入要求、参数入口和执行建议。".to_string(),
+            parameter_hint: "先选择一个分析任务，右侧会显示该任务的输入要求、参数入口和执行建议。"
+                .to_string(),
             result_summary: "这里将承载统计摘要、关键发现和结论摘要。".to_string(),
             chart_hint: "这里将承载图表预览、趋势线、相关性热力图或模型结果图。".to_string(),
             risk_notes: vec![
@@ -494,9 +496,12 @@ pub struct AiState {
 impl Default for AiState {
     fn default() -> Self {
         Self {
-            context_summary: "当前还没有接入真实 AI 推理，这里会汇总当前文件、数据集、分析阶段和推荐下一步。".to_string(),
+            context_summary:
+                "当前还没有接入真实 AI 推理，这里会汇总当前文件、数据集、分析阶段和推荐下一步。"
+                    .to_string(),
             suggestions: Vec::new(),
-            proposed_action: "等待接入 AI 建议后，这里会显示拟执行动作、影响范围和确认入口。".to_string(),
+            proposed_action: "等待接入 AI 建议后，这里会显示拟执行动作、影响范围和确认入口。"
+                .to_string(),
         }
     }
 }
@@ -551,7 +556,8 @@ impl Default for LicensePageState {
                     summary: "释放当前设备绑定，为更换机器做准备。",
                 },
             ],
-            local_settings_hint: "这里会继续接入本地运行设置、默认导出目录和授权校验策略。".to_string(),
+            local_settings_hint: "这里会继续接入本地运行设置、默认导出目录和授权校验策略。"
+                .to_string(),
             troubleshooting_notes: vec![
                 "如果状态显示未授权，请先确认许可证是否已激活。",
                 "如果设备状态异常，后续可尝试刷新状态或重新绑定。",

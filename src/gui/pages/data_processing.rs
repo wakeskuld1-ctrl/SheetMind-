@@ -33,7 +33,11 @@ fn render_operation_groups(ui: &mut egui::Ui, state: &mut AppState) {
         ui.collapsing(
             format!(
                 "{}{}",
-                if is_group_selected { "当前分组 · " } else { "" },
+                if is_group_selected {
+                    "当前分组 · "
+                } else {
+                    ""
+                },
                 group.label
             ),
             |ui| {
