@@ -211,3 +211,49 @@
 ## 11. 一句话总结
 
 - 当前项目已经把 SheetMind 的 Rust 主线推进到“Excel 工具 + 统计诊断 + 交付报表 + 股票历史 + 技术面咨询”并行可交付阶段；下一位 AI 最应该先做的，是沿现有模块继续增量推进或单独解决验证环境问题，而不是重新开架构讨论。
+
+## 12. 2026-03-31 模块边界补充
+
+### 12.1 正式模块范围
+
+- `src/ops/foundation.rs`
+  - 负责 Excel 表处理、单表/多表处理、统计诊断、分析建模、报告导出、容量评估，以及这些能力所依赖的通用运行时与领域支撑。
+- `src/ops/stock.rs`
+  - 负责股票历史导入、股票历史 HTTP 同步、股票技术面咨询，以及后续所有股票域指标与解读扩展。
+- `src/tools/catalog.rs`
+  - 对外保留原平铺 `tool_catalog`，同时新增 `tool_catalog_modules.foundation` 与 `tool_catalog_modules.stock`，用于给 AI、GUI 和后续路由提供稳定的模块边界元数据。
+- `src/tools/dispatcher/analysis_ops.rs`
+  - 只继续承接 foundation 域的分析链路，不再回挂股票导入、同步、技术咨询。
+- `src/tools/dispatcher/stock_ops.rs`
+  - 专门承接 `technical_consultation_basic`、`import_stock_price_history`、`sync_stock_price_history` 三个股票入口，后续新增股票 Tool 也优先落这里。
+
+### 12.2 依赖方向与禁止串台规则
+
+- `foundation` 不能依赖 `stock`。
+- `stock` 可以依赖通用底座层，但不能把股票语义、股票字段命名、股票规则反向渗回 `foundation`。
+- 新增股票能力时，不要再塞回 `analysis_ops`，也不要在 foundation 目录里继续堆股票专用逻辑。
+- `crate::ops::...` 当前仍然保留兼容导出，只是为了稳住旧引用；后续新代码优先使用 `crate::ops::foundation::...` 或 `crate::ops::stock::...`。
+- 如果一个能力离开股票语境后依然成立，优先判断为 `foundation`；如果它依赖股票行情、股票指标、股票交易语义或股票咨询话术，就归 `stock`。
+
+### 12.3 后续新增能力的归属判断
+
+- 属于 `foundation` 的典型新增项：
+  - 新的表清洗算子。
+  - 新的统计诊断算法。
+  - 新的分析建模能力。
+  - 新的报表导出与容量评估扩展。
+- 属于 `stock` 的典型新增项：
+  - 新的技术指标。
+  - 新的择时/趋势/量价/形态信号。
+  - 新的股票数据导入或同步 provider。
+  - 新的股票咨询结论、评分或解释层。
+
+### 12.4 下次接手先看哪些文件
+
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\foundation.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\stock.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\mod.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\tools\catalog.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\tools\contracts.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\tools\dispatcher\analysis_ops.rs`
+- `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\tools\dispatcher\stock_ops.rs`

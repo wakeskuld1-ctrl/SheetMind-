@@ -88,3 +88,23 @@
   - GUI feature：`cargo test --features gui --test gui_bootstrap_cli -- --nocapture --test-threads=1`
   - GUI feature：`cargo test --features gui --test gui_smoke -- --nocapture --test-threads=1`
 - 经过这轮边界修复后，之前 `sync_stock_price_history` 命令遇到的 `-lshlwapi`，已经可以判定为“GUI 依赖误入默认编译链”导致，而不是股票业务逻辑本身回归。
+
+## 2026-03-31 模块隔离补充说明
+
+- 这轮同时把 `ops` 与 `dispatcher` 正式分成两个业务域：
+  - `foundation`：Excel 表处理、多表处理、统计诊断、分析建模、报告导出、容量评估、通用运行时支撑。
+  - `stock`：股票历史导入、股票历史同步、股票技术面咨询，以及后续股票域指标扩展。
+- 兼容策略已经落地：
+  - `src/ops/mod.rs` 继续保留 `pub use` 兼容导出，避免旧的 `crate::ops::...` 调用一次性炸开。
+  - 新代码默认改走 `crate::ops::foundation::...` 或 `crate::ops::stock::...`，不要继续扩大兼容层使用面。
+- 对外契约已经补了分组元数据：
+  - `ToolResponse::tool_catalog()` 仍保留原来的平铺 `tool_catalog`。
+  - 同时新增 `tool_catalog_modules.foundation` 与 `tool_catalog_modules.stock`，方便 AI、GUI、路由层按业务域识别能力。
+- 禁止串台规则本次明确固定：
+  - 不要再把股票 Tool 挂回 `analysis_ops`。
+  - 不要在 foundation 域继续新增股票语义逻辑。
+  - `foundation` 不依赖 `stock`；`stock` 只依赖通用底座，不反向污染 foundation。
+- 这轮最小相关验证口径：
+  - `cargo test --test integration_tool_contract -- --nocapture`
+  - `cargo test --test stock_price_history_import_cli --test technical_consultation_basic_cli -- --nocapture`
+  - 如果只是继续维护模块边界文档，不需要再重跑整仓全量测试。
