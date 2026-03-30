@@ -4,9 +4,15 @@ pub mod domain;
 pub mod excel;
 // 2026-03-21: 这里暴露表注册表模块，目的是为确认后的表对象分配 table_id 并承接后续 DataFrame 生命周期。
 pub mod frame;
+// 2026-03-29 CST: 这里暴露本地授权模块，原因是 Lemon Squeezy 授权要沿现有 Rust / exe 主链落地；
+// 目的：让 CLI 主入口和后续测试都能复用同一套授权服务，而不是各自拼装校验逻辑。
+pub mod license;
 // 2026-03-21: 这里暴露 DataFrame 原子操作模块，目的是让 Tool 层调用稳定、可测试的计算操作。
 pub mod ops;
 pub mod runtime_paths;
+// 2026-03-29 CST: 这里暴露 GUI 模块入口，原因是首发桌面版需要在同一 crate 内复用授权、运行时和 Tool 协议；
+// 目的：让 GUI 二进制在不复制工程的前提下，逐步接入状态层、桥接层和页面层。
+pub mod gui;
 // 2026-03-22: 这里暴露本地运行时记忆模块，目的是把会话状态从 Skill 协议层下沉到独立的本地持久层。
 pub mod runtime;
 // 2026-03-21: 这里暴露 Tool 模块，目的是让 CLI 只负责收发 JSON，而具体分发规则由独立模块维护。

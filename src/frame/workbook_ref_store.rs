@@ -1,4 +1,4 @@
-﻿use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
@@ -491,5 +491,3 @@ impl WorkbookDraftStore {
         self.root_dir.join(format!("{workbook_ref}.json"))
     }
 }
-
-

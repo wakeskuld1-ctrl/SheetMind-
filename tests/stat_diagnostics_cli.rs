@@ -13,8 +13,16 @@ fn create_correlation_result_ref_for_cli() -> String {
     // 2026-03-25: 这里构造稳定的数值相关性样本，原因是 correlation_analysis 第一版要先锁住正相关和负相关排序；目的是让统计诊断型 Tool 的最小输出协议稳定下来。
     let dataframe = DataFrame::new(vec![
         Series::new("target".into(), [1.0_f64, 2.0_f64, 3.0_f64, 4.0_f64]).into(),
-        Series::new("positive_signal".into(), [2.0_f64, 4.0_f64, 6.0_f64, 8.0_f64]).into(),
-        Series::new("negative_signal".into(), [8.0_f64, 6.0_f64, 4.0_f64, 2.0_f64]).into(),
+        Series::new(
+            "positive_signal".into(),
+            [2.0_f64, 4.0_f64, 6.0_f64, 8.0_f64],
+        )
+        .into(),
+        Series::new(
+            "negative_signal".into(),
+            [8.0_f64, 6.0_f64, 4.0_f64, 2.0_f64],
+        )
+        .into(),
     ])
     .unwrap();
     let record = PersistedResultDataset::from_dataframe(
@@ -34,7 +42,11 @@ fn create_outlier_result_ref_for_cli() -> String {
     // 2026-03-25: 这里构造稳定的异常值样本，原因是 outlier_detection 第一版要先锁住 IQR 明显极端值识别；目的是让统计诊断链路稳定发现可疑记录。
     let dataframe = DataFrame::new(vec![
         Series::new("customer".into(), ["A", "B", "C", "D", "E"]).into(),
-        Series::new("amount".into(), [10.0_f64, 12.0_f64, 11.0_f64, 13.0_f64, 100.0_f64]).into(),
+        Series::new(
+            "amount".into(),
+            [10.0_f64, 12.0_f64, 11.0_f64, 13.0_f64, 100.0_f64],
+        )
+        .into(),
     ])
     .unwrap();
     let record = PersistedResultDataset::from_dataframe(
@@ -53,7 +65,11 @@ fn create_distribution_result_ref_for_cli() -> String {
     let result_ref = ResultRefStore::create_result_ref();
     // 2026-03-25: 这里构造偏态分布样本，原因是 distribution_analysis 第一版要先锁住 min/max/median 与分箱输出；目的是让分布观察层形成稳定协议。
     let dataframe = DataFrame::new(vec![
-        Series::new("amount".into(), [1.0_f64, 2.0_f64, 2.0_f64, 3.0_f64, 100.0_f64]).into(),
+        Series::new(
+            "amount".into(),
+            [1.0_f64, 2.0_f64, 2.0_f64, 3.0_f64, 100.0_f64],
+        )
+        .into(),
     ])
     .unwrap();
     let record = PersistedResultDataset::from_dataframe(
@@ -72,12 +88,12 @@ fn create_trend_result_ref_for_cli() -> String {
     let result_ref = ResultRefStore::create_result_ref();
     // 2026-03-25: 这里构造稳定的趋势样本，原因是 trend_analysis 第一版要先锁住时间排序、起止值和变化率；目的是让统计诊断层先形成最小趋势观察协议。
     let dataframe = DataFrame::new(vec![
+        Series::new("month".into(), ["2026-01", "2026-03", "2026-02", "2026-04"]).into(),
         Series::new(
-            "month".into(),
-            ["2026-01", "2026-03", "2026-02", "2026-04"],
+            "revenue".into(),
+            [100.0_f64, 140.0_f64, 120.0_f64, 180.0_f64],
         )
         .into(),
-        Series::new("revenue".into(), [100.0_f64, 140.0_f64, 120.0_f64, 180.0_f64]).into(),
     ])
     .unwrap();
     let record = PersistedResultDataset::from_dataframe(

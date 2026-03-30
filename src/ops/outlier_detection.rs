@@ -134,11 +134,12 @@ fn extract_numeric_values(
             column: column.to_string(),
         })?
         .as_materialized_series();
-    let casted = series
-        .cast(&DataType::Float64)
-        .map_err(|_| OutlierDetectionError::NonNumericColumn {
-            column: column.to_string(),
-        })?;
+    let casted =
+        series
+            .cast(&DataType::Float64)
+            .map_err(|_| OutlierDetectionError::NonNumericColumn {
+                column: column.to_string(),
+            })?;
     let values = casted
         .f64()
         .map_err(|_| OutlierDetectionError::NonNumericColumn {
@@ -268,7 +269,10 @@ fn quantile(sorted_values: &[f64], quantile: f64) -> f64 {
 
 // 2026-03-25: 这里统一生成人类摘要，原因是异常值诊断需要先告诉用户“有没有明显异常、下一步怎么处理”；目的是降低业务用户理解门槛。
 fn build_outlier_human_summary(summaries: &[OutlierSummary]) -> OutlierHumanSummary {
-    let total_outliers = summaries.iter().map(|summary| summary.outlier_count).sum::<usize>();
+    let total_outliers = summaries
+        .iter()
+        .map(|summary| summary.outlier_count)
+        .sum::<usize>();
     let key_points = summaries
         .iter()
         .filter(|summary| summary.outlier_count > 0)

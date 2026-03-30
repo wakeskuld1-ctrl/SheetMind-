@@ -29,11 +29,11 @@ use crate::ops::cast::{CastColumnSpec, cast_column_types, summarize_column_types
 use crate::ops::chart_svg::render_chart_svg;
 use crate::ops::cluster_kmeans::cluster_kmeans;
 use crate::ops::correlation_analysis::correlation_analysis;
-use crate::ops::distribution_analysis::distribution_analysis;
 use crate::ops::decision_assistant::decision_assistant;
 use crate::ops::deduplicate_by_key::{DeduplicateKeep, OrderSpec, deduplicate_by_key};
 use crate::ops::derive::{DerivationSpec, derive_columns};
 use crate::ops::distinct_rows::{DistinctKeep, distinct_rows};
+use crate::ops::distribution_analysis::distribution_analysis;
 use crate::ops::export::{export_csv, export_excel, export_excel_workbook};
 use crate::ops::fill_lookup::{FillLookupRule, fill_missing_from_lookup_by_keys};
 use crate::ops::fill_missing_values::{FillMissingRule, fill_missing_values};
@@ -132,6 +132,40 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "outlier_detection" => analysis_ops::dispatch_outlier_detection(request.args),
         "distribution_analysis" => analysis_ops::dispatch_distribution_analysis(request.args),
         "trend_analysis" => analysis_ops::dispatch_trend_analysis(request.args),
+        // 2026-03-28 CST: 这里把股票技术面基础 Tool 接入主 dispatcher，原因是历史导入之后要沿同一条 Rust / exe 主链继续往上承接分析；
+        // 目的：让 CLI、外部 EXE 封装和后续 Skill 都能直接调用 `technical_consultation_basic`。
+        "technical_consultation_basic" => {
+            analysis_ops::dispatch_technical_consultation_basic(request.args)
+        }
+        // 2026-03-28 CST: 这里把股票历史导入 Tool 接入主 dispatcher，原因是 CSV -> SQLite 是股票技术面主线的起点；
+        // 目的：让 CLI、外部 EXE 封装和后续 Skill 都能通过统一 Tool 主链调用这个入口。
+        "import_stock_price_history" => {
+            analysis_ops::dispatch_import_stock_price_history(request.args)
+        }
+        // 2026-03-29 CST: 这里把股票历史 HTTP 同步 Tool 接入主 dispatcher，原因是腾讯/新浪双源也必须沿现有 Rust / exe 主链暴露；
+        // 目的：让 CLI、外部 EXE 封装和后续 Skill 都能通过统一 Tool 主链调用这个同步入口。
+        "sync_stock_price_history" => analysis_ops::dispatch_sync_stock_price_history(request.args),
+        // 2026-03-28 23:54 CST: 这里把统计诊断组合 Tool 接入主 dispatcher，原因是高层组合能力也必须沿现有 Rust Tool 主链暴露；
+        // 目的是让统一 JSON 诊断包可以和其它 Tool 一样被 CLI 与后续编排直接调用。
+        "diagnostics_report" => analysis_ops::dispatch_diagnostics_report(request.args),
+        // 2026-03-29 00:08 CST：这里把组合诊断 Excel 报表 Tool 接入 dispatcher，原因是 workbook-first 交付也必须沿现有 Rust Tool 主链暴露；
+        // 目的：让 CLI 和后续自动化能直接调用“组合诊断 -> workbook/xlsx”的最终交付入口。
+        "diagnostics_report_excel_report" => {
+            analysis_ops::dispatch_diagnostics_report_excel_report(request.args)
+        }
+        // 2026-03-28 10:42 CST: 这里把容量评估接入主 dispatcher，原因是要沿用现有 Tool 分发骨架；目的是让 CLI/自动化链路都能直接调用新场景能力。
+        "capacity_assessment" => analysis_ops::dispatch_capacity_assessment(request.args),
+        // 2026-03-28 16:55 CST: 这里把容量桥接 Tool 接入主 dispatcher，原因是要让 SSH 盘点结果可以直接转成容量分析；目的是减少调用方手工做证据映射。
+        "capacity_assessment_from_inventory" => {
+            analysis_ops::dispatch_capacity_assessment_from_inventory(request.args)
+        }
+        // 2026-03-28 16:12 CST: 这里把受限 SSH 盘点接入主 dispatcher，原因是 CLI 与自动化调用需要统一走正式 Tool 分发；目的是让安全白名单采集能被外部直接触达。
+        // 2026-03-28 22:19 CST: 这里把容量评估 Excel 报表 Tool 接入主 dispatcher，原因是用户要“一步出 Excel”的正式入口；
+        // 目的是让 CLI、自动化和后续 Skill 都能直接调用最终交付能力。
+        "capacity_assessment_excel_report" => {
+            analysis_ops::dispatch_capacity_assessment_excel_report(request.args)
+        }
+        "ssh_inventory" => analysis_ops::dispatch_ssh_inventory(request.args),
         "linear_regression" => analysis_ops::dispatch_linear_regression(request.args),
         "logistic_regression" => analysis_ops::dispatch_logistic_regression(request.args),
         "cluster_kmeans" => analysis_ops::dispatch_cluster_kmeans(request.args),
@@ -866,17 +900,17 @@ fn dispatch_compose_workbook(args: Value) -> ToolResponse {
             Err(response) => return response,
         };
         // 2026-03-24: 这里让 compose_workbook 直接复用导出整理规则，原因是基础多表组装入口也需要承接列整理与条件格式声明；目的是避免用户必须绕行 report_delivery 才能拿到完整交付能力。
-        let loaded = match apply_report_delivery_section_format(loaded, worksheet_arg.format.as_ref())
-        {
-            Ok(loaded) => loaded,
-            Err(response) => return response,
-        };
+        let loaded =
+            match apply_report_delivery_section_format(loaded, worksheet_arg.format.as_ref()) {
+                Ok(loaded) => loaded,
+                Err(response) => return response,
+            };
         // 2026-03-24: 这里提前冻结 compose_workbook 的 sheet 级导出意图，原因是 workbook_ref 需要把条件格式与数字格式一起带到最终导出层；目的是让低层入口与高层模板入口能力对齐。
-        let export_options = match build_sheet_export_options(&loaded, worksheet_arg.format.as_ref())
-        {
-            Ok(options) => options,
-            Err(error) => return ToolResponse::error(error.to_string()),
-        };
+        let export_options =
+            match build_sheet_export_options(&loaded, worksheet_arg.format.as_ref()) {
+                Ok(options) => options,
+                Err(error) => return ToolResponse::error(error.to_string()),
+            };
         sheet_inputs.push(WorkbookSheetInput {
             sheet_name: worksheet_arg.sheet_name,
             source_refs: source_refs_from_nested_source(&worksheet_arg.source),
@@ -981,13 +1015,11 @@ fn dispatch_report_delivery(args: Value) -> ToolResponse {
         .unwrap_or_else(|| "标准分析汇报".to_string());
     // 2026-03-24: 这里先把段级导出意图单独算出来，原因是 dispatch_report_delivery 返回 ToolResponse，不能在 struct literal 里直接用 `?`；
     // 目的是保持错误出口稳定，同时避免对 loaded 发生先 move 后借用。
-    let summary_export_options = match build_sheet_export_options(
-        &summary_loaded,
-        delivery_args.summary.format.as_ref(),
-    ) {
-        Ok(options) => options,
-        Err(error) => return ToolResponse::error(error.to_string()),
-    };
+    let summary_export_options =
+        match build_sheet_export_options(&summary_loaded, delivery_args.summary.format.as_ref()) {
+            Ok(options) => options,
+            Err(error) => return ToolResponse::error(error.to_string()),
+        };
     // 2026-03-24: 这里同样提前计算 analysis 段的导出意图，原因是要让 currency / percent 规则在 move dataframe 之前完成校验；
     // 目的是保证 report_delivery 草稿组装时既能通过编译，也能保留列级格式元数据。
     let analysis_export_options = match build_sheet_export_options(
@@ -1217,8 +1249,10 @@ fn requires_single_conditional_column(rule: &PersistedWorkbookColumnConditionalF
 fn resolve_conditional_column<'a>(
     loaded: &'a LoadedTable,
     column_name: &str,
-) -> Result<&'a polars::prelude::Column, crate::ops::format_table_for_export::FormatTableForExportError>
-{
+) -> Result<
+    &'a polars::prelude::Column,
+    crate::ops::format_table_for_export::FormatTableForExportError,
+> {
     loaded.dataframe.column(column_name).map_err(|_| {
         crate::ops::format_table_for_export::FormatTableForExportError::MissingColumn(
             column_name.to_string(),
@@ -2395,7 +2429,10 @@ fn dispatch_distribution_analysis(args: Value) -> ToolResponse {
     let Some(column) = args.get("column").and_then(|value| value.as_str()) else {
         return ToolResponse::error("distribution_analysis 缺少 column 参数");
     };
-    let bins = args.get("bins").and_then(|value| value.as_u64()).unwrap_or(10) as usize;
+    let bins = args
+        .get("bins")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(10) as usize;
     let casts = match parse_casts(&args, "casts", "distribution_analysis") {
         Ok(casts) => casts,
         Err(response) => return response,
@@ -2441,23 +2478,24 @@ fn dispatch_trend_analysis(args: Value) -> ToolResponse {
     match load_table_for_analysis(&args, "trend_analysis") {
         Ok(OperationLoad::NeedsConfirmation(response)) => response,
         Ok(OperationLoad::Loaded(loaded)) => match apply_optional_casts(loaded, &casts) {
-            Ok(prepared_loaded) => match trend_analysis(&prepared_loaded, time_column, value_column)
-            {
-                Ok(result) => {
-                    if let Err(response) = sync_loaded_table_state(
-                        &args,
-                        &prepared_loaded,
-                        SessionStage::AnalysisModeling,
-                        "查看趋势分析",
-                        "trend_analysis",
-                        "analysis_completed",
-                    ) {
-                        return response;
+            Ok(prepared_loaded) => {
+                match trend_analysis(&prepared_loaded, time_column, value_column) {
+                    Ok(result) => {
+                        if let Err(response) = sync_loaded_table_state(
+                            &args,
+                            &prepared_loaded,
+                            SessionStage::AnalysisModeling,
+                            "查看趋势分析",
+                            "trend_analysis",
+                            "analysis_completed",
+                        ) {
+                            return response;
+                        }
+                        ToolResponse::ok(json!(result))
                     }
-                    ToolResponse::ok(json!(result))
+                    Err(error) => ToolResponse::error(error.to_string()),
                 }
-                Err(error) => ToolResponse::error(error.to_string()),
-            },
+            }
             Err(error) => ToolResponse::error(error),
         },
         Err(response) => response,

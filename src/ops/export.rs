@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -210,12 +210,21 @@ pub fn export_excel_workbook(
         apply_freeze_panes(
             worksheet,
             header_row,
-            matches!(worksheet_snapshot.sheet_kind, PersistedWorkbookSheetKind::DataSheet),
+            matches!(
+                worksheet_snapshot.sheet_kind,
+                PersistedWorkbookSheetKind::DataSheet
+            ),
         )
-            .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
+        .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
         // 2026-03-24: 这里在 sheet 级导出选项冻结后补写条件格式，原因是负值预警和空白提醒必须跟着 workbook 草稿稳定落地；目的是让 report_delivery 的交付偏好真正体现在成品 Excel 里。
-        apply_conditional_formats(worksheet, worksheet_snapshot, &dataframe, header_row, &cell_formats)
-            .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
+        apply_conditional_formats(
+            worksheet,
+            worksheet_snapshot,
+            &dataframe,
+            header_row,
+            &cell_formats,
+        )
+        .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
         // 2026-03-24: 鏉╂瑩鍣风紒?workbook 閸愬懏鐦″鐘虫殶閹诡喛銆冪悰銉ㄥ殰閸斻劌鍨€规枻绱濋崢鐔锋礈閺?report_delivery / compose_workbook 闁€熻泲閸氬奔绔撮弶鈥叉唉娴犳﹢鎽肩捄顖ょ幢閻╊喚娈戦弰顖涘Ω閳ユ粌鍨€硅棄褰茬拠缁樷偓褉鈧繀绔村▎鈩冣偓褎鐭囬崚鏉垮彆閸忓崬顕遍崙鍝勭湴閵?
         apply_auto_column_widths(worksheet, &dataframe)
             .map_err(|error| ExportError::WriteExcel(error.to_string()))?;
@@ -398,15 +407,7 @@ fn write_excel_cell(
     column_index: usize,
     formats: &ExportCellFormats,
 ) -> Result<bool, rust_xlsxwriter::XlsxError> {
-    write_excel_cell_with_row_offset(
-        worksheet,
-        column,
-        row_index,
-        column_index,
-        1,
-        formats,
-        None,
-    )
+    write_excel_cell_with_row_offset(worksheet, column, row_index, column_index, 1, formats, None)
 }
 
 fn write_excel_cell_with_row_offset(
@@ -425,43 +426,93 @@ fn write_excel_cell_with_row_offset(
     match series.get(row_index) {
         Ok(AnyValue::Null) => Ok(false),
         Ok(AnyValue::Int8(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), true))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), true),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::Int16(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), true))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), true),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::Int32(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), true))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), true),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::Int64(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), true))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), true),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::UInt8(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), true))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), true),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::UInt16(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), true))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), true),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::UInt32(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), true))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), true),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::UInt64(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), true))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), true),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::Float32(value)) => {
-            worksheet.write_number_with_format(row, col, value as f64, resolve_numeric_format(formats, number_format.as_ref(), false))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value as f64,
+                resolve_numeric_format(formats, number_format.as_ref(), false),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::Float64(value)) => {
-            worksheet.write_number_with_format(row, col, value, resolve_numeric_format(formats, number_format.as_ref(), false))?;
+            worksheet.write_number_with_format(
+                row,
+                col,
+                value,
+                resolve_numeric_format(formats, number_format.as_ref(), false),
+            )?;
             Ok(false)
         }
         Ok(AnyValue::Boolean(value)) => {
@@ -485,7 +536,9 @@ fn write_excel_cell_with_row_offset(
                 Ok(false)
             }
         }
-        Err(error) => Err(rust_xlsxwriter::XlsxError::ParameterError(error.to_string())),
+        Err(error) => Err(rust_xlsxwriter::XlsxError::ParameterError(
+            error.to_string(),
+        )),
     }
 }
 
@@ -719,8 +772,8 @@ fn apply_conditional_format_rule(
             )?;
         }
         PersistedWorkbookConditionalFormatKind::NullWarning => {
-            let conditional_format = ConditionalFormatBlank::new()
-                .set_format(&formats.null_warning_format);
+            let conditional_format =
+                ConditionalFormatBlank::new().set_format(&formats.null_warning_format);
             worksheet.add_conditional_format(
                 first_data_row,
                 column_index,
@@ -730,8 +783,8 @@ fn apply_conditional_format_rule(
             )?;
         }
         PersistedWorkbookConditionalFormatKind::DuplicateWarn => {
-            let conditional_format = ConditionalFormatDuplicate::new()
-                .set_format(&formats.duplicate_warn_format);
+            let conditional_format =
+                ConditionalFormatDuplicate::new().set_format(&formats.duplicate_warn_format);
             worksheet.add_conditional_format(
                 first_data_row,
                 column_index,
@@ -769,7 +822,10 @@ fn apply_conditional_format_rule(
         PersistedWorkbookConditionalFormatKind::BetweenWarn => {
             let (min_threshold, max_threshold) = parse_conditional_between_thresholds(rule)?;
             let conditional_format = ConditionalFormatCell::new()
-                .set_rule(ConditionalFormatCellRule::Between(min_threshold, max_threshold))
+                .set_rule(ConditionalFormatCellRule::Between(
+                    min_threshold,
+                    max_threshold,
+                ))
                 .set_format(&formats.between_warn_format);
             worksheet.add_conditional_format(
                 first_data_row,

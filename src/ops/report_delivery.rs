@@ -1,4 +1,4 @@
-﻿use polars::prelude::{DataFrame, NamedFrom, Series};
+use polars::prelude::{DataFrame, NamedFrom, Series};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -341,4 +341,3 @@ fn build_chart_sheet_dataframe(report_name: &str, chart_count: usize) -> DataFra
     ])
     .expect("report delivery chart sheet dataframe should build")
 }
-

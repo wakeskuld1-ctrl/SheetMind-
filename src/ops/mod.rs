@@ -69,6 +69,30 @@ pub mod outlier_detection;
 pub mod distribution_analysis;
 // 2026-03-25: 这里导出趋势分析模块，原因是统计诊断型能力第四步要回答“时间上整体是在涨还是跌”；目的是把时间趋势观察正式纳入 Tool 层。
 pub mod trend_analysis;
+// 2026-03-28 23:54 CST: 这里导出统计诊断组合模块，原因是要把四个独立诊断结果收口成统一高层交付；
+// 目的是让 CLI、Skill 和后续 workbook 能直接消费一份稳定的组合诊断合同。
+pub mod diagnostics_report;
+// 2026-03-29 00:08 CST：这里导出组合诊断 Excel 报表模块，原因是当前统计诊断已经有统一 JSON 合同，下一步要形成 workbook-first 交付；
+// 目的：把“组合诊断 -> workbook/xlsx”沉成正式高层 Tool，继续沿 Rust / exe 主线增量推进。
+pub mod diagnostics_report_excel_report;
+// 2026-03-28 CST: 这里导出股票历史导入模块，原因是用户已经确认股票历史主线要走 SQLite；
+// 目的：先把 `CSV -> SQLite` 打成正式 Tool，为后续技术面咨询和 Skill 铺底。
+pub mod import_stock_price_history;
+// 2026-03-29 CST: 这里导出股票历史 HTTP 同步模块，原因是方案 2+3 已确认要在保留 CSV 主线的同时新增腾讯/新浪双源入口；
+// 目的：把“HTTP -> SQLite”沉成正式 Tool，而不是把网络逻辑塞进原 CSV 导入模块。
+pub mod sync_stock_price_history;
+// 2026-03-28 CST: 这里导出股票技术面基础咨询模块，原因是历史数据已经入 SQLite，下一步要形成真正可调用的分析能力；
+// 目的：把 `读取历史行情 -> 计算基础指标 -> 输出技术面建议` 沉成正式 Rust Tool。
+pub mod technical_consultation_basic;
+// 2026-03-28 10:42 CST: 这里导出容量评估模块，原因是要把运维容量场景纳入现有分析 Tool 体系；目的是支持“可量化结论 + 数据不足指导”的弹性交付。
+pub mod capacity_assessment;
+// 2026-03-28 16:55 CST: 这里导出容量桥接模块，原因是要把 SSH 盘点结果自动映射进容量模型；目的是打通“采集 -> 证据 -> 结论”的正式链路。
+pub mod capacity_assessment_from_inventory;
+// 2026-03-28 22:19 CST: 这里导出容量评估 Excel 报表模块，原因是用户最终要的是可直接交付的 Excel；
+// 目的是把“容量分析 -> workbook -> xlsx”收口成正式高层 Tool。
+pub mod capacity_assessment_excel_report;
+// 2026-03-28 16:12 CST: 这里导出受限 SSH 盘点模块，原因是容量评估需要可选的远程部署事实补数；目的是在只读白名单前提下补齐实例和主机资源证据。
+pub mod ssh_inventory;
 // 2026-03-21: 这里导出线性回归模块，目的是把分析建模层 V1 的首个传统回归能力下沉到独立 Tool 计算层。
 pub mod linear_regression;
 // 2026-03-21: 这里导出公共建模准备层，目的是让回归、分类和聚类共享统一前处理口径。

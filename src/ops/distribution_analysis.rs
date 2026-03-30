@@ -184,7 +184,11 @@ fn calculate_skewness(values: &[f64], mean: f64, stddev: f64) -> f64 {
 }
 
 // 2026-03-25: 这里构造等宽分箱，原因是第一版 histogram 先以最稳妥的传统等宽区间为主；目的是让分布分析输出稳定、易解释、易导出。
-fn build_histogram(values: &[f64], bin_count: usize, summary: &DistributionSummary) -> Vec<DistributionBin> {
+fn build_histogram(
+    values: &[f64],
+    bin_count: usize,
+    summary: &DistributionSummary,
+) -> Vec<DistributionBin> {
     if values.is_empty() {
         return Vec::new();
     }
@@ -239,9 +243,11 @@ fn build_human_summary(
     bins: &[DistributionBin],
     non_null_count: usize,
 ) -> DistributionHumanSummary {
-    let dominant_bin = bins
-        .iter()
-        .max_by(|left, right| left.count.cmp(&right.count).then_with(|| left.index.cmp(&right.index)));
+    let dominant_bin = bins.iter().max_by(|left, right| {
+        left.count
+            .cmp(&right.count)
+            .then_with(|| left.index.cmp(&right.index))
+    });
     let distribution_tone = if summary.skewness > 1.0 {
         "明显右偏"
     } else if summary.skewness < -1.0 {

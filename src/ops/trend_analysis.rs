@@ -87,8 +87,15 @@ pub fn trend_analysis(
         absolute_change / start.value
     };
     let direction = classify_direction(absolute_change).to_string();
-    let human_summary =
-        build_human_summary(time_column, value_column, start, end, absolute_change, change_rate, &direction);
+    let human_summary = build_human_summary(
+        time_column,
+        value_column,
+        start,
+        end,
+        absolute_change,
+        change_rate,
+        &direction,
+    );
 
     Ok(TrendAnalysisResult {
         time_column: time_column.to_string(),
@@ -142,10 +149,9 @@ fn extract_trend_points(
         .iter()
         .zip(values.into_iter())
         .filter_map(|(time_value, numeric_value)| {
-            numeric_value.and_then(|value| any_value_to_label(&time_value).map(|time| TrendPoint {
-                time,
-                value,
-            }))
+            numeric_value.and_then(|value| {
+                any_value_to_label(&time_value).map(|time| TrendPoint { time, value })
+            })
         })
         .collect::<Vec<_>>();
 

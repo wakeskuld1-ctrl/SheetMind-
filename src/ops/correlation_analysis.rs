@@ -97,8 +97,12 @@ pub fn correlation_analysis(
             .then_with(|| left.feature_column.cmp(&right.feature_column))
     });
 
-    let human_summary =
-        build_human_summary(target_column, loaded.dataframe.height(), &top_positive, &top_negative);
+    let human_summary = build_human_summary(
+        target_column,
+        loaded.dataframe.height(),
+        &top_positive,
+        &top_negative,
+    );
 
     Ok(CorrelationAnalysisResult {
         method: "pearson".to_string(),
@@ -124,12 +128,11 @@ fn extract_numeric_column(
             column: column.to_string(),
         })?
         .as_materialized_series();
-    let casted =
-        series
-            .cast(&polars::prelude::DataType::Float64)
-            .map_err(|_| CorrelationAnalysisError::NonNumericColumn {
-                column: column.to_string(),
-            })?;
+    let casted = series
+        .cast(&polars::prelude::DataType::Float64)
+        .map_err(|_| CorrelationAnalysisError::NonNumericColumn {
+            column: column.to_string(),
+        })?;
     let values = casted
         .f64()
         .map_err(|_| CorrelationAnalysisError::NonNumericColumn {
@@ -163,8 +166,7 @@ fn build_correlation_item(
         });
     }
 
-    let coefficient =
-        calculate_pearson(target_column, feature_column, &paired_values)?;
+    let coefficient = calculate_pearson(target_column, feature_column, &paired_values)?;
 
     Ok(CorrelationItem {
         feature_column: feature_column.to_string(),
@@ -250,7 +252,6 @@ fn build_human_summary(
         overall,
         key_points,
         recommended_next_step:
-            "建议先结合业务语义确认强相关字段，再决定是否继续做回归、聚类或异常诊断。"
-                .to_string(),
+            "建议先结合业务语义确认强相关字段，再决定是否继续做回归、聚类或异常诊断。".to_string(),
     }
 }
