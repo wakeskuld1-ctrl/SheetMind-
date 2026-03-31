@@ -273,3 +273,158 @@
 ### 关闭项
 - 已补齐模块范围与禁止串台规则文档。
 - 已补齐本轮任务日志，满足交付前留痕要求。
+
+## 2026-03-31
+### 修改内容
+- 修改 `src/ops/technical_consultation_basic.rs`，在既有关键位三层结构上补 `resistance_retest_watch / support_retest_watch`，并引入旧关键位附近的灰区 buffer，避免回踩/反抽样本被过早判成确认或失败。
+- 修改 `tests/technical_consultation_basic_cli.rs`，按 TDD 新增“阻力转支撑回踩观察态”“支撑转阻力反抽观察态”两组 CSV 夹具和两条红绿测试，再推动实现转绿。
+- 更新 `task_plan.md`、`progress.md`、`findings.md`，把这次 `retest_watch` 的完成状态、buffer 决策与后续待办写入记录入口。
+
+### 修改原因
+- 用户已批准继续按方案 A 推进关键位主线，第三刀完成后仍缺“正在回踩/反抽途中”的观察态，上层 AI 还不能区分“接近完成”和“已经完成”。
+- 如果没有 `retest_watch`，价格刚回到旧关键位附近时就会在 `confirmed_*` 和 `failed_*` 之间来回跳，日线咨询文案不稳定。
+
+### 方案还差什么
+- [ ] 当前仍是最近两根 K 线的最小结构口径，后续需要评估是否补“多根回踩 / 多根反抽”。
+- [ ] 当前关键位窗口和 retest buffer 都还没有参数化，如需支持更多标的与周期，还要继续补合同与样本。
+- [ ] 整仓 `cargo test` 仍未复验通过，当前继续按 Windows 环境级资源阻塞记录。
+
+### 潜在问题
+- [ ] `max(snapshot.atr_14 * 0.25, 0.15)` 是首版灰区公式，若样本价格尺度差异过大，后续可能出现 buffer 偏宽或偏窄。
+- [ ] `retest_watch` 目前只覆盖“靠近旧关键位的一根观察态”，若出现长时间横向磨位，现有语义可能仍偏粗。
+- [ ] 仓内仍有与本轮无关的用户改动和未跟踪目录，提交或后续继续开发时不能误回滚。
+
+### 关闭项
+- 已通过：`cargo fmt --all`
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_resistance_retest_watch_signal -- --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_support_retest_watch_signal -- --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+- 已通过：`cargo test --test stock_price_history_import_cli -- --nocapture --test-threads=1`
+- [ ] 未执行整仓验证：`cargo test -- --nocapture --test-threads=1`，原因是当前 Windows 环境存在页文件/内存阻塞。
+
+### 记忆点
+- 这条主线继续只在 `technical_consultation_basic` 内增量推进，不串到 disclosure / Python 线。
+- 每次代码任务结束后，都要同步维护 `task_plan.md`、`findings.md`、`progress.md` 和 `.trae/CHANGELOG_TASK.md`。
+
+## 2026-03-31
+### 修改内容
+- 修改 `src/ops/technical_consultation_basic.rs`，新增 `breakout_signal` 顶层字段，以及 `indicator_snapshot.support_level_20 / resistance_level_20` 关键位快照字段，并把关键位语义接入 `summary / recommended_actions / watch_points`。
+- 修改 `tests/technical_consultation_basic_cli.rs`，按 TDD 新增“有效突破近 20 日阻力”“有效跌破近 20 日支撑”两条专项回归，并在默认成功样本中补齐关键位字段可见性断言。
+- 新增 `task_plan.md`、`progress.md`、`findings.md`，把这轮证券分析主线的任务规划、进展和关键结论沉淀成后续 AI 可直接接续的记录入口。
+
+### 修改原因
+- 用户已批准继续按证券分析主线推进“方案 1：支撑/阻力 + 突破有效性”。
+- 当前 `technical_consultation_basic` 已有趋势、量能、背离、择时与波动语义，但还缺“关键位是否已被有效打破”的结构化判断。
+- 用户明确要求保留任务记录入口，避免后续 AI 只能靠 `git diff` 反推上下文。
+
+### 方案还差什么
+- [ ] 当前 `breakout_signal` 仍是第一版价格结构语义，还没有细分“假突破回落”“反抽失败”“支撑转阻力”等二阶段场景。
+- [ ] 当前关键位窗口固定为 `20` 日，后续如果要做不同周期或参数化，需要再补专项样本与合同设计。
+
+### 潜在问题
+- [ ] 当前 `breakout_signal` 刻意不与 `volume_confirmation` 强绑定，后续如果有人误把两者重新并成一个字段，容易造成语义重叠和回归误判。
+- [ ] 整仓 `cargo test` 在当前 Windows 环境下因页文件/内存不足触发编译与链接失败，本轮无法据此声明整仓全绿。
+
+### 关闭项
+- 关键位主回归已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`。
+- 股票导入/同步回归已通过：`cargo test --test stock_price_history_import_cli -- --nocapture --test-threads=1`。
+- 新增专项测试已通过：
+- `cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_confirmed_resistance_breakout_signal -- --nocapture --test-threads=1`
+- `cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_confirmed_support_breakdown_signal -- --nocapture --test-threads=1`
+
+### 记忆点
+- 用户这条主线是证券分析，不要把工作误切到 disclosure / Python 那条线。
+- 记录入口优先维护 `task_plan.md`、`findings.md`、`progress.md`，并同步补 `.trae/CHANGELOG_TASK.md`。
+
+## 2026-03-31
+### 修改内容
+- 修改 `src/ops/technical_consultation_basic.rs`，把 `breakout_signal` 从第一阶段确认扩展到二阶段确认，新增 `failed_resistance_breakout / failed_support_breakdown`，并同步更新 `summary / recommended_actions / watch_points` 的中文输出。
+- 修改 `tests/technical_consultation_basic_cli.rs`，按 TDD 新增“假突破回落”“假跌破拉回”两条失败测试与对应 CSV 夹具样本，再推动实现转绿。
+- 更新 `task_plan.md`、`progress.md`、`findings.md`，把这次关键位二阶段确认的完成项、验证证据与后续建议写入记录入口。
+
+### 修改原因
+- 用户已批准继续沿证券分析主线推进方案 1，当前第一版只能判断“是否已突破/跌破关键位”，还无法识别失效突破。
+- 日线咨询如果不能区分“有效突破”和“单根越位后迅速收回”，上层 AI 很容易把假动作继续误读成趋势确认。
+
+### 方案还差什么
+- [ ] 当前关键位语义仍未覆盖“阻力转支撑回踩确认 / 支撑转阻力反抽失败”。
+- [ ] 当前关键位窗口仍固定为 `20` 日，后续如需参数化，还要补合同和样本设计。
+- [ ] 本轮只完成 `technical_consultation_basic` 切片回归，尚未再次挑战整仓 `cargo test` 的环境级阻塞。
+
+### 潜在问题
+- [ ] 假突破/假跌破目前基于日线“前一根越位、当前一根收回”的最小口径，若后续有人改成只看当前快照，会重新丢失二阶段语义。
+- [ ] 关键位仍用收盘价而不是影线高低点，若后续切换口径，现有测试样本和文案都要一起调整。
+- [ ] `cargo test --test technical_consultation_basic_cli` 通过时仍伴随仓内既有 dead_code warning，这不是本轮回归失败，但后续做整洁度治理时要单独处理。
+
+### 关闭项
+- 新增红绿测试已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_failed_resistance_breakout_signal -- --nocapture --test-threads=1`。
+- 新增红绿测试已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_failed_support_breakdown_signal -- --nocapture --test-threads=1`。
+- 关键位整组回归已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`。
+- 代码格式化已执行：`cargo fmt --all`。
+
+### 记忆点
+- 这条主线继续在 `technical_consultation_basic` 内增量推进，不新开证券分析模块。
+- 用户要求改代码前先给多个方案并等批准；本轮是沿已批准的“方案 1”继续切第二刀。
+
+## 2026-03-31
+### 修改内容
+- 修改 `src/ops/technical_consultation_basic.rs`，在原有突破/失效结构上继续补第三刀，新增 `confirmed_resistance_retest_hold / confirmed_support_retest_reject`，并同步收紧 `failed_*` 的判定口径为“重新回到旧关键位内侧”。
+- 修改 `tests/technical_consultation_basic_cli.rs`，按 TDD 新增“阻力转支撑回踩确认”“支撑转阻力反抽受压”两组 CSV 夹具和两条红绿测试。
+- 更新 `task_plan.md`、`progress.md`、`findings.md`，把这次关键位三阶段确认的合同、验证结果和后续待办写入记录入口。
+
+### 修改原因
+- 用户已批准按方案 A 继续推进关键位主线，目标是把突破后的第一次回踩承接、跌破后的第一次反抽受压也结构化收口。
+- 当前如果没有这层语义，上层 AI 只能区分“突破成功/失败”，却无法区分“已进入回踩确认阶段”和“已进入反抽受压阶段”。
+
+### 方案还差什么
+- [ ] 当前还没有 `retest_watch` 观察态，无法区分“正在回踩途中”和“回踩已完成承接”。
+- [ ] 当前仍固定 `20` 日关键位窗口，若后续要支持不同周期，还要补参数化合同和样本。
+- [ ] 整仓 `cargo test` 这轮仍未复验环境级阻塞。
+
+### 潜在问题
+- [ ] 回踩确认当前基于最近两根 K 线与前序关键位关系的最小口径，若后续样本进入更长时间的多根回踩结构，可能需要再加 `watch` 中间态。
+- [ ] `failed_*` 这轮已收紧到“重新回到旧关键位内侧”，如果后续有人改回看当前窗口极值，第三刀会再次被第二刀吞掉。
+- [ ] 仓内既有 `dead_code` warning 仍存在，当前不影响测试结论，但后续如果做整洁度治理需要单独处理。
+
+### 关闭项
+- 新增红绿测试已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_confirmed_resistance_retest_hold_signal -- --nocapture --test-threads=1`。
+- 新增红绿测试已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_confirmed_support_retest_reject_signal -- --nocapture --test-threads=1`。
+- 技术咨询整组回归已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`。
+- 股票导入/同步回归已通过：`cargo test --test stock_price_history_import_cli -- --nocapture --test-threads=1`。
+- 代码格式化已执行：`cargo fmt --all`。
+
+### 记忆点
+- 关键位主线现在已经有三层：突破/跌破确认、失效突破/失效跌破、回踩确认/反抽受压。
+- 下一刀若继续方案 1，优先做 `retest_watch`，不要急着新开别的证券分析模块。
+
+## 2026-03-31
+### 修改内容
+- 修改 `src/ops/technical_consultation_basic.rs`，新增 `MULTI_BAR_RETEST_LOOKBACK_BARS`、`find_multi_bar_resistance_retest_anchor`、`find_multi_bar_support_retest_anchor`，把多根回踩/多根反抽结构接入既有 `breakout_signal` 判断链路。
+- 修改 `tests/technical_consultation_basic_cli.rs`，按 TDD 新增“多根回踩再站稳”“多根反抽再受压”两组 CSV 夹具与两条红绿测试，先看见 `range_bound` 红灯，再推动实现转绿。
+- 更新 `task_plan.md`、`progress.md`、`findings.md`，补齐这次多根结构扩展的完成项、验证证据、风险与下一步建议。
+
+### 修改原因
+- 用户已批准继续按方案 A 推进关键位主线，当前实现只能稳定识别前一根突破/跌破后的确认，仍会漏掉 2~4 根磨位后的真实回踩/反抽样本。
+- 如果不补这层结构，日线咨询会把更贴近实盘节奏的样本重新打回 `range_bound`，上层 AI 也无法稳定区分“旧关键位已完成承接/受压”。
+
+### 方案还差什么
+- [ ] 当前多根结构主要补在确认链路，后续可继续评估是否单独加“多根回踩观察态 / 多根反抽观察态”样本。
+- [ ] `MULTI_BAR_RETEST_LOOKBACK_BARS = 4` 仍是固定窗口，若后续覆盖更多节奏样本，可能还要参数化。
+- [ ] 整仓 `cargo test -- --nocapture --test-threads=1` 本轮未再执行，仍沿用既有环境阻塞记录。
+
+### 潜在问题
+- [ ] 若样本磨位长度超过 `4` 根，当前锚点扫描仍可能遗漏真实的多根回踩/反抽结构。
+- [ ] 当前多根结构继续依赖 ATR 灰区和收盘价关键位，若后续切换到影线高低点口径，现有样本与文案需要同步调整。
+- [ ] 仓内仍存在与本轮无关的用户改动和未跟踪目录，提交时必须继续精确暂存，不能误带。
+
+### 关闭项
+- 已通过：`cargo fmt --all`
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_multi_bar_resistance_retest_hold_signal -- --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_multi_bar_support_retest_reject_signal -- --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+- 已通过：`cargo test --test stock_price_history_import_cli -- --nocapture --test-threads=1`
+- [ ] 未执行整仓验证：`cargo test -- --nocapture --test-threads=1`，原因是当前仍沿用 Windows 环境级页文件/内存阻塞记录。
+
+### 记忆点
+- 这条主线继续只在 `technical_consultation_basic` 内增量推进，不新开证券分析模块。
+- 用户要求改代码前先给多个方案并等待批准；这轮是沿已批准的方案 A 继续补第四刀。

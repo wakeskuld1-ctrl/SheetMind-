@@ -942,6 +942,306 @@ fn build_confirmed_breakdown_rows(day_count: usize) -> Vec<String> {
     rows
 }
 
+// 2026-03-31 CST: 这里补“先突破阻力、随后收回区间内”的二阶段确认样本，原因是方案 1 下一刀要补假突破回落；
+// 目的：确保 breakout_signal 不会只看到历史上破就持续维持看多确认，而是能识别最新一根已经跌回阻力位下方。
+fn build_failed_breakout_reversal_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 90.0;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(20);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close + 0.62, 920_000 + offset as i64 * 6_500)
+        } else {
+            let phase = offset - phase_start;
+            match phase {
+                0..=15 => (close + 0.82, 1_180_000 + phase as i64 * 18_000),
+                16 => (close + 0.68, 1_260_000),
+                17 => (close + 0.54, 1_220_000),
+                18 => (close + 2.35, 1_980_000),
+                _ => (close - 3.10, 1_080_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 1.05;
+        let low = next_close.min(open) - 0.92;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+// 2026-03-31 CST: 这里补“先跌破支撑、随后拉回支撑上方”的二阶段确认样本，原因是方案 1 下一刀要补假跌破拉回；
+// 目的：确保 breakout_signal 能识别最新一根已经回到关键位上方，而不是继续把失效下破当成已确认弱势。
+fn build_failed_breakdown_recovery_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 172.0;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(20);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close - 0.66, 940_000 + offset as i64 * 6_800)
+        } else {
+            let phase = offset - phase_start;
+            match phase {
+                0..=15 => (close - 0.84, 1_200_000 + phase as i64 * 18_000),
+                16 => (close - 0.70, 1_260_000),
+                17 => (close - 0.56, 1_220_000),
+                18 => (close - 2.40, 2_020_000),
+                _ => (close + 3.18, 1_120_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 0.96;
+        let low = next_close.min(open) - 1.08;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+// 2026-03-31 20:10 CST: 这里补“突破后回踩旧阻力但仍守住”的三阶段样本，原因是方案 A 下一刀要识别阻力转支撑；
+// 目的：确保 breakout_signal 能把“不是继续创新高，但已经完成第一次有效回踩承接”的场景单独结构化输出。
+fn build_resistance_retest_hold_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 91.0;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(20);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close + 0.64, 930_000 + offset as i64 * 6_400)
+        } else {
+            let phase = offset - phase_start;
+            match phase {
+                0..=15 => (close + 0.86, 1_220_000 + phase as i64 * 16_000),
+                16 => (close + 0.74, 1_260_000),
+                17 => (close + 0.58, 1_280_000),
+                18 => (close + 2.28, 2_020_000),
+                _ => (close - 1.22, 1_180_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 1.02;
+        let low = next_close.min(open) - 0.88;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+// 2026-03-31 20:10 CST: 这里补“跌破后反抽旧支撑但仍受压”的三阶段样本，原因是方案 A 下一刀要识别支撑转阻力；
+// 目的：确保 breakout_signal 能把“不是继续创新低，但第一次反抽已经被旧支撑压回”的场景单独结构化输出。
+fn build_support_retest_reject_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 171.0;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(20);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close - 0.67, 945_000 + offset as i64 * 6_700)
+        } else {
+            let phase = offset - phase_start;
+            match phase {
+                0..=15 => (close - 0.88, 1_240_000 + phase as i64 * 16_000),
+                16 => (close - 0.76, 1_280_000),
+                17 => (close - 0.60, 1_300_000),
+                18 => (close - 2.34, 2_040_000),
+                _ => (close + 1.26, 1_190_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 0.94;
+        let low = next_close.min(open) - 1.04;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+// 2026-03-31 20:35 CST: 这里补“回踩到旧阻力上方但仍贴近关键位”的观察态样本，原因是下一刀要区分回踩途中和回踩确认完成；
+// 目的：确保 breakout_signal 可以表达“已经回到正确一侧，但承接安全垫还不够”的 retest_watch 语义。
+fn build_resistance_retest_watch_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 91.0;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(20);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close + 0.64, 930_000 + offset as i64 * 6_400)
+        } else {
+            let phase = offset - phase_start;
+            match phase {
+                0..=15 => (close + 0.86, 1_220_000 + phase as i64 * 16_000),
+                16 => (close + 0.74, 1_260_000),
+                17 => (close + 0.58, 1_280_000),
+                18 => (close + 2.28, 2_020_000),
+                _ => (close - 2.36, 1_180_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 1.02;
+        let low = next_close.min(open) - 0.88;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+// 2026-03-31 20:35 CST: 这里补“反抽到旧支撑下方但仍贴近关键位”的观察态样本，原因是下一刀要区分反抽途中和反抽受压确认完成；
+// 目的：确保 breakout_signal 可以表达“已经回到正确一侧，但受压安全垫还不够”的 retest_watch 语义。
+fn build_support_retest_watch_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 171.0;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(20);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close - 0.67, 945_000 + offset as i64 * 6_700)
+        } else {
+            let phase = offset - phase_start;
+            match phase {
+                0..=15 => (close - 0.88, 1_240_000 + phase as i64 * 16_000),
+                16 => (close - 0.76, 1_280_000),
+                17 => (close - 0.60, 1_300_000),
+                18 => (close - 2.34, 2_040_000),
+                _ => (close + 2.42, 1_190_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 0.94;
+        let low = next_close.min(open) - 1.04;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+// 2026-03-31 22:20 CST: 这里补“突破后经过多根回踩再重新站稳”的红测夹具，原因是当前实现只认前一根
+// 越位样本，识别不到多根回踩后的再次承接；目的：先用真实 CLI 样本锁住“多根回踩确认”缺口，再推动主逻辑扩展。
+fn build_multi_bar_resistance_retest_hold_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 88.0;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(22);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close + 0.58, 920_000 + offset as i64 * 6_200)
+        } else {
+            let phase = offset - phase_start;
+            match phase {
+                0..=15 => (close + 0.84, 1_210_000 + phase as i64 * 15_500),
+                16 => (close + 0.66, 1_280_000),
+                17 => (close + 2.32, 2_060_000),
+                18 => (close - 2.08, 1_420_000),
+                19 => (close - 0.18, 1_180_000),
+                20 => (close + 0.12, 1_120_000),
+                _ => (close + 1.34, 1_360_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 1.03;
+        let low = next_close.min(open) - 0.92;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+// 2026-03-31 22:20 CST: 这里补“跌破后经过多根反抽再重新受压”的红测夹具，原因是当前实现同样只认前一根
+// 失守样本，无法覆盖多根反抽后的再次转弱；目的：让支撑转阻力的多根结构也有对称回归约束。
+fn build_multi_bar_support_retest_reject_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 176.0;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(22);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close - 0.61, 935_000 + offset as i64 * 6_400)
+        } else {
+            let phase = offset - phase_start;
+            match phase {
+                0..=15 => (close - 0.86, 1_230_000 + phase as i64 * 15_800),
+                16 => (close - 0.68, 1_300_000),
+                17 => (close - 2.36, 2_090_000),
+                18 => (close + 2.12, 1_450_000),
+                19 => (close + 0.20, 1_210_000),
+                20 => (close - 0.10, 1_150_000),
+                _ => (close - 1.38, 1_390_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 0.96;
+        let low = next_close.min(open) - 1.05;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
 // 2026-03-29 CST: 这里补“低位假跌破 / 低位震荡但 OBV 没有形成有效改善”的边界样本，原因是方案 A1
 // 需要把“不是所有低位新低都等于 bullish_divergence”正式锁进回归；目的：防止后续继续补底背离时，
 // 把仅仅处于低位拉扯、尚未形成清晰量价背离的样本误判成反转信号。
@@ -1979,6 +2279,7 @@ fn technical_consultation_basic_returns_snapshot_and_guidance_from_sqlite_histor
     // 目的：确保成功主样本至少能暴露 `bollinger_midline_signal`，方便后续 Skill / AI 统一消费布林带三层语义。
     assert!(output["data"]["bollinger_midline_signal"].is_string());
     assert!(output["data"]["bollinger_bandwidth_signal"].is_string());
+    assert!(output["data"]["breakout_signal"].is_string());
     assert!(output["data"]["momentum_signal"].is_string());
     assert!(output["data"]["volatility_state"].is_string());
     assert!(output["data"]["summary"].is_string());
@@ -1994,6 +2295,8 @@ fn technical_consultation_basic_returns_snapshot_and_guidance_from_sqlite_histor
     assert!(output["data"]["indicator_snapshot"]["cci_20"].is_number());
     assert!(output["data"]["indicator_snapshot"]["williams_r_14"].is_number());
     assert!(output["data"]["indicator_snapshot"]["boll_width_ratio_20"].is_number());
+    assert!(output["data"]["indicator_snapshot"]["support_level_20"].is_number());
+    assert!(output["data"]["indicator_snapshot"]["resistance_level_20"].is_number());
     assert!(output["data"]["indicator_snapshot"]["atr_14"].is_number());
     assert!(output["data"]["indicator_snapshot"]["adx_14"].is_number());
     assert!(output["data"]["indicator_snapshot"]["plus_di_14"].is_number());
@@ -2347,6 +2650,66 @@ fn technical_consultation_basic_keeps_none_when_price_and_obv_confirm_breakout()
 }
 
 #[test]
+fn technical_consultation_basic_marks_confirmed_resistance_breakout_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_confirmed_resistance_breakout");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_confirmed_resistance_breakout",
+        "confirmed_resistance_breakout.csv",
+        &build_confirmed_breakout_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688169.SH");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688169.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let summary = output["data"]["summary"]
+        .as_str()
+        .expect("summary should exist");
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+    let close = output["data"]["indicator_snapshot"]["close"]
+        .as_f64()
+        .expect("close should be a number");
+    let resistance_level_20 = output["data"]["indicator_snapshot"]["resistance_level_20"]
+        .as_f64()
+        .expect("resistance_level_20 should be a number");
+
+    // 2026-03-31 CST: 这里先锁“放量突破前高”的关键位红测，原因是方案 1 要把支撑/阻力与突破有效性正式接入
+    // technical_consultation_basic；目的：确保后续实现不仅返回文案，还会稳定暴露 `breakout_signal` 与 20 日阻力位数值。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "confirmed_resistance_breakout"
+    );
+    assert!(output["data"]["indicator_snapshot"]["support_level_20"].is_number());
+    assert!(output["data"]["indicator_snapshot"]["resistance_level_20"].is_number());
+    assert!(close > resistance_level_20);
+    assert!(summary.contains("阻力") || summary.contains("突破"));
+    assert!(
+        recommended_actions
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("突破") || text.contains("阻力"))
+    );
+    assert!(
+        watch_points
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("突破") || text.contains("阻力"))
+    );
+}
+
+#[test]
 fn technical_consultation_basic_keeps_none_when_confirmed_breakdown_uses_alt_symbol() {
     let runtime_db_path =
         create_test_runtime_db("technical_consultation_basic_confirmed_breakdown");
@@ -2370,6 +2733,467 @@ fn technical_consultation_basic_keeps_none_when_confirmed_breakdown_uses_alt_sym
     // 目的：把确认性下跌从 bullish_divergence 的判定边界里排除出去，避免后续继续补背离时把同跌场景误伤成反转信号。
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["divergence_signal"], "none");
+}
+
+#[test]
+fn technical_consultation_basic_marks_confirmed_support_breakdown_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_confirmed_support_breakdown");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_confirmed_support_breakdown",
+        "confirmed_support_breakdown.csv",
+        &build_confirmed_breakdown_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "600887.SH");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "600887.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let summary = output["data"]["summary"]
+        .as_str()
+        .expect("summary should exist");
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+    let close = output["data"]["indicator_snapshot"]["close"]
+        .as_f64()
+        .expect("close should be a number");
+    let support_level_20 = output["data"]["indicator_snapshot"]["support_level_20"]
+        .as_f64()
+        .expect("support_level_20 should be a number");
+
+    // 2026-03-31 CST: 这里补“有效跌破近端支撑”的关键位回归，原因是方案 1 不能只覆盖向上突破；
+    // 目的：确保 technical_consultation_basic 会对称输出 `confirmed_support_breakdown` 与 20 日支撑位数值。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "confirmed_support_breakdown"
+    );
+    assert!(output["data"]["indicator_snapshot"]["support_level_20"].is_number());
+    assert!(output["data"]["indicator_snapshot"]["resistance_level_20"].is_number());
+    assert!(close < support_level_20);
+    assert!(summary.contains("支撑") || summary.contains("跌破"));
+    assert!(
+        recommended_actions
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("支撑") || text.contains("跌破"))
+    );
+    assert!(
+        watch_points
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("支撑") || text.contains("跌破"))
+    );
+}
+
+#[test]
+fn technical_consultation_basic_marks_failed_resistance_breakout_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_failed_resistance_breakout");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_failed_resistance_breakout",
+        "failed_resistance_breakout.csv",
+        &build_failed_breakout_reversal_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "603501.SH");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "603501.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let summary = output["data"]["summary"]
+        .as_str()
+        .expect("summary should exist");
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+    let close = output["data"]["indicator_snapshot"]["close"]
+        .as_f64()
+        .expect("close should be a number");
+    let resistance_level_20 = output["data"]["indicator_snapshot"]["resistance_level_20"]
+        .as_f64()
+        .expect("resistance_level_20 should be a number");
+
+    // 2026-03-31 CST: 这里先锁“假突破回落”的二阶段红测，原因是方案 1 下一刀不能只覆盖成功突破；
+    // 目的：确保 technical_consultation_basic 会把上根越过阻力但最新一根收回关键位下方的场景识别成失效突破。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "failed_resistance_breakout"
+    );
+    assert!(close < resistance_level_20);
+    assert!(summary.contains("假突破") || summary.contains("回落"));
+    assert!(
+        recommended_actions
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("假突破") || text.contains("回落"))
+    );
+    assert!(
+        watch_points
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("阻力") && (text.contains("失守") || text.contains("收回")))
+    );
+}
+
+#[test]
+fn technical_consultation_basic_marks_failed_support_breakdown_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_failed_support_breakdown");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_failed_support_breakdown",
+        "failed_support_breakdown.csv",
+        &build_failed_breakdown_recovery_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "002027.SZ");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "002027.SZ"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let summary = output["data"]["summary"]
+        .as_str()
+        .expect("summary should exist");
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+    let close = output["data"]["indicator_snapshot"]["close"]
+        .as_f64()
+        .expect("close should be a number");
+    let support_level_20 = output["data"]["indicator_snapshot"]["support_level_20"]
+        .as_f64()
+        .expect("support_level_20 should be a number");
+
+    // 2026-03-31 CST: 这里先锁“假跌破拉回”的二阶段红测，原因是方案 1 下一刀要对称补齐下方关键位的失效场景；
+    // 目的：确保 technical_consultation_basic 会把上根跌破支撑但最新一根重新收回支撑上方的场景识别成失效跌破。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "failed_support_breakdown"
+    );
+    assert!(close > support_level_20);
+    assert!(summary.contains("假跌破") || summary.contains("拉回"));
+    assert!(
+        recommended_actions
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("假跌破") || text.contains("拉回"))
+    );
+    assert!(
+        watch_points
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("支撑") && (text.contains("收复") || text.contains("拉回")))
+    );
+}
+
+#[test]
+fn technical_consultation_basic_marks_confirmed_resistance_retest_hold_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_confirmed_resistance_retest_hold");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_confirmed_resistance_retest_hold",
+        "confirmed_resistance_retest_hold.csv",
+        &build_resistance_retest_hold_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688036.SH");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688036.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let summary = output["data"]["summary"]
+        .as_str()
+        .expect("summary should exist");
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+    let close = output["data"]["indicator_snapshot"]["close"]
+        .as_f64()
+        .expect("close should be a number");
+    let resistance_level_20 = output["data"]["indicator_snapshot"]["resistance_level_20"]
+        .as_f64()
+        .expect("resistance_level_20 should be a number");
+
+    // 2026-03-31 20:10 CST: 这里先锁“阻力转支撑回踩确认”的红测，原因是方案 A 要把突破后的第一次承接单独结构化；
+    // 目的：确保 technical_consultation_basic 不会把已经完成回踩承接的场景继续误判成普通区间震荡。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "confirmed_resistance_retest_hold"
+    );
+    assert!(close < resistance_level_20);
+    assert!(summary.contains("回踩") || summary.contains("承接"));
+    assert!(
+        recommended_actions
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("回踩") || text.contains("支撑"))
+    );
+    assert!(
+        watch_points
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("阻力") && (text.contains("支撑") || text.contains("承接")))
+    );
+}
+
+#[test]
+fn technical_consultation_basic_marks_confirmed_support_retest_reject_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_confirmed_support_retest_reject");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_confirmed_support_retest_reject",
+        "confirmed_support_retest_reject.csv",
+        &build_support_retest_reject_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "600585.SH");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "600585.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let summary = output["data"]["summary"]
+        .as_str()
+        .expect("summary should exist");
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+    let close = output["data"]["indicator_snapshot"]["close"]
+        .as_f64()
+        .expect("close should be a number");
+    let support_level_20 = output["data"]["indicator_snapshot"]["support_level_20"]
+        .as_f64()
+        .expect("support_level_20 should be a number");
+
+    // 2026-03-31 20:10 CST: 这里先锁“支撑转阻力反抽受压”的红测，原因是方案 A 要把跌破后的第一次反抽失败单独结构化；
+    // 目的：确保 technical_consultation_basic 不会把已经完成反抽受压的场景继续误判成普通区间震荡或假跌破修复。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "confirmed_support_retest_reject"
+    );
+    assert!(close > support_level_20);
+    assert!(summary.contains("反抽") || summary.contains("受压"));
+    assert!(
+        recommended_actions
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("反抽") || text.contains("受压"))
+    );
+    assert!(
+        watch_points
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("支撑") && (text.contains("阻力") || text.contains("受压")))
+    );
+}
+
+#[test]
+fn technical_consultation_basic_marks_resistance_retest_watch_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_resistance_retest_watch");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_resistance_retest_watch",
+        "resistance_retest_watch.csv",
+        &build_resistance_retest_watch_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688981.SH");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688981.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let summary = output["data"]["summary"]
+        .as_str()
+        .expect("summary should exist");
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+
+    // 2026-03-31 20:35 CST: 这里先锁“阻力转支撑回踩观察态”的红测，原因是下一刀要明确区分回踩途中与回踩确认完成；
+    // 目的：确保 technical_consultation_basic 能输出仍需继续观察承接质量的 retest_watch，而不是直接跳到 confirmed。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["breakout_signal"], "resistance_retest_watch");
+    assert!(summary.contains("回踩") && summary.contains("观察"));
+    assert!(
+        recommended_actions
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("回踩") && text.contains("观察"))
+    );
+    assert!(
+        watch_points
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("阻力") && (text.contains("观察") || text.contains("站稳")))
+    );
+}
+
+#[test]
+fn technical_consultation_basic_marks_support_retest_watch_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_support_retest_watch");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_support_retest_watch",
+        "support_retest_watch.csv",
+        &build_support_retest_watch_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "601888.SH");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "601888.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let summary = output["data"]["summary"]
+        .as_str()
+        .expect("summary should exist");
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+
+    // 2026-03-31 20:35 CST: 这里先锁“支撑转阻力反抽观察态”的红测，原因是下一刀也要对称区分反抽途中与反抽受压确认完成；
+    // 目的：确保 technical_consultation_basic 能输出仍需继续观察压制质量的 retest_watch，而不是直接跳到 confirmed。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["breakout_signal"], "support_retest_watch");
+    assert!(summary.contains("反抽") && summary.contains("观察"));
+    assert!(
+        recommended_actions
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("反抽") && text.contains("观察"))
+    );
+    assert!(
+        watch_points
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("支撑") && (text.contains("观察") || text.contains("受压")))
+    );
+}
+#[test]
+fn technical_consultation_basic_marks_multi_bar_resistance_retest_hold_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_multi_bar_resistance_retest_hold");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_multi_bar_resistance_retest_hold",
+        "multi_bar_resistance_retest_hold.csv",
+        &build_multi_bar_resistance_retest_hold_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "603986.SH");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "603986.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+
+    // 2026-03-31 22:20 CST: 这里先锁“突破后经历多根回踩再重新站稳”的红测，原因是当前确认逻辑只认前一根突破，
+    // 会漏掉多根回踩后的再次承接；目的：确保 breakout_signal 能识别更贴近日线实盘节奏的多根回踩确认。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "confirmed_resistance_retest_hold"
+    );
+    assert!(!recommended_actions.is_empty());
+    assert!(!watch_points.is_empty());
+}
+
+#[test]
+fn technical_consultation_basic_marks_multi_bar_support_retest_reject_signal() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_multi_bar_support_retest_reject");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_multi_bar_support_retest_reject",
+        "multi_bar_support_retest_reject.csv",
+        &build_multi_bar_support_retest_reject_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "000858.SZ");
+
+    let request = json!( {
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "000858.SZ"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let recommended_actions = output["data"]["recommended_actions"]
+        .as_array()
+        .expect("recommended_actions should exist");
+    let watch_points = output["data"]["watch_points"]
+        .as_array()
+        .expect("watch_points should exist");
+
+    // 2026-03-31 22:20 CST: 这里再锁“跌破后经历多根反抽再重新受压”的红测，原因是空头侧也存在同样的两根 K 线限制；
+    // 目的：确保支撑转阻力的多根反抽结构能够继续落到 confirmed_support_retest_reject，而不是退化回 range_bound。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "confirmed_support_retest_reject"
+    );
+    assert!(!recommended_actions.is_empty());
+    assert!(!watch_points.is_empty());
 }
 
 #[test]

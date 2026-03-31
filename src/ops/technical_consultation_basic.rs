@@ -7,6 +7,8 @@ use crate::runtime::stock_history_store::{
 
 const MIN_REQUIRED_HISTORY_ROWS: usize = 200;
 const DEFAULT_LOOKBACK_DAYS: usize = 260;
+const KEY_LEVEL_LOOKBACK_DAYS: usize = 20;
+const MULTI_BAR_RETEST_LOOKBACK_BARS: usize = 4;
 
 // 2026-03-28 CST：这里定义技术面基础咨询请求，原因是新 Tool 需要稳定的强类型输入合同；
 // 目的：把 dispatcher 的弱类型 JSON 参数收口为业务层可维护的 Rust 请求结构。
@@ -51,6 +53,9 @@ pub struct TechnicalConsultationBasicResult {
     // 2026-03-29 23:25 CST: 这里新增布林带带宽状态字段，原因是现有 `volatility_state` 还不够表达布林带自身的收敛/扩张语义；
     // 目的：让调用方直接拿到 `expanding / contracting / normal`，避免后续外部重复解析带宽阈值。
     pub bollinger_bandwidth_signal: String,
+    // 2026-03-31 CST: 这里新增关键位突破信号，原因是方案 1 要把“支撑/阻力 + 突破有效性”正式纳入对外合同；
+    // 目的：让上层 Skill / AI 直接消费 confirmed/watch/range_bound 语义，而不是自行拿近端高低点和 ATR 再拼判断。
+    pub breakout_signal: String,
     pub divergence_signal: String,
     pub timing_signal: String,
     pub rsrs_signal: String,
@@ -105,6 +110,10 @@ pub struct TechnicalIndicatorSnapshot {
     pub boll_upper: f64,
     pub boll_middle: f64,
     pub boll_lower: f64,
+    // 2026-03-31 CST: 这里新增近 20 日支撑/阻力位快照，原因是方案 1 需要把关键位数值和突破语义一起沉淀到统一快照；
+    // 目的：让 summary / actions / watch_points 与后续 AI 都复用同一份关键位数值，避免外部再各算一遍近期高低点。
+    pub support_level_20: f64,
+    pub resistance_level_20: f64,
     pub atr_14: f64,
 }
 
@@ -221,6 +230,10 @@ fn build_indicator_snapshot(
     } else {
         (boll_upper - boll_lower) / boll_middle.abs()
     };
+    // 2026-03-31 CST: 这里新增近 20 日关键位快照计算，原因是方案 1 需要把突破判断建立在统一窗口的支撑/阻力位上；
+    // 目的：继续复用同一份 OHLC 历史窗口，在 Rust 主线里直接沉淀关键位数值，避免后续调用方重复扫描 rows。
+    let (support_level_20, resistance_level_20) =
+        key_level_snapshot(rows, KEY_LEVEL_LOOKBACK_DAYS)?;
     let atr_14 = atr_last(rows, 14)?;
 
     Ok(TechnicalIndicatorSnapshot {
@@ -250,6 +263,8 @@ fn build_indicator_snapshot(
         boll_upper,
         boll_middle,
         boll_lower,
+        support_level_20,
+        resistance_level_20,
         atr_14,
     })
 }
@@ -292,45 +307,57 @@ fn build_consultation_result(
         classify_bollinger_bandwidth_signal(&indicator_snapshot).to_string();
     let divergence_signal = classify_divergence_signal(rows).to_string();
     let timing_signal = classify_timing_signal(&indicator_snapshot).to_string();
+    // 2026-03-31 CST: 这里接入关键位突破分类，原因是方案 1 要把“是否有效突破近端支撑/阻力”收成稳定字段；
+    // 目的：让摘要、建议、观察点与对外 JSON 合同都直接复用 breakout_signal，而不是在多个位置重复做局部判断。
+    let breakout_signal =
+        classify_breakout_signal(rows, &indicator_snapshot, &trend_bias, &volume_confirmation)
+            .to_string();
     // 2026-03-29 22:35 CST: 这里把 RSRS 信号分类接入结果构造，原因是这轮已经确定要一起进入咨询输出；
     // 目的：把斜率强化/走弱沉淀为稳定字段，让外部不必再次读取快照自行解释。
     let rsrs_signal = classify_rsrs_signal(&indicator_snapshot).to_string();
     let momentum_signal = classify_momentum_signal(&indicator_snapshot).to_string();
     let volatility_state = classify_volatility_state(&indicator_snapshot).to_string();
-    let summary = build_summary_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and_range_position_and_bollinger(
-        &trend_bias,
-        &trend_strength,
-        &volume_confirmation,
-        &money_flow_signal,
-        &mean_reversion_signal,
-        &range_position_signal,
-        &bollinger_position_signal,
-        &bollinger_midline_signal,
-        &bollinger_bandwidth_signal,
-        &divergence_signal,
-        &timing_signal,
-        &rsrs_signal,
-        &momentum_signal,
-        &volatility_state,
-    );
-    let recommended_actions =
-        build_recommended_actions_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and_range_position_and_bollinger(
-        &trend_bias,
-        &trend_strength,
-        &volume_confirmation,
-        &money_flow_signal,
-        &mean_reversion_signal,
+    let summary = build_summary_with_breakout_signal(
+        build_summary_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and_range_position_and_bollinger(
+            &trend_bias,
+            &trend_strength,
+            &volume_confirmation,
+            &money_flow_signal,
+            &mean_reversion_signal,
             &range_position_signal,
             &bollinger_position_signal,
             &bollinger_midline_signal,
             &bollinger_bandwidth_signal,
             &divergence_signal,
-        &timing_signal,
-        &rsrs_signal,
-        &momentum_signal,
-        &volatility_state,
+            &timing_signal,
+            &rsrs_signal,
+            &momentum_signal,
+            &volatility_state,
+        ),
+        &breakout_signal,
+        &indicator_snapshot,
     );
-    let watch_points = build_watch_points_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and_range_position_and_bollinger(
+    let recommended_actions = build_recommended_actions_with_breakout_signal(
+        build_recommended_actions_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and_range_position_and_bollinger(
+            &trend_bias,
+            &trend_strength,
+            &volume_confirmation,
+            &money_flow_signal,
+            &mean_reversion_signal,
+            &range_position_signal,
+            &bollinger_position_signal,
+            &bollinger_midline_signal,
+            &bollinger_bandwidth_signal,
+            &divergence_signal,
+            &timing_signal,
+            &rsrs_signal,
+            &momentum_signal,
+            &volatility_state,
+        ),
+        &breakout_signal,
+        &indicator_snapshot,
+    );
+    let legacy_watch_points = build_watch_points_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and_range_position_and_bollinger(
         &trend_bias,
         &trend_strength,
         &volume_confirmation,
@@ -347,6 +374,11 @@ fn build_consultation_result(
         &rsrs_signal,
         &indicator_snapshot,
         &volatility_state,
+    );
+    let watch_points = build_watch_points_with_breakout_signal(
+        legacy_watch_points,
+        &breakout_signal,
+        &indicator_snapshot,
     );
     let start_date = rows
         .first()
@@ -370,6 +402,7 @@ fn build_consultation_result(
         bollinger_position_signal,
         bollinger_midline_signal,
         bollinger_bandwidth_signal,
+        breakout_signal,
         divergence_signal,
         timing_signal,
         rsrs_signal,
@@ -652,6 +685,319 @@ fn classify_bollinger_bandwidth_signal(snapshot: &TechnicalIndicatorSnapshot) ->
     } else {
         "normal"
     }
+}
+
+// 2026-03-31 CST: 这里新增关键位突破分类，原因是方案 1 需要把近 20 日支撑/阻力与突破有效性收成稳定合同；
+// 目的：统一用关键位 + ATR 缓冲 + 量能确认来判断 confirmed/watch/range_bound，避免摘要层和调用方各自拼规则。
+// 2026-03-31 19:25 CST: 这里继续补第二阶段确认，原因是上一版只能判断“当前是否在关键位外侧”，识别不到假突破回落/假跌破拉回；
+// 目的：把“前一根越位、当前一根收回”的失效结构也沉淀成稳定 breakout_signal，避免上层把失效动作继续误读成趋势确认。
+fn classify_breakout_signal(
+    rows: &[StockHistoryRow],
+    snapshot: &TechnicalIndicatorSnapshot,
+    trend_bias: &str,
+    _volume_confirmation: &str,
+) -> &'static str {
+    if trend_bias == "bullish" && snapshot.close > snapshot.resistance_level_20 {
+        "confirmed_resistance_breakout"
+    } else if snapshot.close > snapshot.resistance_level_20 {
+        "resistance_breakout_watch"
+    } else if trend_bias == "bearish" && snapshot.close < snapshot.support_level_20 {
+        "confirmed_support_breakdown"
+    } else if snapshot.close < snapshot.support_level_20 {
+        "support_breakdown_watch"
+    // 2026-03-31 20:45 CST: 这里把 retest_watch 放在 confirmed/failed 之前，原因是“贴近旧关键位、仍需观察”的状态
+    // 本质上比明确承接或明确失效的信息密度更低；目的：先把模糊区间收口，避免被两侧强语义分支提前吞掉。
+    } else if let Some(retest_watch_signal) = classify_retest_watch_signal(rows, snapshot) {
+        retest_watch_signal
+    // 2026-03-31 20:15 CST: 这里把回踩确认放在失效判断之前，原因是“突破后回踩旧阻力但仍站稳”和“跌破后反抽旧支撑但仍受压”
+    // 都会先离开当前关键位外侧；目的：优先输出更高信息密度的结构语义，而不是被宽泛的 failed_* 分支提前吞掉。
+    } else if let Some(retest_signal) = classify_confirmed_retest_signal(rows, snapshot) {
+        retest_signal
+    } else if let Some(failed_signal) = classify_failed_breakout_signal(rows, snapshot) {
+        failed_signal
+    } else {
+        "range_bound"
+    }
+}
+
+// 2026-03-31 20:45 CST: 这里新增 retest_watch 辅助判断，原因是用户已要求区分“回踩/反抽途中”和“确认完成”；
+// 目的：用旧关键位附近的一小段缓冲区表达“仍需观察”的灰区，避免直接跳到 confirmed 或 failed。
+fn classify_retest_watch_signal(
+    rows: &[StockHistoryRow],
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> Option<&'static str> {
+    if rows.len() < KEY_LEVEL_LOOKBACK_DAYS + 2 {
+        return None;
+    }
+
+    let previous_close = rows
+        .get(rows.len().saturating_sub(2))
+        .map(|row| row.close)?;
+    let previous_rows = &rows[..rows.len() - 1];
+    let (previous_support_level_20, previous_resistance_level_20) =
+        match key_level_snapshot(previous_rows, KEY_LEVEL_LOOKBACK_DAYS) {
+            Ok(levels) => levels,
+            Err(_) => return None,
+        };
+    let retest_buffer = (snapshot.atr_14 * 0.25).max(0.15);
+
+    // 2026-03-31 20:45 CST: 这里把“突破后回踩到旧阻力附近，但离旧关键位还不够远”的场景定义为观察态，
+    // 原因是这种位置不适合过早下“承接已完成”或“突破已失效”的强结论；目的：给上层保留继续观察空间。
+    if previous_close > previous_resistance_level_20
+        && (snapshot.close - previous_resistance_level_20).abs() <= retest_buffer
+        && snapshot.close < snapshot.resistance_level_20
+    {
+        Some("resistance_retest_watch")
+    // 2026-03-31 20:45 CST: 这里把“跌破后反抽到旧支撑附近，但离旧关键位还不够远”的场景定义为观察态，
+    // 原因是这时压制是否成立还不够清晰；目的：避免把弱反抽途中的结构过早写死成 confirmed 或 failed。
+    } else if previous_close < previous_support_level_20
+        && (snapshot.close - previous_support_level_20).abs() <= retest_buffer
+        && snapshot.close > snapshot.support_level_20
+    {
+        Some("support_retest_watch")
+    // 2026-03-31 22:35 CST: 这里补多根回踩观察态，原因是突破后的第一次回踩不一定只持续一根 K 线；
+    // 目的：允许最近若干根里先出现突破锚点，再经过 2~4 根围绕旧关键位的磨位后，仍能继续输出 retest_watch。
+    } else if let Some(anchor_resistance_level_20) =
+        find_multi_bar_resistance_retest_anchor(rows, retest_buffer)
+    {
+        if (snapshot.close - anchor_resistance_level_20).abs() <= retest_buffer
+            && snapshot.close < snapshot.resistance_level_20
+        {
+            Some("resistance_retest_watch")
+        } else {
+            None
+        }
+    // 2026-03-31 22:35 CST: 这里补多根反抽观察态，原因是跌破后的第一次反抽也可能在旧关键位附近来回磨几根；
+    // 目的：让空头侧和多头侧保持对称，不把多根反抽中的样本过早打回 range_bound。
+    } else if let Some(anchor_support_level_20) =
+        find_multi_bar_support_retest_anchor(rows, retest_buffer)
+    {
+        if (snapshot.close - anchor_support_level_20).abs() <= retest_buffer
+            && snapshot.close > snapshot.support_level_20
+        {
+            Some("support_retest_watch")
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+// 2026-03-31 20:15 CST: 这里新增回踩确认辅助判断，原因是方案 A 要把“旧阻力转支撑 / 旧支撑转阻力”的第一次确认单独结构化；
+// 目的：继续沿 `breakout_signal` 一条主线增量扩展，不新开字段，也不要求上层去二次解析近期两根 K 线关系。
+fn classify_confirmed_retest_signal(
+    rows: &[StockHistoryRow],
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> Option<&'static str> {
+    if rows.len() < KEY_LEVEL_LOOKBACK_DAYS + 2 {
+        return None;
+    }
+
+    let previous_close = rows
+        .get(rows.len().saturating_sub(2))
+        .map(|row| row.close)?;
+    let previous_rows = &rows[..rows.len() - 1];
+    let (previous_support_level_20, previous_resistance_level_20) =
+        match key_level_snapshot(previous_rows, KEY_LEVEL_LOOKBACK_DAYS) {
+            Ok(levels) => levels,
+            Err(_) => return None,
+        };
+    let retest_buffer = (snapshot.atr_14 * 0.25).max(0.15);
+
+    // 2026-03-31 20:15 CST: 这里把“上一根已突破旧阻力、当前一根虽回踩但仍守在旧阻力上方”定义为回踩确认，
+    // 原因是这类场景比普通 confirmed_breakout 更接近“阻力转支撑”的完成态；目的：让上层能区分继续加速与回踩承接两种多头结构。
+    if previous_close > previous_resistance_level_20
+        && snapshot.close >= previous_resistance_level_20 + retest_buffer
+        && snapshot.close < snapshot.resistance_level_20
+    {
+        Some("confirmed_resistance_retest_hold")
+    // 2026-03-31 20:15 CST: 这里把“上一根已跌破旧支撑、当前一根虽反抽但仍压在旧支撑下方”定义为反抽受压确认，
+    // 原因是这类场景比普通 confirmed_support_breakdown 更接近“支撑转阻力”的完成态；目的：让上层能区分继续杀跌与反抽受压两种空头结构。
+    } else if previous_close < previous_support_level_20
+        && snapshot.close <= previous_support_level_20 - retest_buffer
+        && snapshot.close > snapshot.support_level_20
+    {
+        Some("confirmed_support_retest_reject")
+    // 2026-03-31 22:35 CST: 这里补多根回踩确认，原因是突破后可能先经历两三根贴近旧阻力的磨位，再重新拉开距离；
+    // 目的：把“多根回踩再站稳”也收进 confirmed_resistance_retest_hold，而不是只认前一根突破。
+    } else if let Some(anchor_resistance_level_20) =
+        find_multi_bar_resistance_retest_anchor(rows, retest_buffer)
+    {
+        if snapshot.close >= anchor_resistance_level_20 + retest_buffer
+            && snapshot.close < snapshot.resistance_level_20
+        {
+            Some("confirmed_resistance_retest_hold")
+        } else {
+            None
+        }
+    // 2026-03-31 22:35 CST: 这里补多根反抽受压确认，原因是跌破后的反抽也可能先经过多根震荡，再重新掉头走弱；
+    // 目的：让“多根反抽再受压”继续落到 confirmed_support_retest_reject，而不是退化成区间态。
+    } else if let Some(anchor_support_level_20) =
+        find_multi_bar_support_retest_anchor(rows, retest_buffer)
+    {
+        if snapshot.close <= anchor_support_level_20 - retest_buffer
+            && snapshot.close > snapshot.support_level_20
+        {
+            Some("confirmed_support_retest_reject")
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+// 2026-03-31 19:25 CST: 这里抽出失效突破辅助判断，原因是二阶段确认需要同时读“前一根关键位状态”和“当前一根收盘位置”；
+// 目的：保持 `classify_breakout_signal` 主干只负责排序和兜底，让假突破/假跌破逻辑独立收口，后续补回踩确认时也能继续复用这层入口。
+fn classify_failed_breakout_signal(
+    rows: &[StockHistoryRow],
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> Option<&'static str> {
+    if rows.len() < KEY_LEVEL_LOOKBACK_DAYS + 2 {
+        return None;
+    }
+
+    let previous_close = rows
+        .get(rows.len().saturating_sub(2))
+        .map(|row| row.close)?;
+    let previous_rows = &rows[..rows.len() - 1];
+    let (previous_support_level_20, previous_resistance_level_20) =
+        match key_level_snapshot(previous_rows, KEY_LEVEL_LOOKBACK_DAYS) {
+            Ok(levels) => levels,
+            Err(_) => return None,
+        };
+    let retest_buffer = (snapshot.atr_14 * 0.25).max(0.15);
+
+    // 2026-03-31 19:25 CST: 这里把“前一根曾经越过前序阻力、当前一根又收回当前阻力下方”定义为假突破回落，
+    // 原因是日线咨询里最常见的失效突破就是这种单根越位后马上收回区间；目的：让输出能明确提示追涨承接不足。
+    if previous_close > previous_resistance_level_20
+        && snapshot.close < previous_resistance_level_20 - retest_buffer
+    {
+        Some("failed_resistance_breakout")
+    // 2026-03-31 19:25 CST: 这里把“前一根曾经跌破前序支撑、当前一根又收回当前支撑上方”定义为假跌破拉回，
+    // 原因是这类下破失效会直接改变原本的弱势确认语义；目的：让输出能提醒调用方不要把失效恐慌继续当成弱势延续。
+    } else if previous_close < previous_support_level_20
+        && snapshot.close > previous_support_level_20 + retest_buffer
+    {
+        Some("failed_support_breakdown")
+    // 2026-03-31 22:35 CST: 这里补多根回踩后的失效，原因是旧关键位附近磨了几根再失守，本质上仍属于假突破回落；
+    // 目的：让多根结构在明确反向离场后，也能继续落到 failed_resistance_breakout。
+    } else if let Some(anchor_resistance_level_20) =
+        find_multi_bar_resistance_retest_anchor(rows, retest_buffer)
+    {
+        if snapshot.close < anchor_resistance_level_20 - retest_buffer {
+            Some("failed_resistance_breakout")
+        } else {
+            None
+        }
+    // 2026-03-31 22:35 CST: 这里补多根反抽后的失效，原因是支撑转阻力附近磨位后若重新上穿，也应视作假跌破修复；
+    // 目的：保持多头/空头结构在 failed_* 上的口径对称。
+    } else if let Some(anchor_support_level_20) =
+        find_multi_bar_support_retest_anchor(rows, retest_buffer)
+    {
+        if snapshot.close > anchor_support_level_20 + retest_buffer {
+            Some("failed_support_breakdown")
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+// 2026-03-31 22:35 CST: 这里抽出“多根回踩锚点”扫描，原因是当前实现只认前一根越位，无法覆盖 2~4 根的回踩磨位；
+// 目的：在不新增对外字段的前提下，为 watch / confirmed / failed 三个分支提供统一的多根结构入口。
+fn find_multi_bar_resistance_retest_anchor(
+    rows: &[StockHistoryRow],
+    retest_buffer: f64,
+) -> Option<f64> {
+    if rows.len() < KEY_LEVEL_LOOKBACK_DAYS + 4 {
+        return None;
+    }
+
+    let current_index = rows.len().saturating_sub(1);
+    let latest_breakout_index = current_index.saturating_sub(2);
+    let earliest_breakout_index =
+        latest_breakout_index.saturating_sub(MULTI_BAR_RETEST_LOOKBACK_BARS.saturating_sub(1));
+
+    for breakout_index in (earliest_breakout_index..=latest_breakout_index).rev() {
+        if breakout_index < KEY_LEVEL_LOOKBACK_DAYS
+            || breakout_index >= current_index.saturating_sub(1)
+        {
+            continue;
+        }
+
+        let anchor_rows = &rows[..breakout_index];
+        let (_, anchor_resistance_level_20) =
+            match key_level_snapshot(anchor_rows, KEY_LEVEL_LOOKBACK_DAYS) {
+                Ok(levels) => levels,
+                Err(_) => continue,
+            };
+        let breakout_close = rows.get(breakout_index).map(|row| row.close)?;
+        let post_breakout_rows = &rows[(breakout_index + 1)..current_index];
+
+        if breakout_close > anchor_resistance_level_20
+            && !post_breakout_rows.is_empty()
+            && post_breakout_rows
+                .iter()
+                .all(|row| row.close >= anchor_resistance_level_20 - retest_buffer)
+            && post_breakout_rows
+                .iter()
+                .any(|row| (row.close - anchor_resistance_level_20).abs() <= retest_buffer)
+        {
+            return Some(anchor_resistance_level_20);
+        }
+    }
+
+    None
+}
+
+// 2026-03-31 22:35 CST: 这里抽出“多根反抽锚点”扫描，原因是空头侧也会出现跌破后多根贴近旧支撑的反抽结构；
+// 目的：让 support_retest_watch / confirmed_support_retest_reject / failed_support_breakdown 共享同一套多根锚点口径。
+fn find_multi_bar_support_retest_anchor(
+    rows: &[StockHistoryRow],
+    retest_buffer: f64,
+) -> Option<f64> {
+    if rows.len() < KEY_LEVEL_LOOKBACK_DAYS + 4 {
+        return None;
+    }
+
+    let current_index = rows.len().saturating_sub(1);
+    let latest_breakdown_index = current_index.saturating_sub(2);
+    let earliest_breakdown_index =
+        latest_breakdown_index.saturating_sub(MULTI_BAR_RETEST_LOOKBACK_BARS.saturating_sub(1));
+
+    for breakdown_index in (earliest_breakdown_index..=latest_breakdown_index).rev() {
+        if breakdown_index < KEY_LEVEL_LOOKBACK_DAYS
+            || breakdown_index >= current_index.saturating_sub(1)
+        {
+            continue;
+        }
+
+        let anchor_rows = &rows[..breakdown_index];
+        let (anchor_support_level_20, _) =
+            match key_level_snapshot(anchor_rows, KEY_LEVEL_LOOKBACK_DAYS) {
+                Ok(levels) => levels,
+                Err(_) => continue,
+            };
+        let breakdown_close = rows.get(breakdown_index).map(|row| row.close)?;
+        let post_breakdown_rows = &rows[(breakdown_index + 1)..current_index];
+
+        if breakdown_close < anchor_support_level_20
+            && !post_breakdown_rows.is_empty()
+            && post_breakdown_rows
+                .iter()
+                .all(|row| row.close <= anchor_support_level_20 + retest_buffer)
+            && post_breakdown_rows
+                .iter()
+                .any(|row| (row.close - anchor_support_level_20).abs() <= retest_buffer)
+        {
+            return Some(anchor_support_level_20);
+        }
+    }
+
+    None
 }
 
 fn classify_volatility_state(snapshot: &TechnicalIndicatorSnapshot) -> &'static str {
@@ -1090,6 +1436,63 @@ fn build_summary_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and_rang
     )
 }
 
+// 2026-03-31 CST: 这里把关键位突破语义并入 summary，原因是方案 1 不能只暴露数值字段而没有一行结论；
+// 目的：让上层即使只展示 summary，也能直接知道当前是在区间内、观察性突破，还是已经形成有效突破/跌破。
+fn build_summary_with_breakout_signal(
+    base_summary: String,
+    breakout_signal: &str,
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> String {
+    let breakout_text = match breakout_signal {
+        "confirmed_resistance_breakout" => format!(
+            "近 20 日阻力位 {:.2} 已被有效突破，价格已经站上关键位。",
+            snapshot.resistance_level_20
+        ),
+        "confirmed_support_breakdown" => format!(
+            "近 20 日支撑位 {:.2} 已被有效跌破，价格已经失守关键位。",
+            snapshot.support_level_20
+        ),
+        "resistance_breakout_watch" => format!(
+            "价格正在试探近 20 日阻力位 {:.2} 上方，但突破有效性仍需继续观察。",
+            snapshot.resistance_level_20
+        ),
+        "support_breakdown_watch" => format!(
+            "价格正在跌破近 20 日支撑位 {:.2} 下方，但跌破有效性仍需继续观察。",
+            snapshot.support_level_20
+        ),
+        "resistance_retest_watch" => format!(
+            "价格突破后已经回踩近 20 日旧阻力位 {:.2} 附近，但承接是否站稳仍需继续观察。",
+            snapshot.resistance_level_20
+        ),
+        "support_retest_watch" => format!(
+            "价格跌破后已经反抽到近 20 日旧支撑位 {:.2} 附近，但压制是否成立仍需继续观察。",
+            snapshot.support_level_20
+        ),
+        "confirmed_resistance_retest_hold" => format!(
+            "价格突破后正在回踩近 20 日旧阻力位并获得承接，旧阻力 {:.2} 正在转化为新的支撑。",
+            snapshot.resistance_level_20
+        ),
+        "confirmed_support_retest_reject" => format!(
+            "价格跌破后反抽近 20 日旧支撑位时再次受压，旧支撑 {:.2} 正在转化为新的阻力。",
+            snapshot.support_level_20
+        ),
+        "failed_resistance_breakout" => format!(
+            "价格曾上破近 20 日阻力位 {:.2}，但最新一根已收回关键位下方，属于假突破回落。",
+            snapshot.resistance_level_20
+        ),
+        "failed_support_breakdown" => format!(
+            "价格曾跌破近 20 日支撑位 {:.2}，但最新一根已重新拉回关键位上方，属于假跌破拉回。",
+            snapshot.support_level_20
+        ),
+        _ => format!(
+            "价格仍运行在近 20 日支撑 {:.2} 与阻力 {:.2} 之间，关键位暂未被有效打破。",
+            snapshot.support_level_20, snapshot.resistance_level_20
+        ),
+    };
+
+    format!("{base_summary} {breakout_text}")
+}
+
 fn build_recommended_actions_with_timing(
     trend_bias: &str,
     trend_strength: &str,
@@ -1345,6 +1748,63 @@ fn build_recommended_actions_with_timing_and_rsrs_and_money_flow_and_mean_revers
     actions.push(bollinger_position_action.to_string());
     actions.push(bollinger_midline_action.to_string());
     actions.push(bollinger_bandwidth_action.to_string());
+    actions
+}
+
+// 2026-03-31 CST: 这里把关键位突破建议接入 actions，原因是方案 1 要把“看到了关键位”继续落成可执行动作；
+// 目的：让调用方直接拿到围绕支撑/阻力与突破有效性的操作提示，而不是只拿数值自己二次解读。
+fn build_recommended_actions_with_breakout_signal(
+    mut actions: Vec<String>,
+    breakout_signal: &str,
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> Vec<String> {
+    let breakout_action = match breakout_signal {
+        "confirmed_resistance_breakout" => format!(
+            "价格已有效突破近 20 日阻力位 {:.2}，优先观察回踩关键位后的承接是否延续，而不是把所有冲高都当成一次性行情。",
+            snapshot.resistance_level_20
+        ),
+        "confirmed_support_breakdown" => format!(
+            "价格已有效跌破近 20 日支撑位 {:.2}，优先确认失守后的反抽是否重新受压，再决定是否继续按弱势节奏处理。",
+            snapshot.support_level_20
+        ),
+        "resistance_breakout_watch" => format!(
+            "价格虽已上穿近 20 日阻力位 {:.2}，但突破尚未确认，建议继续等待放量与站稳关键位的双重验证。",
+            snapshot.resistance_level_20
+        ),
+        "support_breakdown_watch" => format!(
+            "价格虽已跌破近 20 日支撑位 {:.2}，但跌破尚未确认，建议继续等待放量与弱反抽受压的验证。",
+            snapshot.support_level_20
+        ),
+        "resistance_retest_watch" => format!(
+            "近 20 日旧阻力位 {:.2} 附近正在发生第一次回踩，建议继续观察承接是否站稳，再决定是否按回踩确认处理。",
+            snapshot.resistance_level_20
+        ),
+        "support_retest_watch" => format!(
+            "近 20 日旧支撑位 {:.2} 附近正在发生第一次反抽，建议继续观察是否重新受压，再决定是否按反抽失败处理。",
+            snapshot.support_level_20
+        ),
+        "confirmed_resistance_retest_hold" => format!(
+            "近 20 日阻力位 {:.2} 的突破已经进入回踩承接阶段，建议优先观察旧阻力转支撑后的承接是否持续，而不是等重新创新高才反应。",
+            snapshot.resistance_level_20
+        ),
+        "confirmed_support_retest_reject" => format!(
+            "近 20 日支撑位 {:.2} 的跌破已经进入反抽受压阶段，建议优先确认旧支撑转阻力后的压制是否持续，而不是把弱反抽误读成修复。",
+            snapshot.support_level_20
+        ),
+        "failed_resistance_breakout" => format!(
+            "近 20 日阻力位 {:.2} 的上破已经失效，建议先把这次动作按假突破回落处理，等待重新站回关键位再评估追随。",
+            snapshot.resistance_level_20
+        ),
+        "failed_support_breakdown" => format!(
+            "近 20 日支撑位 {:.2} 的下破已经失效，建议先把这次动作按假跌破拉回处理，确认支撑收复后再评估是否转入修复节奏。",
+            snapshot.support_level_20
+        ),
+        _ => format!(
+            "当前仍在近 20 日支撑 {:.2} 与阻力 {:.2} 区间内运行，优先围绕关键位等待方向选择，不要在区间中段频繁追单。",
+            snapshot.support_level_20, snapshot.resistance_level_20
+        ),
+    };
+    actions.push(breakout_action);
     actions
 }
 
@@ -1604,6 +2064,63 @@ fn build_watch_points_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and
     watch_points
 }
 
+// 2026-03-31 CST: 这里把关键位突破监控并入 watch_points，原因是方案 1 需要明确后续到底盯什么来确认突破是否有效；
+// 目的：把支撑/阻力、放量确认和回踩/反抽行为显式写进观察点，减少上层再次翻译的成本。
+fn build_watch_points_with_breakout_signal(
+    mut watch_points: Vec<String>,
+    breakout_signal: &str,
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> Vec<String> {
+    let breakout_watch_point = match breakout_signal {
+        "confirmed_resistance_breakout" => format!(
+            "留意价格回踩近 20 日阻力位 {:.2} 后能否转化为新的支撑，并观察量能是否重新回到 20 日均量上方。",
+            snapshot.resistance_level_20
+        ),
+        "confirmed_support_breakdown" => format!(
+            "留意价格反抽近 20 日支撑位 {:.2} 时是否重新受压，并观察弱势量能是否继续保持。",
+            snapshot.support_level_20
+        ),
+        "resistance_breakout_watch" => format!(
+            "留意价格能否继续站稳近 20 日阻力位 {:.2} 上方，并等待 ATR 缓冲与放量确认补齐。",
+            snapshot.resistance_level_20
+        ),
+        "support_breakdown_watch" => format!(
+            "留意价格是否继续停留在近 20 日支撑位 {:.2} 下方，并等待 ATR 缓冲与放量确认补齐。",
+            snapshot.support_level_20
+        ),
+        "resistance_retest_watch" => format!(
+            "留意价格回到近 20 日旧阻力位 {:.2} 附近后，下一根能否继续站稳其上方；若重新拉开距离，回踩确认才算更完整。",
+            snapshot.resistance_level_20
+        ),
+        "support_retest_watch" => format!(
+            "留意价格反抽到近 20 日旧支撑位 {:.2} 附近后，下一根是否继续受压回落；若重新拉开距离，反抽受压才算更完整。",
+            snapshot.support_level_20
+        ),
+        "confirmed_resistance_retest_hold" => format!(
+            "留意价格回踩近 20 日旧阻力位 {:.2} 后是否继续获得承接；若后续再次放量上行，说明阻力转支撑正在被确认。",
+            snapshot.resistance_level_20
+        ),
+        "confirmed_support_retest_reject" => format!(
+            "留意价格反抽近 20 日旧支撑位 {:.2} 时是否继续受压；若后续再次转弱下行，说明支撑转阻力正在被确认。",
+            snapshot.support_level_20
+        ),
+        "failed_resistance_breakout" => format!(
+            "留意价格回落后能否重新站回近 20 日阻力位 {:.2} 上方；若持续收回并停留在阻力位下方，说明这次突破失效仍未修复。",
+            snapshot.resistance_level_20
+        ),
+        "failed_support_breakdown" => format!(
+            "留意价格拉回后能否继续收复近 20 日支撑位 {:.2} 上方；若再次失守，说明这次假跌破修复仍不稳固。",
+            snapshot.support_level_20
+        ),
+        _ => format!(
+            "留意价格接近近 20 日支撑 {:.2} 或阻力 {:.2} 时是否出现放量突破/跌破，确认区间是否开始切换。",
+            snapshot.support_level_20, snapshot.resistance_level_20
+        ),
+    };
+    watch_points.push(breakout_watch_point);
+    watch_points
+}
+
 fn sma_last(values: &[f64], period: usize) -> Result<f64, TechnicalConsultationBasicError> {
     if values.len() < period {
         return Err(TechnicalConsultationBasicError::InsufficientHistory {
@@ -1828,6 +2345,32 @@ fn williams_r_last(
     }
 
     Ok(((highest_high - latest_close) / range) * -100.0)
+}
+
+// 2026-03-31 CST: 这里新增关键位快照计算，原因是方案 1 需要在统一历史窗口上输出可复核的支撑/阻力位；
+// 目的：用“排除最新一根 K 线后的近 20 日收盘极值”作为基准关键位，避免把影线噪声和当前柱本身一起混进突破比较。
+fn key_level_snapshot(
+    rows: &[StockHistoryRow],
+    period: usize,
+) -> Result<(f64, f64), TechnicalConsultationBasicError> {
+    if rows.len() < period + 1 {
+        return Err(TechnicalConsultationBasicError::InsufficientHistory {
+            required: period + 1,
+            actual: rows.len(),
+        });
+    }
+
+    let window = &rows[rows.len() - period - 1..rows.len() - 1];
+    let support_level = window
+        .iter()
+        .map(|row| row.close)
+        .fold(f64::MAX, |current, value| current.min(value));
+    let resistance_level = window
+        .iter()
+        .map(|row| row.close)
+        .fold(f64::MIN, |current, value| current.max(value));
+
+    Ok((support_level, resistance_level))
 }
 
 fn bollinger_last(
