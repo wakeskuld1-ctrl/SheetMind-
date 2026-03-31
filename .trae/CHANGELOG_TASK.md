@@ -428,3 +428,103 @@
 ### 记忆点
 - 这条主线继续只在 `technical_consultation_basic` 内增量推进，不新开证券分析模块。
 - 用户要求改代码前先给多个方案并等待批准；这轮是沿已批准的方案 A 继续补第四刀。
+
+## 2026-04-01
+### 修改内容
+- 修改 `src/ops/technical_consultation_basic.rs`，新增 `is_within_retest_buffer(...)` 浮点边界辅助，并把 `retest_watch` 与多根回踩/反抽锚点中的缓冲比较统一切到该辅助函数。
+- 修改 `src/ops/technical_consultation_basic.rs` 内部测试，新增 `breakout_test_snapshot(...)`、`history_rows_from_closes(...)` 两个最小夹具，以及 6 条 `breakout_signal` / `confirmed_retest` / `retest_watch` 边界单测。
+- 本轮没有继续扩展外部合同字段，只对既有关键位能力做边界加固与最小修补。
+
+### 修改原因
+- 用户已批准按“方案 1”继续推进，目标是先把 `technical_consultation_basic` 的关键位能力补到更稳，而不是再开新架构。
+- 这轮排查里确认有一个真实逻辑问题：当 ATR 很小、缓冲退化到最小值 `0.15` 时，`abs() <= 0.15` 会被浮点误差打穿，导致本该命中的 `retest_watch` / `confirmed_retest` 边界样本偶发落空。
+
+### 方案还差什么
+- [ ] 当前补的是 `breakout_signal` 这一层的源码级规则边界，CLI 端和更长链路的组合样本仍可继续补一轮。
+- [ ] 关键位窗口与 `MULTI_BAR_RETEST_LOOKBACK_BARS` 目前仍是固定值，后续若要参数化，还要一起补合同与回归样本。
+- [ ] 这轮只确认了关键位切片回归，没有做整仓 `cargo test -- --nocapture --test-threads=1`。
+
+### 潜在问题
+- [ ] 当前浮点容差写成固定 `1e-9`，对现有价格尺度够用；若后续接入更大数量级或更细精度资产，可能需要改成相对容差。
+- [ ] `history_rows_from_closes(...)` 刻意把高低点噪音压平，只适合当前“按收盘价判定关键位”的规则；若后续切到影线口径，相关测试要同步重写。
+- [ ] 仓内既有 `dead_code` warning 仍存在，本轮测试通过但不代表仓库已经完成整洁度治理。
+
+### 关闭项
+- 已通过：`cargo test breakout_signal_ -- --nocapture`
+- 已通过：`cargo test confirmed_retest_hold_accepts_exact_anchor_plus_buffer_boundary -- --nocapture`
+- 已通过：`cargo test retest_watch_uses_minimum_buffer_floor_when_atr_is_too_small -- --nocapture`
+- 已确认：`is_within_retest_buffer`、`breakout_test_snapshot`、`history_rows_from_closes` 及 6 条新增边界单测在源码中均只存在一份。
+
+### 记忆点
+- 用户明确要求“以后按照架构来干，非必要不重构”，所以这条主线继续采用增量补强，不为了边界修补再重开模块。
+- 这轮发现的“0.15 边界掉判”属于真实浮点 bug；而“超过 4 根失效”那次最初红灯属于测试样本误造，不是生产逻辑本身出错。
+
+## 2026-04-01
+### 修改内容
+- 修改 `tests/technical_consultation_basic_cli.rs`，新增 `build_breakout_boundary_rows_from_tail(...)` 共享夹具生成器，把“长历史底座 + 精确尾部 close 序列”接入 CLI 级关键位样本生成。
+- 修改 `tests/technical_consultation_basic_cli.rs`，新增 3 条关键位边界真链路回归：
+  - `technical_consultation_basic_accepts_just_above_buffer_boundary_in_cli`
+  - `technical_consultation_basic_keeps_minimum_buffer_floor_in_cli_retest_watch`
+  - `technical_consultation_basic_ignores_stale_multi_bar_anchor_in_cli`
+- 本轮没有新增或修改生产逻辑，只把上一轮源码级边界继续沉到底层 `CSV -> SQLite -> CLI` 主链路。
+
+### 修改原因
+- 用户已批准继续走方案 1，当前最优先的是把关键位能力从内部规则测试进一步补到外层回归，而不是再开新模块或做架构调整。
+- 上一轮已确认真实浮点边界 bug 并在源码修好，这一轮需要把它钉进 CLI 真链路，避免未来只过内部单测却放掉导入后的行为。
+
+### 方案还差什么
+- [ ] 当前新增的是 3 条关键位边界 CLI 回归，后续还可以继续补“假突破/假跌破”与“多根观察态”的更细边界外层样本。
+- [ ] 这轮仍未处理仓内既有 `dead_code` warning，后续若做整洁度治理要单独开一刀。
+- [ ] 新闻、技术面更上层组合咨询还没继续往前接，这轮只是在补关键位底座。
+
+### 潜在问题
+- [ ] `build_breakout_boundary_rows_from_tail(...)` 目前按收盘价关键位口径造样本；若后续关键位切到影线口径，这批 CLI 样本需要同步改造。
+- [ ] 这批样本是“低波动 + 精确尾部 close 序列”的最小合同，能很好锁边界，但不等于覆盖了所有真实市场噪音。
+- [ ] 仓内仍有上一轮未提交的 [src/ops/technical_consultation_basic.rs](/D:/Rust/Excel_Skill/.worktrees/SheetMind-/src/ops/technical_consultation_basic.rs) 修改，本轮汇报时要区分“上轮生产修补”和“本轮仅补 CLI 测试”。
+
+### 关闭项
+- 已按 TDD 先看到红灯：`cargo test stale_multi_bar_anchor_in_cli -- --nocapture`，初始失败原因是 3 个新样本构造函数未定义。
+- 已通过：`cargo test above_buffer_boundary_in_cli -- --nocapture`
+- 已通过：`cargo test minimum_buffer_floor_in_cli_retest_watch -- --nocapture`
+- 已通过：`cargo test stale_multi_bar_anchor_in_cli -- --nocapture`
+- 已通过整组验证：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+
+### 记忆点
+- 这轮继续遵守“非必要不重构”，只补回归，不动关键位主逻辑。
+- 外层 `breakout_signal` 的合同里，“等于 anchor + buffer” 会先落到 `watch`；因此 CLI 层确认态边界应测“刚好高于边界”，不要误把源码级 `classify_confirmed_retest_signal` 的内层断言直接照搬到外层合同。
+
+## 2026-04-01
+### 修改内容
+- 修改 `tests/technical_consultation_basic_cli.rs`，继续补齐 4 条 CLI 关键位边界真链路回归：
+  - `technical_consultation_basic_marks_failed_resistance_breakout_just_below_boundary_in_cli`
+  - `technical_consultation_basic_marks_failed_support_breakdown_just_above_boundary_in_cli`
+  - `technical_consultation_basic_marks_multi_bar_resistance_retest_watch_in_cli`
+  - `technical_consultation_basic_marks_multi_bar_support_retest_watch_in_cli`
+- 复用并扩展已有共享夹具 `build_breakout_boundary_rows_from_tail(...)` 及对应样本生成函数，把“失败边界”和“多根观察态”一并沉到底层 `CSV -> SQLite -> CLI` 主链路。
+- 更新 `docs/execution-notes-2026-03-30.md`、`docs/交接摘要_给后续AI.md`，补齐本轮上传前的执行说明与 AI 接手入口。
+
+### 修改原因
+- 用户已明确要求“做完以后推送到 GitHub，并补充一份 AI 交接手册”，所以这轮除了补回归，还要把交付证据和接手说明同步收口。
+- 上一轮只补了 3 条 CLI 边界回归，当前还缺“假突破/假跌破边界”和“多根观察态”两组外层样本；如果不补，上层 AI 仍然缺少对关键位失败态和观察态的稳定保护。
+
+### 方案还差什么
+- [ ] 这轮完成后，关键位底座的 CLI 边界已比较完整；下一步更适合接上层组合咨询，而不是继续横向重构。
+- [ ] 整仓 `cargo test -- --nocapture --test-threads=1` 仍未在本轮重新执行，整仓级健康度仍需单独复验。
+- [ ] GitHub 推送完成后，若要继续扩展技术面，优先考虑如何消费现有 `breakout_signal` 语义，不要重复造关键位引擎。
+
+### 潜在问题
+- [ ] 多根结构仍受 `MULTI_BAR_RETEST_LOOKBACK_BARS = 4` 约束，若后续样本超过当前窗口长度，还要继续补更长节奏回归。
+- [ ] 这批边界样本继续按收盘价关键位口径构造；若将来切换到影线口径，CLI 夹具和断言都要同步调整。
+- [ ] 仓内既有 `dead_code` warning 依旧存在，本轮测试通过只说明关键位切片通过，不等于整仓整洁度问题已清空。
+
+### 关闭项
+- 已通过：`cargo test failed_resistance_breakout_just_below_boundary_in_cli -- --nocapture`
+- 已通过：`cargo test failed_support_breakdown_just_above_boundary_in_cli -- --nocapture`
+- 已通过：`cargo test multi_bar_resistance_retest_watch_in_cli -- --nocapture`
+- 已通过：`cargo test multi_bar_support_retest_watch_in_cli -- --nocapture`
+- 已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+- 已补齐上传前文档：`docs/execution-notes-2026-03-30.md`、`docs/交接摘要_给后续AI.md`
+
+### 记忆点
+- 这轮真实生产修补只有 `0.15` 最小缓冲浮点边界；本轮新增的 4 条回归只是把失败态和观察态继续补到 CLI 真链路。
+- 后续继续做股票能力时，优先消费现有关键位信号，不要再为了“看起来一次到位”而重开架构；用户已经明确要求以后按当前架构推进，非必要不重构。

@@ -1245,6 +1245,143 @@ fn build_multi_bar_support_retest_reject_rows(day_count: usize) -> Vec<String> {
 // 2026-03-29 CST: 这里补“低位假跌破 / 低位震荡但 OBV 没有形成有效改善”的边界样本，原因是方案 A1
 // 需要把“不是所有低位新低都等于 bullish_divergence”正式锁进回归；目的：防止后续继续补底背离时，
 // 把仅仅处于低位拉扯、尚未形成清晰量价背离的样本误判成反转信号。
+fn build_breakout_boundary_rows_from_tail(
+    tail_closes: &[f64],
+    intraday_padding: f64,
+) -> Vec<String> {
+    // 2026-04-01 CST: 这里新增关键位边界 CLI 夹具生成器，原因是本轮要把源码级 close 序列边界搬到 `CSV -> SQLite -> CLI` 真链路回归；
+    // 目的：统一用“长历史底座 + 精确尾部 close 序列”的方式造样本，避免每条边界测试重复手写 220 行 CSV。
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let prefix_count = 220usize.saturating_sub(tail_closes.len());
+    let mut close = 72.0;
+
+    for offset in 0..prefix_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let step = match offset % 4 {
+            0 => 0.18,
+            1 => 0.14,
+            2 => 0.16,
+            _ => 0.12,
+        };
+        let next_close: f64 = close + step;
+        let open = close;
+        let high = next_close.max(open) + 0.08;
+        let low = next_close.min(open) - 0.08;
+        let adj_close = next_close;
+        let volume = 880_000 + offset as i64 * 2_000;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    for (index, next_close) in tail_closes.iter().enumerate() {
+        let trade_date = start_date + Duration::days((prefix_count + index) as i64);
+        let open = close;
+        let high = next_close.max(open) + intraday_padding;
+        let low = next_close.min(open) - intraday_padding;
+        let adj_close = *next_close;
+        let volume = 1_120_000 + index as i64 * 12_000;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = *next_close;
+    }
+
+    rows
+}
+
+fn build_just_above_buffer_boundary_resistance_retest_hold_rows() -> Vec<String> {
+    // 2026-04-01 CST: 这里新增“刚好高于 anchor + 0.15” 的 CLI 样本，原因是外层 breakout 合同里等于边界会先落到 watch；
+    // 目的：把 confirmed_resistance_retest_hold 在真链路下的最小有效越界样本固定住，防止后续边界比较被悄悄改松或改严。
+    build_breakout_boundary_rows_from_tail(
+        &[
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
+            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 100.16,
+        ],
+        0.02,
+    )
+}
+
+fn build_min_buffer_floor_resistance_retest_watch_rows() -> Vec<String> {
+    // 2026-04-01 CST: 这里新增“ATR 很小、最小缓冲 0.15 接管”的 CLI 样本，原因是上一轮真实 bug 就发生在这个兜底边界；
+    // 目的：确保最新一根恰好落在旧阻力 + 0.15 时，对外仍稳定输出 resistance_retest_watch。
+    build_breakout_boundary_rows_from_tail(
+        &[
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
+            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 100.15,
+        ],
+        0.02,
+    )
+}
+
+fn build_stale_multi_bar_resistance_anchor_rows() -> Vec<String> {
+    // 2026-04-01 CST: 这里新增“旧突破锚点已经超过多根 lookback”的 CLI 样本，原因是多根回踩逻辑最容易只在内部函数层被锁住；
+    // 目的：确保真链路读取历史后，不会把已经过期的旧突破误判成仍可确认的多根回踩结构。
+    build_breakout_boundary_rows_from_tail(
+        &[
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
+            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.60, 99.95,
+            99.94, 99.93, 99.92, 99.91, 100.04,
+        ],
+        0.02,
+    )
+}
+
+fn build_failed_resistance_breakout_just_below_boundary_rows() -> Vec<String> {
+    // 2026-04-01 CST: 这里新增“刚好跌破旧阻力-buffer 一点点”的 CLI 样本，原因是 failed 与 watch 之间只差极窄边界；
+    // 目的：确保假突破回落在真链路里会稳定进入 failed_resistance_breakout，而不是被边界比较吞回观察态。
+    build_breakout_boundary_rows_from_tail(
+        &[
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
+            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 99.84,
+        ],
+        0.02,
+    )
+}
+
+fn build_failed_support_breakdown_just_above_boundary_rows() -> Vec<String> {
+    // 2026-04-01 CST: 这里新增“刚好拉回旧支撑+buffer 一点点”的 CLI 样本，原因是空头侧失效边界也要被明确锁住；
+    // 目的：确保假跌破拉回在真链路里会稳定进入 failed_support_breakdown，而不是被误留在观察态。
+    build_breakout_boundary_rows_from_tail(
+        &[
+            100.90, 100.80, 100.70, 100.60, 100.50, 100.40, 100.30, 100.20, 100.10, 100.05,
+            100.00, 100.04, 100.06, 100.08, 100.10, 100.12, 100.14, 100.16, 100.18, 100.20,
+            99.70, 100.16,
+        ],
+        0.02,
+    )
+}
+
+fn build_multi_bar_resistance_retest_watch_rows() -> Vec<String> {
+    // 2026-04-01 CST: 这里新增“多根回踩后仍贴着旧阻力附近磨位”的 CLI 样本，原因是多根 confirmed 已覆盖，但多根 watch 还没沉到底层；
+    // 目的：确保突破后 2~4 根磨位期间，真链路能稳定保留 resistance_retest_watch 中间态。
+    build_breakout_boundary_rows_from_tail(
+        &[
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
+            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.79, 99.78, 100.60,
+            99.95, 99.96, 100.02,
+        ],
+        0.02,
+    )
+}
+
+fn build_multi_bar_support_retest_watch_rows() -> Vec<String> {
+    // 2026-04-01 CST: 这里新增“多根反抽后仍贴着旧支撑附近磨位”的 CLI 样本，原因是空头侧多根观察态还没被真链路回归覆盖；
+    // 目的：确保跌破后 2~4 根反抽磨位期间，真链路能稳定保留 support_retest_watch 中间态。
+    build_breakout_boundary_rows_from_tail(
+        &[
+            100.90, 100.80, 100.70, 100.60, 100.50, 100.40, 100.30, 100.20, 100.10, 100.05,
+            100.00, 100.04, 100.06, 100.08, 100.10, 100.12, 100.14, 100.16, 100.18, 100.20,
+            99.40, 100.05, 100.06, 100.07, 99.98,
+        ],
+        0.02,
+    )
+}
+
 fn build_false_breakdown_rows(day_count: usize) -> Vec<String> {
     let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
     let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
@@ -3122,6 +3259,197 @@ fn technical_consultation_basic_marks_support_retest_watch_signal() {
             .any(|text| text.contains("支撑") && (text.contains("观察") || text.contains("受压")))
     );
 }
+#[test]
+fn technical_consultation_basic_accepts_just_above_buffer_boundary_in_cli() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_just_above_buffer_boundary_cli");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_just_above_buffer_boundary_cli",
+        "just_above_buffer_boundary.csv",
+        &build_just_above_buffer_boundary_resistance_retest_hold_rows(),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688100.SH");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688100.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let breakout_signal = output["data"]["breakout_signal"]
+        .as_str()
+        .expect("breakout_signal should exist");
+
+    // 2026-04-01 CST: 这里补 CLI 层“刚好高于锚点+缓冲边界”回踩确认回归，原因是外层 breakout 合同里等于边界会优先落到 watch；
+    // 目的：确保真链路下只要越过最小有效边界一点点，仍会稳定进入 confirmed_resistance_retest_hold。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(breakout_signal, "confirmed_resistance_retest_hold");
+}
+
+#[test]
+fn technical_consultation_basic_keeps_minimum_buffer_floor_in_cli_retest_watch() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_min_buffer_floor_cli");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_min_buffer_floor_cli",
+        "minimum_buffer_floor_watch.csv",
+        &build_min_buffer_floor_resistance_retest_watch_rows(),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688101.SH");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688101.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let breakout_signal = output["data"]["breakout_signal"]
+        .as_str()
+        .expect("breakout_signal should exist");
+
+    // 2026-04-01 CST: 这里先补 CLI 层“ATR 过小由最小缓冲 0.15 接管”的观察态红测，原因是浮点毛刺在真链路里更值得防回归；
+    // 目的：把最小缓冲兜底也锁进外层回归，避免后续有人只顾源码级测试而放掉导入后行为。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(breakout_signal, "resistance_retest_watch");
+}
+
+#[test]
+fn technical_consultation_basic_ignores_stale_multi_bar_anchor_in_cli() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_stale_multi_bar_anchor_cli");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_stale_multi_bar_anchor_cli",
+        "stale_multi_bar_anchor.csv",
+        &build_stale_multi_bar_resistance_anchor_rows(),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688102.SH");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688102.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+    let breakout_signal = output["data"]["breakout_signal"]
+        .as_str()
+        .expect("breakout_signal should exist");
+
+    // 2026-04-01 CST: 这里先补 CLI 层“旧突破锚点超过多根 lookback 后应失效”的红测，原因是这类衰减规则最容易只在内部函数上被覆盖；
+    // 目的：确保导入后的真实历史样本不会把过期锚点误判成仍然有效的多根回踩确认。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(breakout_signal, "range_bound");
+}
+
+#[test]
+fn technical_consultation_basic_marks_failed_resistance_breakout_just_below_boundary_in_cli() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_failed_resistance_boundary_cli");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_failed_resistance_boundary_cli",
+        "failed_resistance_boundary.csv",
+        &build_failed_resistance_breakout_just_below_boundary_rows(),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688103.SH");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688103.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-01 CST: 这里先补 CLI 层“刚好跌破旧阻力-buffer 一点点”应进入 failed 的边界红测，原因是 failed 与 watch 只差一条很窄的边界；
+    // 目的：确保真链路下假突破回落的失效口径不会被后续条件顺序或比较符号改坏。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["breakout_signal"], "failed_resistance_breakout");
+}
+
+#[test]
+fn technical_consultation_basic_marks_failed_support_breakdown_just_above_boundary_in_cli() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_failed_support_boundary_cli");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_failed_support_boundary_cli",
+        "failed_support_boundary.csv",
+        &build_failed_support_breakdown_just_above_boundary_rows(),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688104.SH");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688104.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-01 CST: 这里先补 CLI 层“刚好拉回旧支撑+buffer 一点点”应进入 failed 的边界红测，原因是空头侧也要和多头侧保持对称；
+    // 目的：把假跌破拉回的最小有效失效边界也锁进外层回归，避免之后只修一边。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["breakout_signal"], "failed_support_breakdown");
+}
+
+#[test]
+fn technical_consultation_basic_marks_multi_bar_resistance_retest_watch_in_cli() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_multi_bar_resistance_watch_cli");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_multi_bar_resistance_watch_cli",
+        "multi_bar_resistance_watch.csv",
+        &build_multi_bar_resistance_retest_watch_rows(),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688105.SH");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688105.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-01 CST: 这里先补 CLI 层“多根回踩仍在旧阻力附近磨位”的观察态红测，原因是 confirmed 的多根样本已有，但多根 watch 还没落到外层；
+    // 目的：确保 2~4 根磨位期间不会被误判成 confirmed 或 range_bound。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["breakout_signal"], "resistance_retest_watch");
+}
+
+#[test]
+fn technical_consultation_basic_marks_multi_bar_support_retest_watch_in_cli() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_multi_bar_support_watch_cli");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_multi_bar_support_watch_cli",
+        "multi_bar_support_watch.csv",
+        &build_multi_bar_support_retest_watch_rows(),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "688106.SH");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "688106.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-01 CST: 这里先补 CLI 层“多根反抽仍在旧支撑附近磨位”的观察态红测，原因是空头侧多根 watch 还没被真链路覆盖；
+    // 目的：确保空头侧在多根反抽期间也能稳定停留在 support_retest_watch。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["breakout_signal"], "support_retest_watch");
+}
+
 #[test]
 fn technical_consultation_basic_marks_multi_bar_resistance_retest_hold_signal() {
     let runtime_db_path =

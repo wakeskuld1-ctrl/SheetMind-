@@ -108,3 +108,44 @@
   - `cargo test --test integration_tool_contract -- --nocapture`
   - `cargo test --test stock_price_history_import_cli --test technical_consultation_basic_cli -- --nocapture`
   - 如果只是继续维护模块边界文档，不需要再重跑整仓全量测试。
+
+## 2026-04-01 关键位边界回归补充说明
+
+- 本轮收口聚焦在 `technical_consultation_basic` 的关键位边界稳定性，不新增技术面外部合同字段，也不改动既定模块边界。
+- 真实生产修补点只有一个：
+  - `src/ops/technical_consultation_basic.rs` 新增 `is_within_retest_buffer(...)`
+  - 目的：统一 `retest_watch`、`confirmed_retest` 与多根回踩/反抽锚点的最小缓冲比较，避免 `0.15` 最小缓冲在浮点误差下偶发掉判
+- 本轮继续把上一轮源码级修补沉到 CLI 真链路：
+  - `tests/technical_consultation_basic_cli.rs` 新增 `build_breakout_boundary_rows_from_tail(...)` 共享夹具
+  - 新增 7 条 CLI 边界回归，覆盖：
+    - 刚好高于确认边界时仍能判定有效回踩承接
+    - ATR 很小时最小缓冲地板 `0.15` 在 CLI 层仍然生效
+    - 多根回踩/反抽样本不会误吃到陈旧锚点
+    - 假突破/假跌破在刚好越过失败边界时能稳定落到 `failed_*`
+    - 多根 `resistance_retest_watch` / `support_retest_watch` 在真链路可稳定识别
+- 这轮还确认了一个重要口径：
+  - 外层 `breakout_signal` 合同与内部分类函数合同不同
+  - 在外层 CLI 语义里，“等于 anchor + buffer” 先落 `watch`
+  - 因此 CLI 确认态边界测试必须测“刚好高于边界”，不能直接照搬源码内部“等于边界也算确认”的断言
+
+## 2026-04-01 本轮重新验证的命令
+
+- `cargo test failed_resistance_breakout_just_below_boundary_in_cli -- --nocapture`
+  - 结果：通过
+- `cargo test failed_support_breakdown_just_above_boundary_in_cli -- --nocapture`
+  - 结果：通过
+- `cargo test multi_bar_resistance_retest_watch_in_cli -- --nocapture`
+  - 结果：通过
+- `cargo test multi_bar_support_retest_watch_in_cli -- --nocapture`
+  - 结果：通过
+- `cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+  - 结果：通过，`49 passed; 0 failed`
+
+## 2026-04-01 当前结论与上传前提醒
+
+- 当前这轮可以确认的是：`technical_consultation_basic` 关键位主链路的源码边界与 CLI 真链路边界都已经补齐到最新状态。
+- 当前不能额外声称的是：整仓全量 `cargo test -- --nocapture --test-threads=1` 已重新复验；这轮没有做该声明。
+- 这轮红灯里需要区分两类原因：
+  - `0.15` 最小缓冲掉判：真实浮点 bug，已经在生产逻辑修补
+  - 多根 `retest_watch` 初始红灯：测试样本预热不够导致锚点窗口混入前缀高价，已通过修正样本构造解决，不属于生产逻辑 bug
+- 按用户明确要求，后续仍然遵守“以后按照架构来干，非必要不重构”；关键位主线继续在 `technical_consultation_basic` 内增量补强。

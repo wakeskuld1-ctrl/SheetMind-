@@ -257,3 +257,66 @@
 - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\tools\contracts.rs`
 - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\tools\dispatcher\analysis_ops.rs`
 - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\tools\dispatcher\stock_ops.rs`
+
+## 13. 2026-04-01 最新交接补充
+
+### 13.1 这轮到底做了什么
+
+- 继续沿既有股票主线补 `technical_consultation_basic`，没有新开证券分析模块，也没有改外部工具合同。
+- 生产逻辑只修了一个真实 bug：
+  - 文件：`D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\technical_consultation_basic.rs`
+  - 内容：新增 `is_within_retest_buffer(...)`
+  - 原因：ATR 很小时，最小缓冲 `0.15` 在浮点误差下会把本该命中的 `retest_watch` / `confirmed_retest` 边界打穿
+- CLI 真链路新增 7 条关键位边界回归：
+  - 文件：`D:\Rust\Excel_Skill\.worktrees\SheetMind-\tests\technical_consultation_basic_cli.rs`
+  - 共享夹具：`build_breakout_boundary_rows_from_tail(...)`
+  - 覆盖范围：
+    - 突破后刚好高于确认边界
+    - 最小缓冲地板 `0.15`
+    - 陈旧多根锚点排除
+    - 假突破 / 假跌破边界
+    - 多根 `resistance_retest_watch`
+    - 多根 `support_retest_watch`
+
+### 13.2 这轮哪些是“真 bug”，哪些不是
+
+- 真 bug：
+  - `0.15` 最小缓冲在浮点比较中偶发掉判
+  - 已通过 `is_within_retest_buffer(...)` 修补生产逻辑
+- 不是生产 bug：
+  - 多根 `retest_watch` 初次红灯
+  - 根因是测试样本预热不够，导致锚点窗口里混入前缀高价
+  - 处理方式是修正样本构造，不是再改判断主逻辑
+
+### 13.3 这轮确认过的关键合同
+
+- 外层 `breakout_signal` 合同和内部分类函数不是同一层语义。
+- 在 CLI 外层合同里：
+  - “等于 anchor + buffer” 优先落到 `watch`
+  - “刚好高于 anchor + buffer” 才进入确认态边界测试
+- 下次如果继续补回归，不要把源码内部边界断言原样照搬到 CLI 层。
+
+### 13.4 这轮已确认的验证证据
+
+- `cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+  - 结果：`49 passed; 0 failed`
+- `cargo test failed_resistance_breakout_just_below_boundary_in_cli -- --nocapture`
+  - 结果：通过
+- `cargo test failed_support_breakdown_just_above_boundary_in_cli -- --nocapture`
+  - 结果：通过
+- `cargo test multi_bar_resistance_retest_watch_in_cli -- --nocapture`
+  - 结果：通过
+- `cargo test multi_bar_support_retest_watch_in_cli -- --nocapture`
+  - 结果：通过
+
+### 13.5 下一个 AI 最适合怎么接
+
+1. 先看本文第 13 节，再看：
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\src\ops\technical_consultation_basic.rs`
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\tests\technical_consultation_basic_cli.rs`
+   - `D:\Rust\Excel_Skill\.worktrees\SheetMind-\docs\execution-notes-2026-03-30.md`
+2. 先复用这轮的关键位边界夹具和测试口径，不要新造第二套样本体系。
+3. 如果继续补股票技术面，优先顺序建议是：
+   - 补更上层组合咨询如何消费现有 `breakout_signal`
+   - 或继续补更多关键位观察态/解释层
+4. 如果不是明确有收益，不要再发起架构级重构；用户已多次确认后续按现有架构推进。

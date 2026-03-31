@@ -720,6 +720,12 @@ fn classify_breakout_signal(
     }
 }
 
+fn is_within_retest_buffer(value: f64, anchor: f64, retest_buffer: f64) -> bool {
+    // 2026-04-01 CST: 这里补一个极小浮点容差，原因是 `0.15` 这类十进制缓冲在二进制浮点里会出现边界毛刺；
+    // 目的：确保“恰好等于缓冲边界”的回踩样本不会因为浮点误差被误杀，尤其是 ATR 很小时由最小缓冲接管的场景。
+    (value - anchor).abs() <= retest_buffer + 1e-9
+}
+
 // 2026-03-31 20:45 CST: 这里新增 retest_watch 辅助判断，原因是用户已要求区分“回踩/反抽途中”和“确认完成”；
 // 目的：用旧关键位附近的一小段缓冲区表达“仍需观察”的灰区，避免直接跳到 confirmed 或 failed。
 fn classify_retest_watch_signal(
@@ -744,14 +750,14 @@ fn classify_retest_watch_signal(
     // 2026-03-31 20:45 CST: 这里把“突破后回踩到旧阻力附近，但离旧关键位还不够远”的场景定义为观察态，
     // 原因是这种位置不适合过早下“承接已完成”或“突破已失效”的强结论；目的：给上层保留继续观察空间。
     if previous_close > previous_resistance_level_20
-        && (snapshot.close - previous_resistance_level_20).abs() <= retest_buffer
+        && is_within_retest_buffer(snapshot.close, previous_resistance_level_20, retest_buffer)
         && snapshot.close < snapshot.resistance_level_20
     {
         Some("resistance_retest_watch")
     // 2026-03-31 20:45 CST: 这里把“跌破后反抽到旧支撑附近，但离旧关键位还不够远”的场景定义为观察态，
     // 原因是这时压制是否成立还不够清晰；目的：避免把弱反抽途中的结构过早写死成 confirmed 或 failed。
     } else if previous_close < previous_support_level_20
-        && (snapshot.close - previous_support_level_20).abs() <= retest_buffer
+        && is_within_retest_buffer(snapshot.close, previous_support_level_20, retest_buffer)
         && snapshot.close > snapshot.support_level_20
     {
         Some("support_retest_watch")
@@ -760,7 +766,7 @@ fn classify_retest_watch_signal(
     } else if let Some(anchor_resistance_level_20) =
         find_multi_bar_resistance_retest_anchor(rows, retest_buffer)
     {
-        if (snapshot.close - anchor_resistance_level_20).abs() <= retest_buffer
+        if is_within_retest_buffer(snapshot.close, anchor_resistance_level_20, retest_buffer)
             && snapshot.close < snapshot.resistance_level_20
         {
             Some("resistance_retest_watch")
@@ -772,7 +778,7 @@ fn classify_retest_watch_signal(
     } else if let Some(anchor_support_level_20) =
         find_multi_bar_support_retest_anchor(rows, retest_buffer)
     {
-        if (snapshot.close - anchor_support_level_20).abs() <= retest_buffer
+        if is_within_retest_buffer(snapshot.close, anchor_support_level_20, retest_buffer)
             && snapshot.close > snapshot.support_level_20
         {
             Some("support_retest_watch")
@@ -942,9 +948,9 @@ fn find_multi_bar_resistance_retest_anchor(
             && post_breakout_rows
                 .iter()
                 .all(|row| row.close >= anchor_resistance_level_20 - retest_buffer)
-            && post_breakout_rows
-                .iter()
-                .any(|row| (row.close - anchor_resistance_level_20).abs() <= retest_buffer)
+            && post_breakout_rows.iter().any(|row| {
+                is_within_retest_buffer(row.close, anchor_resistance_level_20, retest_buffer)
+            })
         {
             return Some(anchor_resistance_level_20);
         }
@@ -989,9 +995,9 @@ fn find_multi_bar_support_retest_anchor(
             && post_breakdown_rows
                 .iter()
                 .all(|row| row.close <= anchor_support_level_20 + retest_buffer)
-            && post_breakdown_rows
-                .iter()
-                .any(|row| (row.close - anchor_support_level_20).abs() <= retest_buffer)
+            && post_breakdown_rows.iter().any(|row| {
+                is_within_retest_buffer(row.close, anchor_support_level_20, retest_buffer)
+            })
         {
             return Some(anchor_support_level_20);
         }
@@ -2722,8 +2728,132 @@ mod tests {
             boll_upper: 104.0,
             boll_middle: 100.0,
             boll_lower: 96.0,
+            // 2026-04-01 CST: 这里给基础测试快照补上关键位字段，原因是 breakout_signal 边界单测也要复用同一份最小快照；
+            // 目的：避免后续为补关键位测试再复制一套几乎相同的快照构造，保持测试夹具口径统一。
+            support_level_20: 95.0,
+            resistance_level_20: 105.0,
             atr_14: 2.1,
         }
+    }
+
+    fn breakout_test_snapshot(
+        close: f64,
+        support_level_20: f64,
+        resistance_level_20: f64,
+        atr_14: f64,
+    ) -> TechnicalIndicatorSnapshot {
+        // 2026-04-01 CST: 这里新增 breakout_signal 专用测试快照，原因是本轮要精确锁定关键位、ATR 缓冲与趋势口径的边界；
+        // 目的：让单测直接表达“当前收盘价/关键位/缓冲”三者关系，避免为了边界测试去构造过重的外部夹具。
+        TechnicalIndicatorSnapshot {
+            close,
+            support_level_20,
+            resistance_level_20,
+            atr_14,
+            ..rsrs_test_snapshot(1.0, 0.0)
+        }
+    }
+
+    fn history_rows_from_closes(closes: &[f64]) -> Vec<StockHistoryRow> {
+        // 2026-04-01 CST: 这里新增仅按收盘价生成历史样本的辅助函数，原因是关键位与多根回踩锚点当前都基于 close 判定；
+        // 目的：把 breakout_signal 边界测试聚焦在真正影响结果的收盘序列上，减少高低点噪音对测试意图的干扰。
+        closes
+            .iter()
+            .enumerate()
+            .map(|(offset, close)| StockHistoryRow {
+                trade_date: format!("2025-02-{:02}", offset + 1),
+                open: *close,
+                high: *close + 1.0,
+                low: *close - 1.0,
+                close: *close,
+                adj_close: *close,
+                volume: 1_000_000 + offset as i64 * 10_000,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn breakout_signal_stays_range_bound_when_close_only_touches_resistance_without_anchor() {
+        let rows = history_rows_from_closes(&[
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
+            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 99.6, 100.0,
+        ]);
+        let snapshot = breakout_test_snapshot(100.0, 97.8, 100.0, 0.6);
+
+        assert_eq!(
+            classify_breakout_signal(&rows, &snapshot, "bullish", "neutral"),
+            "range_bound"
+        );
+    }
+
+    #[test]
+    fn confirmed_retest_hold_accepts_exact_anchor_plus_buffer_boundary() {
+        let rows = history_rows_from_closes(&[
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
+            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.3, 100.15,
+        ]);
+        let snapshot = breakout_test_snapshot(100.15, 97.8, 100.3, 0.6);
+
+        assert_eq!(
+            classify_confirmed_retest_signal(&rows, &snapshot),
+            Some("confirmed_resistance_retest_hold")
+        );
+    }
+
+    #[test]
+    fn breakout_signal_ignores_multi_bar_retest_anchor_once_breakout_is_older_than_lookback() {
+        let rows = history_rows_from_closes(&[
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
+            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.6, 99.95, 99.94, 99.93, 99.92, 99.91,
+            100.04,
+        ]);
+        let snapshot = breakout_test_snapshot(100.04, 97.8, 100.6, 0.6);
+
+        assert_eq!(
+            classify_breakout_signal(&rows, &snapshot, "bullish", "neutral"),
+            "range_bound"
+        );
+    }
+
+    #[test]
+    fn breakout_signal_rejects_multi_bar_retest_when_intermediate_bar_breaks_anchor() {
+        let rows = history_rows_from_closes(&[
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
+            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.6, 99.6, 99.98, 100.02,
+        ]);
+        let snapshot = breakout_test_snapshot(100.02, 97.8, 100.6, 0.6);
+
+        assert_eq!(
+            classify_breakout_signal(&rows, &snapshot, "bullish", "neutral"),
+            "range_bound"
+        );
+    }
+
+    #[test]
+    fn breakout_signal_only_marks_watch_when_price_breaks_out_but_trend_bias_is_sideways() {
+        let rows = history_rows_from_closes(&[
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
+            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 99.6, 100.4,
+        ]);
+        let snapshot = breakout_test_snapshot(100.4, 97.8, 100.0, 0.6);
+
+        assert_eq!(
+            classify_breakout_signal(&rows, &snapshot, "sideways", "neutral"),
+            "resistance_breakout_watch"
+        );
+    }
+
+    #[test]
+    fn retest_watch_uses_minimum_buffer_floor_when_atr_is_too_small() {
+        let rows = history_rows_from_closes(&[
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
+            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.3, 100.15,
+        ]);
+        let snapshot = breakout_test_snapshot(100.15, 97.8, 100.3, 0.2);
+
+        assert_eq!(
+            classify_retest_watch_signal(&rows, &snapshot),
+            Some("resistance_retest_watch")
+        );
     }
 
     fn money_flow_test_snapshot(mfi_14: f64) -> TechnicalIndicatorSnapshot {
