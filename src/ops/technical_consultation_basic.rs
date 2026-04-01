@@ -61,11 +61,25 @@ pub struct TechnicalConsultationBasicResult {
     pub rsrs_signal: String,
     pub momentum_signal: String,
     pub volatility_state: String,
+    // 2026-04-01 CST: 这里新增组合结论层，原因是方案 A 要把既有趋势/量能/关键位信号正式上提成更易消费的证券分析输出；
+    // 目的：让上层调用方直接读取 bias / confidence / headline / rationale / risk_flags，而不是再自己重拼十几个信号字段。
+    pub consultation_conclusion: TechnicalConsultationConclusion,
     pub summary: String,
     pub recommended_actions: Vec<String>,
     pub watch_points: Vec<String>,
     pub indicator_snapshot: TechnicalIndicatorSnapshot,
     pub data_window_summary: DataWindowSummary,
+}
+
+// 2026-04-01 CST: 这里定义技术面组合结论对象，原因是当前 `summary / recommended_actions / watch_points` 更偏展示文案，
+// 目的：补一层稳定的证券分析语义合同，给后续 Skill / AI / GUI 直接消费“偏向、置信度、核心理由、主要风险”。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct TechnicalConsultationConclusion {
+    pub bias: String,
+    pub confidence: String,
+    pub headline: String,
+    pub rationale: Vec<String>,
+    pub risk_flags: Vec<String>,
 }
 
 // 2026-03-28 CST：这里单独定义指标快照结构，原因是技术面一条线后续会被多个 Skill / Tool 复用；
@@ -317,6 +331,23 @@ fn build_consultation_result(
     let rsrs_signal = classify_rsrs_signal(&indicator_snapshot).to_string();
     let momentum_signal = classify_momentum_signal(&indicator_snapshot).to_string();
     let volatility_state = classify_volatility_state(&indicator_snapshot).to_string();
+    // 2026-04-01 CST: 这里把组合结论接入结果构造，原因是方案 A 要把底层信号提升成更像证券分析输出的稳定合同；
+    // 目的：继续复用当前 `technical_consultation_basic` 主线，不新开第二个股票分析入口，也不复制一套信号判断逻辑。
+    let consultation_conclusion = build_consultation_conclusion(
+        &trend_bias,
+        &trend_strength,
+        &volume_confirmation,
+        &money_flow_signal,
+        &mean_reversion_signal,
+        &range_position_signal,
+        &breakout_signal,
+        &divergence_signal,
+        &timing_signal,
+        &rsrs_signal,
+        &momentum_signal,
+        &volatility_state,
+        &indicator_snapshot,
+    );
     let summary = build_summary_with_breakout_signal(
         build_summary_with_timing_and_rsrs_and_money_flow_and_mean_reversion_and_range_position_and_bollinger(
             &trend_bias,
@@ -408,6 +439,7 @@ fn build_consultation_result(
         rsrs_signal,
         momentum_signal,
         volatility_state,
+        consultation_conclusion,
         summary,
         recommended_actions,
         watch_points,
@@ -419,6 +451,581 @@ fn build_consultation_result(
             end_date,
         },
     };
+}
+
+// 2026-04-01 CST: 这里新增组合结论构造器，原因是当前底层信号已经足够丰富，但上层仍缺一层稳定的证券分析归纳；
+// 目的：把 breakout/trend/volume/momentum/volatility 等结果收敛成单一入口，避免下游重复拼接同一套逻辑。
+fn build_consultation_conclusion(
+    trend_bias: &str,
+    trend_strength: &str,
+    volume_confirmation: &str,
+    money_flow_signal: &str,
+    mean_reversion_signal: &str,
+    range_position_signal: &str,
+    breakout_signal: &str,
+    divergence_signal: &str,
+    timing_signal: &str,
+    rsrs_signal: &str,
+    momentum_signal: &str,
+    volatility_state: &str,
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> TechnicalConsultationConclusion {
+    let bias = classify_consultation_bias(
+        trend_bias,
+        trend_strength,
+        breakout_signal,
+        divergence_signal,
+        timing_signal,
+    )
+    .to_string();
+    let confidence = classify_consultation_confidence(
+        &bias,
+        trend_strength,
+        volume_confirmation,
+        breakout_signal,
+        divergence_signal,
+        rsrs_signal,
+        momentum_signal,
+    )
+    .to_string();
+    let headline = build_consultation_headline(&bias, breakout_signal, snapshot);
+    let rationale = build_consultation_rationale(
+        &bias,
+        trend_bias,
+        trend_strength,
+        volume_confirmation,
+        breakout_signal,
+        divergence_signal,
+        rsrs_signal,
+        momentum_signal,
+        snapshot,
+    );
+    let risk_flags = build_consultation_risk_flags(
+        &bias,
+        volume_confirmation,
+        money_flow_signal,
+        mean_reversion_signal,
+        range_position_signal,
+        breakout_signal,
+        divergence_signal,
+        timing_signal,
+        volatility_state,
+    );
+
+    TechnicalConsultationConclusion {
+        bias,
+        confidence,
+        headline,
+        rationale,
+        risk_flags,
+    }
+}
+
+// 2026-04-01 CST: 这里先把组合结论的偏向单独抽出，原因是“延续 / 观察 / 陷阱 / 区间等待”是后续 headline 与置信度的共同主轴；
+// 目的：让上层先拿到稳定的 bias code，再决定怎么展示中文、排序或接后续策略层。
+fn classify_consultation_bias(
+    trend_bias: &str,
+    trend_strength: &str,
+    breakout_signal: &str,
+    divergence_signal: &str,
+    timing_signal: &str,
+) -> &'static str {
+    match breakout_signal {
+        "confirmed_resistance_breakout" | "confirmed_resistance_retest_hold" => {
+            "bullish_continuation"
+        }
+        "resistance_breakout_watch" | "resistance_retest_watch" => "bullish_confirmation_watch",
+        "confirmed_support_breakdown" | "confirmed_support_retest_reject" => "bearish_continuation",
+        "support_breakdown_watch" | "support_retest_watch" => "bearish_confirmation_watch",
+        "failed_resistance_breakout" => "bull_trap_risk",
+        "failed_support_breakdown" => "bear_trap_risk",
+        _ => match (trend_bias, trend_strength) {
+            ("bullish", "strong" | "moderate") => "bullish_range_watch",
+            ("bearish", "strong" | "moderate") => "bearish_range_watch",
+            // 2026-04-01 CST: 这里给非突破场景留一个最小反转观察兜底，原因是区间内也可能先出现背离 + 择时共振；
+            // 目的：避免所有非突破样本都被粗暴折叠成完全中性，保留最小的方向性信息。
+            _ if divergence_signal == "bullish_divergence"
+                && timing_signal == "oversold_rebound" =>
+            {
+                "bullish_range_watch"
+            }
+            _ if divergence_signal == "bearish_divergence"
+                && timing_signal == "overbought_pullback" =>
+            {
+                "bearish_range_watch"
+            }
+            _ => "range_wait",
+        },
+    }
+}
+
+// 2026-04-01 CST: 这里新增组合结论置信度，原因是同样的 bias 也会因为量能、动量和趋势一致性不同而强弱差异很大；
+// 目的：给上层一枚稳定的 high / medium / low 标签，避免不同调用方各自重新定义“这条结论有多可信”。
+fn classify_consultation_confidence(
+    bias: &str,
+    trend_strength: &str,
+    volume_confirmation: &str,
+    breakout_signal: &str,
+    divergence_signal: &str,
+    rsrs_signal: &str,
+    momentum_signal: &str,
+) -> &'static str {
+    let mut score = 0i32;
+    // 2026-04-01 CST: 这里补一个“结构已完成”的置信度收口标记，原因是方案 A 新增的上层证券分析合同里，
+    // 仅靠 score 累减会把“已确认突破/跌破，但量能偏弱”的样本误压成 low；
+    // 目的：保持 breakout 结构确认本身的合同权重，让 confirmed / failed 这类已完成结构至少维持 medium。
+    let has_completed_structure = matches!(
+        breakout_signal,
+        "confirmed_resistance_breakout"
+            | "confirmed_resistance_retest_hold"
+            | "confirmed_support_breakdown"
+            | "confirmed_support_retest_reject"
+            | "failed_resistance_breakout"
+            | "failed_support_breakdown"
+    );
+
+    match breakout_signal {
+        "confirmed_resistance_breakout"
+        | "confirmed_resistance_retest_hold"
+        | "confirmed_support_breakdown"
+        | "confirmed_support_retest_reject"
+        | "failed_resistance_breakout"
+        | "failed_support_breakdown" => score += 2,
+        "resistance_breakout_watch"
+        | "resistance_retest_watch"
+        | "support_breakdown_watch"
+        | "support_retest_watch" => score += 1,
+        _ => {}
+    }
+
+    match trend_strength {
+        "strong" => score += 1,
+        "weak" => score -= 1,
+        _ => {}
+    }
+
+    match volume_confirmation {
+        "confirmed" => score += 1,
+        "weakening" => score -= 1,
+        _ => {}
+    }
+
+    match expected_direction_for_bias(bias) {
+        Some("bullish") => {
+            if momentum_signal == "positive" {
+                score += 1;
+            } else if momentum_signal == "negative" {
+                score -= 1;
+            }
+
+            if rsrs_signal == "bullish_breakout" {
+                score += 1;
+            } else if rsrs_signal == "bearish_pressure" {
+                score -= 1;
+            }
+
+            if divergence_signal == "bearish_divergence" {
+                score -= 1;
+            }
+        }
+        Some("bearish") => {
+            if momentum_signal == "negative" {
+                score += 1;
+            } else if momentum_signal == "positive" {
+                score -= 1;
+            }
+
+            if rsrs_signal == "bearish_pressure" {
+                score += 1;
+            } else if rsrs_signal == "bullish_breakout" {
+                score -= 1;
+            }
+
+            if divergence_signal == "bullish_divergence" {
+                score -= 1;
+            }
+        }
+        _ => {}
+    }
+
+    if bias == "range_wait" {
+        "low"
+    // 2026-04-01 CST: 这里单独放宽“趋势主导的区间观察态”门槛，原因是 `bullish_range_watch / bearish_range_watch`
+    // 本身已经来自明确的趋势偏向，不应因为尚未出现关键位突破就一律压成 low；
+    // 目的：让“偏多/偏空但仍在区间等待触发”的证券分析语义，至少能在趋势与一项辅助信号共振时稳定落到 medium。
+    } else if matches!(bias, "bullish_range_watch" | "bearish_range_watch") {
+        if score >= 1 { "medium" } else { "low" }
+    } else if bias.ends_with("_watch") {
+        if score >= 2 { "medium" } else { "low" }
+    // 2026-04-01 CST: 这里给“已完成结构”加最低置信度地板，原因是 confirmed / failed 已经代表关键位行为完成，
+    // 再叠加量能偏弱或单个辅助指标不共振时，结论应从 high 降到 medium，而不是直接坠到 low；
+    // 目的：让 consultation_conclusion 更符合证券分析语义，也与现有 breakout_signal 主合同保持一致。
+    } else if has_completed_structure && score < 2 {
+        "medium"
+    } else if score >= 4 {
+        "high"
+    } else if score >= 2 {
+        "medium"
+    } else {
+        "low"
+    }
+}
+
+// 2026-04-01 CST: 这里新增组合结论 headline，原因是上层常常只需要一行“当前怎么看”的中文输出；
+// 目的：给 GUI / Skill / AI 一个可直接展示的摘要入口，而不是强迫它们每次去拼 bias code 和说明文本。
+fn build_consultation_headline(
+    bias: &str,
+    breakout_signal: &str,
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> String {
+    match bias {
+        "bullish_continuation" => match breakout_signal {
+            "confirmed_resistance_retest_hold" => format!(
+                "多头延续占优，旧阻力 {:.2} 转支撑的回踩承接正在确认。",
+                snapshot.resistance_level_20
+            ),
+            _ => format!(
+                "多头延续占优，近 20 日阻力 {:.2} 已被有效突破。",
+                snapshot.resistance_level_20
+            ),
+        },
+        "bullish_confirmation_watch" => match breakout_signal {
+            "resistance_retest_watch" => format!(
+                "多头结构处于回踩观察阶段，留意旧阻力 {:.2} 附近是否站稳。",
+                snapshot.resistance_level_20
+            ),
+            _ => format!(
+                "多头结构处于突破观察阶段，留意阻力 {:.2} 上方是否继续站稳。",
+                snapshot.resistance_level_20
+            ),
+        },
+        "bearish_continuation" => match breakout_signal {
+            "confirmed_support_retest_reject" => format!(
+                "空头延续占优，旧支撑 {:.2} 转阻力的反抽受压正在确认。",
+                snapshot.support_level_20
+            ),
+            _ => format!(
+                "空头延续占优，近 20 日支撑 {:.2} 已被有效跌破。",
+                snapshot.support_level_20
+            ),
+        },
+        "bearish_confirmation_watch" => match breakout_signal {
+            "support_retest_watch" => format!(
+                "空头结构处于反抽观察阶段，留意旧支撑 {:.2} 附近是否重新受压。",
+                snapshot.support_level_20
+            ),
+            _ => format!(
+                "空头结构处于跌破观察阶段，留意支撑 {:.2} 下方是否继续失守。",
+                snapshot.support_level_20
+            ),
+        },
+        "bull_trap_risk" => "上破失效，短线进入多头陷阱风险阶段。".to_string(),
+        "bear_trap_risk" => "下破失效，短线进入空头陷阱风险阶段。".to_string(),
+        "bullish_range_watch" => format!(
+            "偏多结构仍在区间内，等待 {:.2} 一带阻力被明确打破。",
+            snapshot.resistance_level_20
+        ),
+        "bearish_range_watch" => format!(
+            "偏空结构仍在区间内，等待 {:.2} 一带支撑被明确跌破。",
+            snapshot.support_level_20
+        ),
+        _ => format!(
+            "当前仍以区间震荡看待，等待 {:.2}-{:.2} 之间给出更清晰的方向选择。",
+            snapshot.support_level_20, snapshot.resistance_level_20
+        ),
+    }
+}
+
+// 2026-04-01 CST: 这里新增组合结论理由列表，原因是单个 bias code 还不够说明“为什么是这个结论”；
+// 目的：给上层保留可解释证据，后续无论是做 GUI 展示、语音播报还是 AI 二次组织，都能直接复用这组理由。
+fn build_consultation_rationale(
+    bias: &str,
+    trend_bias: &str,
+    trend_strength: &str,
+    volume_confirmation: &str,
+    breakout_signal: &str,
+    divergence_signal: &str,
+    rsrs_signal: &str,
+    momentum_signal: &str,
+    snapshot: &TechnicalIndicatorSnapshot,
+) -> Vec<String> {
+    let mut rationale = Vec::new();
+
+    let breakout_reason = match breakout_signal {
+        "confirmed_resistance_breakout" => format!(
+            "近 20 日阻力 {:.2} 已被有效突破，价格进入关键位上方。",
+            snapshot.resistance_level_20
+        ),
+        "confirmed_resistance_retest_hold" => format!(
+            "价格回踩旧阻力 {:.2} 后仍守住其上方，阻力转支撑正在成立。",
+            snapshot.resistance_level_20
+        ),
+        "resistance_breakout_watch" => format!(
+            "价格已越过阻力 {:.2}，但突破有效性仍待继续确认。",
+            snapshot.resistance_level_20
+        ),
+        "resistance_retest_watch" => format!(
+            "价格回到旧阻力 {:.2} 附近测试承接，当前仍处观察阶段。",
+            snapshot.resistance_level_20
+        ),
+        "confirmed_support_breakdown" => format!(
+            "近 20 日支撑 {:.2} 已被有效跌破，价格进入关键位下方。",
+            snapshot.support_level_20
+        ),
+        "confirmed_support_retest_reject" => format!(
+            "价格反抽旧支撑 {:.2} 后重新受压，支撑转阻力正在成立。",
+            snapshot.support_level_20
+        ),
+        "support_breakdown_watch" => format!(
+            "价格已跌破支撑 {:.2}，但跌破有效性仍待继续确认。",
+            snapshot.support_level_20
+        ),
+        "support_retest_watch" => format!(
+            "价格反抽到旧支撑 {:.2} 附近，当前仍处重新受压观察阶段。",
+            snapshot.support_level_20
+        ),
+        "failed_resistance_breakout" => format!(
+            "价格上破阻力 {:.2} 后重新收回关键位下方，假突破回落已经形成。",
+            snapshot.resistance_level_20
+        ),
+        "failed_support_breakdown" => format!(
+            "价格下破支撑 {:.2} 后重新收回关键位上方，假跌破拉回已经形成。",
+            snapshot.support_level_20
+        ),
+        _ => format!(
+            "价格仍运行在支撑 {:.2} 与阻力 {:.2} 之间，尚未形成新的关键位选择。",
+            snapshot.support_level_20, snapshot.resistance_level_20
+        ),
+    };
+    push_unique_owned(&mut rationale, breakout_reason);
+    // 2026-04-01 CST: 这里给区间方向观察态补一条偏向化理由，原因是 `range_bound` 兜底语句只能说明“还在区间里”，
+    // 目的：让 `bullish_range_watch / bearish_range_watch` 能直接告诉上层“正在等哪一侧关键位完成确认”，而不是只剩通用区间描述。
+    match bias {
+        "bullish_range_watch" => push_unique_owned(
+            &mut rationale,
+            "偏多结构尚未完成关键位选择，当前更适合等待阻力被明确打破后再确认延续。".to_string(),
+        ),
+        "bearish_range_watch" => push_unique_owned(
+            &mut rationale,
+            "偏空结构尚未完成关键位选择，当前更适合等待支撑被明确跌破后再确认延续。".to_string(),
+        ),
+        _ => {}
+    }
+
+    let trend_reason = match (trend_bias, trend_strength) {
+        ("bullish", "strong") => "均线结构与趋势强度仍偏多，主趋势尚未转弱。".to_string(),
+        ("bearish", "strong") => "均线结构与趋势强度仍偏空，主趋势尚未修复。".to_string(),
+        ("bullish", _) => "趋势方向偏多，但强度仍需继续验证。".to_string(),
+        ("bearish", _) => "趋势方向偏空，但强度仍需继续验证。".to_string(),
+        _ => "当前趋势强度不足，方向性判断需要更多确认。".to_string(),
+    };
+    push_unique_owned(&mut rationale, trend_reason);
+
+    let volume_reason = match volume_confirmation {
+        "confirmed" => "量能与当前方向保持一致，结构确认度更高。".to_string(),
+        "weakening" => "量能没有同步放大，当前结论需要打折看待。".to_string(),
+        _ => "量能仍偏中性，暂时不足以单独强化方向判断。".to_string(),
+    };
+    push_unique_owned(&mut rationale, volume_reason);
+
+    let momentum_reason = match momentum_signal {
+        "positive" => "MACD 与 RSI 组合显示动量仍偏正向。".to_string(),
+        "negative" => "MACD 与 RSI 组合显示动量仍偏负向。".to_string(),
+        _ => "动量端暂未给出明显的单边强化信号。".to_string(),
+    };
+    push_unique_owned(&mut rationale, momentum_reason);
+
+    if rsrs_signal == "bullish_breakout" {
+        push_unique_owned(
+            &mut rationale,
+            "RSRS 斜率强化，说明上行结构仍有加速迹象。".to_string(),
+        );
+    } else if rsrs_signal == "bearish_pressure" {
+        push_unique_owned(
+            &mut rationale,
+            "RSRS 斜率走弱，说明下压结构仍未解除。".to_string(),
+        );
+    }
+
+    if bias == "bull_trap_risk" && divergence_signal == "bearish_divergence" {
+        push_unique_owned(
+            &mut rationale,
+            "顶部背离与假突破回落叠加，短线追价容错率下降。".to_string(),
+        );
+    } else if bias == "bear_trap_risk" && divergence_signal == "bullish_divergence" {
+        push_unique_owned(
+            &mut rationale,
+            "底部背离与假跌破拉回叠加，弱势延续需要重新确认。".to_string(),
+        );
+    }
+    // 2026-04-01 CST: 这里给双边陷阱态补专属解释，原因是“假突破/假跌破已形成”只说明发生了什么，
+    // 目的：让 `bull_trap_risk / bear_trap_risk` 还能直接告诉上层“原有延续判断已经失效”，便于后续策略层快速止错。
+    match bias {
+        // 2026-04-01 CST: 这里给延续态补专属解释，原因是仅靠“已突破/已跌破”的事实描述还不够表达当前处于延续剧本；
+        // 目的：让 `bullish_continuation / bearish_continuation` 能直接把“延续已经成立、后续关注确认动作”的语义交给上层消费。
+        "bullish_continuation" => push_unique_owned(
+            &mut rationale,
+            "多头延续结构已经成立，突破后若能继续守住关键位，向上剧本才会保持完整。".to_string(),
+        ),
+        "bearish_continuation" => push_unique_owned(
+            &mut rationale,
+            "空头延续结构已经成立，跌破后若继续压制反抽，向下剧本才会保持完整。".to_string(),
+        ),
+        "bull_trap_risk" => push_unique_owned(
+            &mut rationale,
+            "原有突破延续判断已经失效，短线不宜继续按向上突破结构理解。".to_string(),
+        ),
+        "bear_trap_risk" => push_unique_owned(
+            &mut rationale,
+            "原有弱势延续判断已经失效，短线不宜继续按向下跌破结构理解。".to_string(),
+        ),
+        // 2026-04-01 CST: 这里给 `range_wait` 补专属解释，原因是通用区间描述无法直接说明“为什么现在不能抢方向”；
+        // 目的：把“趋势强度不足、先等待区间重新选择方向”的判断显式沉淀成合同，便于上层直接展示或做分流。
+        "range_wait" => push_unique_owned(
+            &mut rationale,
+            "趋势强度不足，当前更适合等待区间重新选边，再跟随更清晰的方向信号。".to_string(),
+        ),
+        _ => {}
+    }
+
+    rationale
+}
+
+// 2026-04-01 CST: 这里新增组合结论风险列表，原因是证券分析层除了给结论，还要显式告诉上层“当前最该防什么”；
+// 目的：把量能不足、高波动、背离和高低位过热等风险结构化输出，避免这些信息只散落在长文案里。
+fn build_consultation_risk_flags(
+    bias: &str,
+    volume_confirmation: &str,
+    money_flow_signal: &str,
+    mean_reversion_signal: &str,
+    range_position_signal: &str,
+    breakout_signal: &str,
+    divergence_signal: &str,
+    timing_signal: &str,
+    volatility_state: &str,
+) -> Vec<String> {
+    let mut risk_flags = Vec::new();
+
+    if volume_confirmation == "weakening" {
+        push_unique_owned(&mut risk_flags, "量能确认不足".to_string());
+    }
+
+    if volatility_state == "high" {
+        push_unique_owned(&mut risk_flags, "当前波动偏高".to_string());
+    }
+
+    match divergence_signal {
+        "bearish_divergence" => {
+            push_unique_owned(&mut risk_flags, "存在顶部背离风险".to_string());
+        }
+        "bullish_divergence" => {
+            push_unique_owned(&mut risk_flags, "存在底部背离修复风险".to_string());
+        }
+        _ => {}
+    }
+
+    if timing_signal == "overbought_pullback" {
+        push_unique_owned(&mut risk_flags, "短线存在高位回落节奏".to_string());
+    } else if timing_signal == "oversold_rebound" {
+        push_unique_owned(&mut risk_flags, "短线存在超卖反抽扰动".to_string());
+    }
+    // 2026-04-01 CST: 这里给观察态补专属风险标记，原因是仅靠 `headline` 还不够表达“当前最该防的是确认没完成”，
+    // 目的：让 `range_watch / confirmation_watch` 这几类中间态在风险列表里也能直接暴露“尚待确认”的结构化提醒。
+    match breakout_signal {
+        "resistance_retest_watch" => {
+            push_unique_owned(&mut risk_flags, "回踩承接尚待确认".to_string());
+        }
+        "support_retest_watch" => {
+            push_unique_owned(&mut risk_flags, "反抽受压尚待确认".to_string());
+        }
+        _ => {}
+    }
+
+    match bias {
+        // 2026-04-01 CST: 这里给延续态补专属风险提示，原因是延续剧本最容易在确认后的回踩/反抽环节被破坏；
+        // 目的：让上层拿到 `bullish_continuation / bearish_continuation` 时，也能同步知道当前最需要盯防的失效触发器。
+        "bullish_continuation" => {
+            push_unique_owned(
+                &mut risk_flags,
+                "突破后回踩若承接转弱，多头延续强度会下降".to_string(),
+            );
+        }
+        "bearish_continuation" => {
+            push_unique_owned(
+                &mut risk_flags,
+                "跌破后反抽若重新转强，空头延续结构会松动".to_string(),
+            );
+        }
+        "bullish_range_watch" => {
+            push_unique_owned(&mut risk_flags, "阻力突破尚待确认".to_string());
+        }
+        "bearish_range_watch" => {
+            push_unique_owned(&mut risk_flags, "支撑跌破尚待确认".to_string());
+        }
+        // 2026-04-01 CST: 这里给 `range_wait` 补专属风险提示，原因是中性等待态最核心的风险不是方向错误，而是过早押注；
+        // 目的：把“方向确认不足”的结构化提醒固定输出，避免调用方只能从长文摘要里自行抽取风控语义。
+        "range_wait" => {
+            push_unique_owned(
+                &mut risk_flags,
+                "方向确认不足，过早押注单边容易来回止损".to_string(),
+            );
+        }
+        _ => {}
+    }
+
+    if money_flow_signal == "overbought_distribution"
+        || mean_reversion_signal == "overbought_reversal_risk"
+        || range_position_signal == "overbought_pullback_risk"
+    {
+        push_unique_owned(&mut risk_flags, "高位过热后回落风险".to_string());
+    }
+
+    if money_flow_signal == "oversold_accumulation"
+        || mean_reversion_signal == "oversold_rebound_candidate"
+        || range_position_signal == "oversold_rebound_candidate"
+    {
+        push_unique_owned(&mut risk_flags, "低位超卖后反抽干扰".to_string());
+    }
+
+    if breakout_signal == "failed_resistance_breakout" || bias == "bull_trap_risk" {
+        push_unique_owned(&mut risk_flags, "上破失效后的多头陷阱风险".to_string());
+        // 2026-04-01 CST: 这里给多头陷阱补“延续判断失效”风险标记，原因是上层除了知道是陷阱，
+        // 目的：还要能直接识别“原有突破延续逻辑不能再继续沿用”。
+        push_unique_owned(&mut risk_flags, "突破延续判断失效".to_string());
+    }
+
+    if breakout_signal == "failed_support_breakdown" || bias == "bear_trap_risk" {
+        push_unique_owned(&mut risk_flags, "下破失效后的空头陷阱风险".to_string());
+        // 2026-04-01 CST: 这里给空头陷阱补“延续判断失效”风险标记，原因是下破修复时真正需要提醒的是原弱势剧本被破坏，
+        // 目的：让调用方能直接把这类样本从 continuation 分支中剥离出来。
+        push_unique_owned(&mut risk_flags, "跌破延续判断失效".to_string());
+    }
+
+    risk_flags
+}
+
+// 2026-04-01 CST: 这里抽出 bias 的预期方向，原因是置信度计算需要知道当前应当和哪一侧的动量/RSRS 对齐；
+// 目的：把“多头延续”“空头延续”“陷阱风险”的方向映射统一收口，避免多个判断分支重复写字符串比较。
+fn expected_direction_for_bias(bias: &str) -> Option<&'static str> {
+    match bias {
+        "bullish_continuation" | "bullish_confirmation_watch" | "bullish_range_watch" => {
+            Some("bullish")
+        }
+        "bearish_continuation"
+        | "bearish_confirmation_watch"
+        | "bearish_range_watch"
+        | "bull_trap_risk" => Some("bearish"),
+        "bear_trap_risk" => Some("bullish"),
+        _ => None,
+    }
+}
+
+// 2026-04-01 CST: 这里补一个去重写入助手，原因是组合理由和风险来自多条信号，直接追加容易出现重复中文条目；
+// 目的：让 `rationale / risk_flags` 保持紧凑稳定，减少上层展示时还要额外做去重清洗。
+fn push_unique_owned(items: &mut Vec<String>, candidate: String) {
+    if !items.iter().any(|existing| existing == &candidate) {
+        items.push(candidate);
+    }
 }
 
 // 2026-03-28 CST：这里用均线结构判断趋势方向，原因是第一版只需要可解释、可测试的基础规则；
@@ -2774,8 +3381,8 @@ mod tests {
     #[test]
     fn breakout_signal_stays_range_bound_when_close_only_touches_resistance_without_anchor() {
         let rows = history_rows_from_closes(&[
-            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
-            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 99.6, 100.0,
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2, 99.0,
+            98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 99.6, 100.0,
         ]);
         let snapshot = breakout_test_snapshot(100.0, 97.8, 100.0, 0.6);
 
@@ -2788,8 +3395,8 @@ mod tests {
     #[test]
     fn confirmed_retest_hold_accepts_exact_anchor_plus_buffer_boundary() {
         let rows = history_rows_from_closes(&[
-            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
-            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.3, 100.15,
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2, 99.0,
+            98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.3, 100.15,
         ]);
         let snapshot = breakout_test_snapshot(100.15, 97.8, 100.3, 0.6);
 
@@ -2802,9 +3409,8 @@ mod tests {
     #[test]
     fn breakout_signal_ignores_multi_bar_retest_anchor_once_breakout_is_older_than_lookback() {
         let rows = history_rows_from_closes(&[
-            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
-            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.6, 99.95, 99.94, 99.93, 99.92, 99.91,
-            100.04,
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2, 99.0,
+            98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.6, 99.95, 99.94, 99.93, 99.92, 99.91, 100.04,
         ]);
         let snapshot = breakout_test_snapshot(100.04, 97.8, 100.6, 0.6);
 
@@ -2817,8 +3423,8 @@ mod tests {
     #[test]
     fn breakout_signal_rejects_multi_bar_retest_when_intermediate_bar_breaks_anchor() {
         let rows = history_rows_from_closes(&[
-            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
-            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.6, 99.6, 99.98, 100.02,
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2, 99.0,
+            98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.6, 99.6, 99.98, 100.02,
         ]);
         let snapshot = breakout_test_snapshot(100.02, 97.8, 100.6, 0.6);
 
@@ -2831,8 +3437,8 @@ mod tests {
     #[test]
     fn breakout_signal_only_marks_watch_when_price_breaks_out_but_trend_bias_is_sideways() {
         let rows = history_rows_from_closes(&[
-            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
-            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 99.6, 100.4,
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2, 99.0,
+            98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 99.6, 100.4,
         ]);
         let snapshot = breakout_test_snapshot(100.4, 97.8, 100.0, 0.6);
 
@@ -2845,8 +3451,8 @@ mod tests {
     #[test]
     fn retest_watch_uses_minimum_buffer_floor_when_atr_is_too_small() {
         let rows = history_rows_from_closes(&[
-            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2,
-            99.0, 98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.3, 100.15,
+            90.0, 91.0, 92.0, 93.0, 94.0, 95.0, 96.0, 97.0, 98.0, 99.0, 100.0, 99.5, 99.2, 99.0,
+            98.8, 98.6, 98.4, 98.2, 98.0, 97.8, 100.3, 100.15,
         ]);
         let snapshot = breakout_test_snapshot(100.15, 97.8, 100.3, 0.2);
 

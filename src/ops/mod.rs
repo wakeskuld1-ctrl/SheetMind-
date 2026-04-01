@@ -57,5 +57,7 @@ pub use foundation::window;
 // 2026-03-31 CST: 这里保留 stock 能力的兼容导出，原因是现有测试和调用方仍通过 `crate::ops::...` 访问股票链路。
 // 目的：先建立模块边界和新归属，再逐步把调用点迁到 `crate::ops::stock::...`。
 pub use stock::import_stock_price_history;
+pub use stock::security_analysis_contextual;
+pub use stock::security_analysis_fullstack;
 pub use stock::sync_stock_price_history;
 pub use stock::technical_consultation_basic;

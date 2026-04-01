@@ -138,6 +138,16 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "technical_consultation_basic" => {
             stock_ops::dispatch_technical_consultation_basic(request.args)
         }
+        // 2026-04-01 CST: 这里接入上层综合证券分析 Tool，原因是方案 A 已确认需要在主分发层正式暴露“个股 + 大盘 + 板块”的统一入口。
+        // 目的：让 CLI / Skill 直接消费聚合后的证券分析结论，而不是在外层手工串三次技术面 Tool。
+        "security_analysis_contextual" => {
+            stock_ops::dispatch_security_analysis_contextual(request.args)
+        }
+        // 2026-04-01 CST: 这里接入 fullstack 总 Tool，原因是方案 1 已确认要把技术与信息面统一暴露到产品主链；
+        // 目的：让 CLI / Skill 直接消费完整证券分析结果，而不是在外层继续拼财报和公告抓取。
+        "security_analysis_fullstack" => {
+            stock_ops::dispatch_security_analysis_fullstack(request.args)
+        }
         // 2026-03-31 CST: 这里把股票历史导入 Tool 切到 stock dispatcher，原因是股票历史导入属于股票业务域而不是通用分析域。
         // 目的：把 “CSV -> SQLite” 明确收口到 stock 模块，和 foundation 底座入口隔离开。
         "import_stock_price_history" => {

@@ -3,6 +3,12 @@ use serde_json::{Value, json};
 use crate::ops::stock::import_stock_price_history::{
     ImportStockPriceHistoryRequest, import_stock_price_history,
 };
+use crate::ops::stock::security_analysis_contextual::{
+    SecurityAnalysisContextualRequest, security_analysis_contextual,
+};
+use crate::ops::stock::security_analysis_fullstack::{
+    SecurityAnalysisFullstackRequest, security_analysis_fullstack,
+};
 use crate::ops::stock::sync_stock_price_history::{
     SyncStockPriceHistoryRequest, sync_stock_price_history,
 };
@@ -48,6 +54,34 @@ pub(super) fn dispatch_technical_consultation_basic(args: Value) -> ToolResponse
     };
 
     match technical_consultation_basic(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_analysis_contextual(args: Value) -> ToolResponse {
+    // 2026-04-01 CST: 这里新增上层综合证券分析 Tool 的 stock dispatcher 入口，原因是用户已批准在技术面 Tool 上层叠加大盘与板块环境分析。
+    // 目的：保持 `technical_consultation_basic` 边界不变，同时为 CLI / Skill 暴露统一的综合证券分析入口。
+    let request = match serde_json::from_value::<SecurityAnalysisContextualRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_analysis_contextual(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_analysis_fullstack(args: Value) -> ToolResponse {
+    // 2026-04-01 CST: 这里接入 fullstack 总 Tool 的 stock dispatcher 入口，原因是方案 1 已确定新增独立上层聚合入口；
+    // 目的：保持底层技术面 Tool 边界不变，同时为 CLI / Skill 暴露“技术 + 财报 + 公告 + 行业”的统一总入口。
+    let request = match serde_json::from_value::<SecurityAnalysisFullstackRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_analysis_fullstack(&request) {
         Ok(result) => ToolResponse::ok(json!(result)),
         Err(error) => ToolResponse::error(error.to_string()),
     }

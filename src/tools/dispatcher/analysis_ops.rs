@@ -1,9 +1,7 @@
 use serde_json::{Value, json};
 
 use crate::ops::foundation::analyze::analyze_table;
-use crate::ops::foundation::capacity_assessment::{
-    CapacityAssessmentRequest, capacity_assessment,
-};
+use crate::ops::foundation::capacity_assessment::{CapacityAssessmentRequest, capacity_assessment};
 use crate::ops::foundation::capacity_assessment_excel_report::{
     CapacityAssessmentExcelReportRequest, capacity_assessment_excel_report,
 };

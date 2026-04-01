@@ -345,3 +345,33 @@ The goal is not just to add more tools. It is to make the full path from table p
 
 **English one-liner:**  
 This is a local, binary-first product direction that helps ordinary Excel users gain advanced data-processing and analytics capability without installing Python.
+<!-- 2026-04-01 CST: 新增这段证券分析入口索引，原因是仓库已经具备独立的证券分析主链与专用 Skill；目的是让 GitHub 访客和后续 AI 能直接找到最新证券分析入口，而不是只看到 Excel 主线。 -->
+## Securities Analysis / 证券分析
+
+The repository now also includes a local securities-analysis chain built on the same Rust binary-first philosophy.
+
+当前已具备的证券分析入口：
+
+- 单证券技术面：
+  - `technical_consultation_basic`
+- 个股 + 大盘 + 板块环境：
+  - `security_analysis_contextual`
+- 技术面 + 财报 + 公告 + 行业综合：
+  - `security_analysis_fullstack`
+
+关键入口与说明：
+
+- Security Skill / 证券分析 Skill:
+  - `skills/security-analysis-v1/SKILL.md`
+- Contextual acceptance note:
+  - `docs/acceptance/2026-04-01-security-analysis-contextual-v1.md`
+- Fullstack acceptance note:
+  - `docs/acceptance/2026-04-01-security-analysis-fullstack-v1.md`
+- AI handoff note for securities:
+  - `docs/交接摘要_证券分析_给后续AI.md`
+
+Current rule:
+
+- Securities analysis must anchor to the current date first.
+- If the current date has no valid close, fall back to the previous trading day.
+- The actual analysis date must be stated explicitly in the output.

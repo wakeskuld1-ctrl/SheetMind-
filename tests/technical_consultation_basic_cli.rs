@@ -1164,6 +1164,80 @@ fn build_support_retest_watch_rows(day_count: usize) -> Vec<String> {
     rows
 }
 
+// 2026-04-01 CST: 这里新增“偏空主趋势但仍处区间等待下破”的样本，原因是方案 A 当前还没有把 bearish_range_watch 真链路锁进回归；
+// 目的：确保价格尚未有效跌破关键位时，也能把“偏空但未完成下破”的语义稳定上提成组合结论，而不是退回完全中性的 range_wait。
+fn build_bearish_range_watch_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 188.0;
+    let tail_closes = [
+        44.20, 44.05, 43.92, 43.80, 43.72, 43.66, 43.61, 43.58, 43.60, 43.67, 43.74, 43.70, 43.79,
+        43.73, 43.82, 43.76, 43.86, 43.80, 43.89, 43.84,
+    ];
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(20);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close - 0.72, 1_020_000 + offset as i64 * 5_200)
+        } else {
+            let phase = offset - phase_start;
+            // 2026-04-01 CST: 这里直接用一组低位弱势箱体尾盘，原因是递减尾巴太容易在最近 4 根里继续形成新的 breakdown anchor；
+            // 目的：把最近 20 根稳定固定成“长期偏空 + 近期低位箱体等待下破”的真实区间样本。
+            (tail_closes[phase], 1_000_000 + phase as i64 * 8_000)
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 0.92;
+        let low = next_close.min(open) - 1.02;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+// 2026-04-01 CST: 这里新增“偏多主趋势但仍处区间等待上破”的样本，原因是方案 A 当前还没有把 bullish_range_watch 真链路锁进回归；
+// 目的：确保价格尚未有效突破关键位时，也能把“偏多但未完成上破”的语义稳定上提成组合结论，而不是退回完全中性的 range_wait。
+fn build_bullish_range_watch_rows(day_count: usize) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close: f64 = 42.0;
+    let tail_closes = [
+        187.62, 187.28, 187.12, 186.98, 186.90, 186.84, 186.88, 186.93, 186.87, 186.95, 186.89,
+        186.97, 186.92, 186.99, 186.94, 187.01, 186.96, 187.03, 186.98, 187.00,
+    ];
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let phase_start = day_count.saturating_sub(20);
+        let (next_close, volume): (f64, i64) = if offset < phase_start {
+            (close + 0.72, 1_000_000 + offset as i64 * 5_400)
+        } else {
+            let phase = offset - phase_start;
+            // 2026-04-01 CST: 这里把高位箱体改成“先冲高、后横住”的尾盘，原因是缓慢抬升尾巴会在最近 4 根里反复形成 breakout anchor；
+            // 目的：确保样本稳定表达“长期偏多 + 近期高位整理待上破”，而不是误落到 resistance_retest_watch。
+            (tail_closes[phase], 1_020_000 + phase as i64 * 8_500)
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 0.98;
+        let low = next_close.min(open) - 0.88;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
 // 2026-03-31 22:20 CST: 这里补“突破后经过多根回踩再重新站稳”的红测夹具，原因是当前实现只认前一根
 // 越位样本，识别不到多根回踩后的再次承接；目的：先用真实 CLI 样本锁住“多根回踩确认”缺口，再推动主逻辑扩展。
 fn build_multi_bar_resistance_retest_hold_rows(day_count: usize) -> Vec<String> {
@@ -1299,8 +1373,8 @@ fn build_just_above_buffer_boundary_resistance_retest_hold_rows() -> Vec<String>
     // 目的：把 confirmed_resistance_retest_hold 在真链路下的最小有效越界样本固定住，防止后续边界比较被悄悄改松或改严。
     build_breakout_boundary_rows_from_tail(
         &[
-            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
-            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 100.16,
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00, 99.95,
+            99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 100.16,
         ],
         0.02,
     )
@@ -1311,8 +1385,8 @@ fn build_min_buffer_floor_resistance_retest_watch_rows() -> Vec<String> {
     // 目的：确保最新一根恰好落在旧阻力 + 0.15 时，对外仍稳定输出 resistance_retest_watch。
     build_breakout_boundary_rows_from_tail(
         &[
-            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
-            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 100.15,
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00, 99.95,
+            99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 100.15,
         ],
         0.02,
     )
@@ -1323,9 +1397,9 @@ fn build_stale_multi_bar_resistance_anchor_rows() -> Vec<String> {
     // 目的：确保真链路读取历史后，不会把已经过期的旧突破误判成仍可确认的多根回踩结构。
     build_breakout_boundary_rows_from_tail(
         &[
-            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
-            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.60, 99.95,
-            99.94, 99.93, 99.92, 99.91, 100.04,
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00, 99.95,
+            99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.60, 99.95, 99.94, 99.93,
+            99.92, 99.91, 100.04,
         ],
         0.02,
     )
@@ -1336,8 +1410,8 @@ fn build_failed_resistance_breakout_just_below_boundary_rows() -> Vec<String> {
     // 目的：确保假突破回落在真链路里会稳定进入 failed_resistance_breakout，而不是被边界比较吞回观察态。
     build_breakout_boundary_rows_from_tail(
         &[
-            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
-            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 99.84,
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00, 99.95,
+            99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.78, 100.30, 99.84,
         ],
         0.02,
     )
@@ -1348,9 +1422,8 @@ fn build_failed_support_breakdown_just_above_boundary_rows() -> Vec<String> {
     // 目的：确保假跌破拉回在真链路里会稳定进入 failed_support_breakdown，而不是被误留在观察态。
     build_breakout_boundary_rows_from_tail(
         &[
-            100.90, 100.80, 100.70, 100.60, 100.50, 100.40, 100.30, 100.20, 100.10, 100.05,
-            100.00, 100.04, 100.06, 100.08, 100.10, 100.12, 100.14, 100.16, 100.18, 100.20,
-            99.70, 100.16,
+            100.90, 100.80, 100.70, 100.60, 100.50, 100.40, 100.30, 100.20, 100.10, 100.05, 100.00,
+            100.04, 100.06, 100.08, 100.10, 100.12, 100.14, 100.16, 100.18, 100.20, 99.70, 100.16,
         ],
         0.02,
     )
@@ -1361,9 +1434,9 @@ fn build_multi_bar_resistance_retest_watch_rows() -> Vec<String> {
     // 目的：确保突破后 2~4 根磨位期间，真链路能稳定保留 resistance_retest_watch 中间态。
     build_breakout_boundary_rows_from_tail(
         &[
-            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00,
-            99.95, 99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.79, 99.78, 100.60,
-            99.95, 99.96, 100.02,
+            99.00, 99.10, 99.20, 99.30, 99.40, 99.50, 99.60, 99.70, 99.80, 99.90, 100.00, 99.95,
+            99.92, 99.90, 99.88, 99.86, 99.84, 99.82, 99.80, 99.79, 99.78, 100.60, 99.95, 99.96,
+            100.02,
         ],
         0.02,
     )
@@ -1374,9 +1447,9 @@ fn build_multi_bar_support_retest_watch_rows() -> Vec<String> {
     // 目的：确保跌破后 2~4 根反抽磨位期间，真链路能稳定保留 support_retest_watch 中间态。
     build_breakout_boundary_rows_from_tail(
         &[
-            100.90, 100.80, 100.70, 100.60, 100.50, 100.40, 100.30, 100.20, 100.10, 100.05,
-            100.00, 100.04, 100.06, 100.08, 100.10, 100.12, 100.14, 100.16, 100.18, 100.20,
-            99.40, 100.05, 100.06, 100.07, 99.98,
+            100.90, 100.80, 100.70, 100.60, 100.50, 100.40, 100.30, 100.20, 100.10, 100.05, 100.00,
+            100.04, 100.06, 100.08, 100.10, 100.12, 100.14, 100.16, 100.18, 100.20, 99.40, 100.05,
+            100.06, 100.07, 99.98,
         ],
         0.02,
     )
@@ -2422,6 +2495,13 @@ fn technical_consultation_basic_returns_snapshot_and_guidance_from_sqlite_histor
     assert!(output["data"]["summary"].is_string());
     assert!(output["data"]["recommended_actions"].is_array());
     assert!(output["data"]["watch_points"].is_array());
+    // 2026-04-01 CST: 这里先锁组合结论对象的对外可见性，原因是方案 A 要把既有技术面信号上提成更易消费的证券分析输出；
+    // 目的：确保后续不是只补一段中文文案，而是正式暴露稳定的 `bias / confidence / headline / rationale / risk_flags` 合同。
+    assert!(output["data"]["consultation_conclusion"]["bias"].is_string());
+    assert!(output["data"]["consultation_conclusion"]["confidence"].is_string());
+    assert!(output["data"]["consultation_conclusion"]["headline"].is_string());
+    assert!(output["data"]["consultation_conclusion"]["rationale"].is_array());
+    assert!(output["data"]["consultation_conclusion"]["risk_flags"].is_array());
     assert!(output["data"]["indicator_snapshot"]["close"].is_number());
     assert!(output["data"]["indicator_snapshot"]["ema_10"].is_number());
     assert!(output["data"]["indicator_snapshot"]["sma_50"].is_number());
@@ -2519,6 +2599,156 @@ fn technical_consultation_basic_marks_choppy_history_as_weak_trend() {
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["trend_bias"], "sideways");
     assert_eq!(output["data"]["trend_strength"], "weak");
+    // 2026-04-01 CST: 这里补“区间等待态”组合结论断言，原因是方案 A 不能只锁突破和陷阱场景；
+    // 目的：确保横盘弱趋势样本会稳定落到 `range_wait + low`，而不是被误抬成带方向性的区间观察态。
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "range_wait"
+    );
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["confidence"],
+        "low"
+    );
+    // 2026-04-01 CST: 这里继续补 `range_wait` 的证据层断言，原因是方案 A-4 不能只锁中性 headline，
+    // 目的：确保横盘弱趋势场景会把“趋势强度不足、先等区间重新选边”的解释和风控提示正式输出给上层。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("趋势强度不足") && text.contains("等待区间"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("方向确认不足"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["headline"]
+            .as_str()
+            .expect("headline should exist")
+            .contains("区间震荡")
+    );
+}
+
+#[test]
+fn technical_consultation_basic_marks_bearish_range_watch_conclusion() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_bearish_range_watch");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_bearish_range_watch",
+        "bearish_range_watch.csv",
+        &build_bearish_range_watch_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "600104.SH");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "600104.SH"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-01 CST: 这里补“偏空区间观察态”的 CLI 红测，原因是方案 A 目前还缺 `bearish_range_watch` 的真链路回归；
+    // 目的：确保主趋势偏空但尚未有效跌破关键位时，组合结论会明确输出偏空等待，而不是被折叠成完全中性的 range_wait。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["breakout_signal"], "range_bound");
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "bearish_range_watch"
+    );
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["confidence"],
+        "medium"
+    );
+    // 2026-04-01 CST: 这里继续补偏空区间观察态的解释证据与风险断言，原因是方案 A-2 不能只锁 `bias / confidence / headline`；
+    // 目的：确保调用方能直接消费“为什么偏空等待”以及“当前主要风险是什么”，而不是再自行翻译底层字段。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("偏空") && text.contains("等待支撑"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("支撑跌破尚待确认"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["headline"]
+            .as_str()
+            .expect("headline should exist")
+            .contains("偏空结构仍在区间内")
+    );
+}
+
+#[test]
+fn technical_consultation_basic_marks_bullish_range_watch_conclusion() {
+    let runtime_db_path =
+        create_test_runtime_db("technical_consultation_basic_bullish_range_watch");
+    let csv_path = create_stock_history_csv(
+        "technical_consultation_basic_bullish_range_watch",
+        "bullish_range_watch.csv",
+        &build_bullish_range_watch_rows(220),
+    );
+    import_history_csv(&runtime_db_path, &csv_path, "300750.SZ");
+
+    let request = json!({
+        "tool": "technical_consultation_basic",
+        "args": {
+            "symbol": "300750.SZ"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-01 CST: 这里补“偏多区间观察态”的 CLI 红测，原因是方案 A 当前还缺 `bullish_range_watch` 的真链路回归；
+    // 目的：确保主趋势偏多但尚未有效突破关键位时，组合结论会明确输出偏多等待，而不是被折叠成完全中性的 range_wait。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["breakout_signal"], "range_bound");
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "bullish_range_watch"
+    );
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["confidence"],
+        "medium"
+    );
+    // 2026-04-01 CST: 这里继续补偏多区间观察态的解释证据与风险断言，原因是方案 A-2 需要把区间方向态做成可直接消费的正式合同；
+    // 目的：确保调用方不只拿到“偏多等待”的标签，还能读到等待阻力突破的理由与对应风险提示。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("偏多") && text.contains("等待阻力"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("阻力突破尚待确认"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["headline"]
+            .as_str()
+            .expect("headline should exist")
+            .contains("偏多结构仍在区间内")
+    );
 }
 
 #[test]
@@ -2828,6 +3058,43 @@ fn technical_consultation_basic_marks_confirmed_resistance_breakout_signal() {
         output["data"]["breakout_signal"],
         "confirmed_resistance_breakout"
     );
+    // 2026-04-01 CST: 这里先锁“有效向上突破”场景的组合结论，原因是方案 A 需要先把最强多头样本提升成上层证券分析结论；
+    // 目的：确保上层不必自己重拼 trend/breakout/volume，就能直接消费 `bullish_continuation + high`。
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "bullish_continuation"
+    );
+    // 2026-04-01 CST: 这里把置信度收在 medium，原因是该样本虽然价格结构已确认突破，但历史上就刻意保留了量能偏弱这一维；
+    // 目的：确保上层组合结论尊重“breakout_signal 是价格结构、volume_confirmation 是独立维度”的既有合同，不把所有 confirmed_breakout 都夸大成 high。
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["confidence"],
+        "medium"
+    );
+    // 2026-04-01 CST: 这里补 `bullish_continuation` 的证据层断言，原因是方案 A-4 需要把“已突破后的延续剧本”收成正式合同；
+    // 目的：确保上层拿到的不只是 bias 标签，还能直接消费“多头延续为何成立、当前最该防什么”的结构化信息。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("多头延续") && text.contains("突破后"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("突破后回踩"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .len()
+            >= 2
+    );
     assert!(output["data"]["indicator_snapshot"]["support_level_20"].is_number());
     assert!(output["data"]["indicator_snapshot"]["resistance_level_20"].is_number());
     assert!(close > resistance_level_20);
@@ -2914,6 +3181,30 @@ fn technical_consultation_basic_marks_confirmed_support_breakdown_signal() {
         output["data"]["breakout_signal"],
         "confirmed_support_breakdown"
     );
+    // 2026-04-01 CST: 这里先锁“有效向下跌破”场景的组合结论，原因是证券分析层不能只会输出多头延续而缺空头对称口径；
+    // 目的：确保上层能直接消费 `bearish_continuation`，而不是继续依赖下游自己翻译 breakout_signal。
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "bearish_continuation"
+    );
+    // 2026-04-01 CST: 这里补 `bearish_continuation` 的证据层断言，原因是方案 A-4 也要把空头延续剧本锁成上层正式合同；
+    // 目的：确保上层能直接读到“空头延续为何成立、当前需要防守的反抽风险是什么”，而不是再自行二次推断。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("空头延续") && text.contains("跌破后"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("跌破后反抽"))
+    );
     assert!(output["data"]["indicator_snapshot"]["support_level_20"].is_number());
     assert!(output["data"]["indicator_snapshot"]["resistance_level_20"].is_number());
     assert!(close < support_level_20);
@@ -2974,6 +3265,30 @@ fn technical_consultation_basic_marks_failed_resistance_breakout_signal() {
         output["data"]["breakout_signal"],
         "failed_resistance_breakout"
     );
+    // 2026-04-01 CST: 这里先锁“假突破回落”场景的组合结论，原因是方案 A 的上层证券分析必须能直接表达多头陷阱风险；
+    // 目的：确保调用方拿到的是稳定的 `bull_trap_risk`，而不是再从 failed_* 文案里自行二次猜测。
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "bull_trap_risk"
+    );
+    // 2026-04-01 CST: 这里继续补多头陷阱态的证据层断言，原因是方案 A-3 不能只锁“这是陷阱”，还要锁“原有突破延续判断已经失效”；
+    // 目的：确保调用方能直接消费陷阱态的解释与风险，而不是继续把它当成普通回落噪声。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("突破延续判断") && text.contains("失效"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("突破延续判断失效"))
+    );
     assert!(close < resistance_level_20);
     assert!(summary.contains("假突破") || summary.contains("回落"));
     assert!(
@@ -3031,6 +3346,40 @@ fn technical_consultation_basic_marks_failed_support_breakdown_signal() {
     assert_eq!(
         output["data"]["breakout_signal"],
         "failed_support_breakdown"
+    );
+    // 2026-04-01 CST: 这里补“假跌破拉回”场景的组合结论断言，原因是当前只锁了多头陷阱，空头陷阱口径还没被真链路钉住；
+    // 目的：确保调用方能直接消费 `bear_trap_risk`，并拿到与假跌破修复一致的 headline / risk_flags。
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "bear_trap_risk"
+    );
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["confidence"],
+        "medium"
+    );
+    // 2026-04-01 CST: 这里继续补空头陷阱态的证据层断言，原因是方案 A-3 也要把“弱势延续判断已经失效”锁成正式合同；
+    // 目的：确保调用方能直接知道当前不是单纯反抽，而是原有跌破延续逻辑被破坏。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("弱势延续判断") && text.contains("失效"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["headline"]
+            .as_str()
+            .expect("headline should exist")
+            .contains("空头陷阱风险")
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("跌破延续判断失效"))
     );
     assert!(close > support_level_20);
     assert!(summary.contains("假跌破") || summary.contains("拉回"));
@@ -3197,6 +3546,34 @@ fn technical_consultation_basic_marks_resistance_retest_watch_signal() {
     // 目的：确保 technical_consultation_basic 能输出仍需继续观察承接质量的 retest_watch，而不是直接跳到 confirmed。
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["breakout_signal"], "resistance_retest_watch");
+    // 2026-04-01 CST: 这里先锁“多头回踩观察态”的组合结论，原因是方案 A 要把中间态也提升成可消费的上层证券分析信号；
+    // 目的：确保等待确认的多头结构会稳定输出 `bullish_confirmation_watch`，而不是混回普通区间态。
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "bullish_confirmation_watch"
+    );
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["confidence"],
+        "medium"
+    );
+    // 2026-04-01 CST: 这里继续补多头确认观察态的解释证据与风险断言，原因是方案 A-2 要把“观察中”也做成正式证券分析合同；
+    // 目的：确保调用方能直接知道当前仍在等回踩承接确认，而不是只看到一个 watch 标签。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("观察阶段"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("回踩承接尚待确认"))
+    );
     assert!(summary.contains("回踩") && summary.contains("观察"));
     assert!(
         recommended_actions
@@ -3245,6 +3622,40 @@ fn technical_consultation_basic_marks_support_retest_watch_signal() {
     // 目的：确保 technical_consultation_basic 能输出仍需继续观察压制质量的 retest_watch，而不是直接跳到 confirmed。
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["breakout_signal"], "support_retest_watch");
+    // 2026-04-01 CST: 这里补“空头反抽观察态”的组合结论断言，原因是方案 A 当前只锁了多头观察态，空头对称口径还没被测试覆盖；
+    // 目的：确保 `support_retest_watch` 会稳定上提成 `bearish_confirmation_watch`，并给出可直接展示的观察阶段 headline。
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["bias"],
+        "bearish_confirmation_watch"
+    );
+    assert_eq!(
+        output["data"]["consultation_conclusion"]["confidence"],
+        "medium"
+    );
+    // 2026-04-01 CST: 这里继续补空头确认观察态的解释证据与风险断言，原因是方案 A-2 需要把空头观察态也补成完整合同；
+    // 目的：确保调用方能直接知道当前仍在等反抽受压确认，而不是继续自己拼 breakout 与摘要文案。
+    assert!(
+        output["data"]["consultation_conclusion"]["rationale"]
+            .as_array()
+            .expect("rationale should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("观察阶段"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["risk_flags"]
+            .as_array()
+            .expect("risk_flags should exist")
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|text| text.contains("反抽受压尚待确认"))
+    );
+    assert!(
+        output["data"]["consultation_conclusion"]["headline"]
+            .as_str()
+            .expect("headline should exist")
+            .contains("反抽观察阶段")
+    );
     assert!(summary.contains("反抽") && summary.contains("观察"));
     assert!(
         recommended_actions
@@ -3369,7 +3780,10 @@ fn technical_consultation_basic_marks_failed_resistance_breakout_just_below_boun
     // 2026-04-01 CST: 这里先补 CLI 层“刚好跌破旧阻力-buffer 一点点”应进入 failed 的边界红测，原因是 failed 与 watch 只差一条很窄的边界；
     // 目的：确保真链路下假突破回落的失效口径不会被后续条件顺序或比较符号改坏。
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["breakout_signal"], "failed_resistance_breakout");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "failed_resistance_breakout"
+    );
 }
 
 #[test]
@@ -3395,7 +3809,10 @@ fn technical_consultation_basic_marks_failed_support_breakdown_just_above_bounda
     // 2026-04-01 CST: 这里先补 CLI 层“刚好拉回旧支撑+buffer 一点点”应进入 failed 的边界红测，原因是空头侧也要和多头侧保持对称；
     // 目的：把假跌破拉回的最小有效失效边界也锁进外层回归，避免之后只修一边。
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["breakout_signal"], "failed_support_breakdown");
+    assert_eq!(
+        output["data"]["breakout_signal"],
+        "failed_support_breakdown"
+    );
 }
 
 #[test]

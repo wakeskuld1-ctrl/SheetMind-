@@ -320,3 +320,50 @@
    - 补更上层组合咨询如何消费现有 `breakout_signal`
    - 或继续补更多关键位观察态/解释层
 4. 如果不是明确有收益，不要再发起架构级重构；用户已多次确认后续按现有架构推进。
+<!-- 2026-04-01 CST: 新增这组证券分析交接补充，原因是仓库在 2026-04-01 已经形成 security_analysis_contextual / security_analysis_fullstack 主链；目的是让后续 AI 先看到最新证券分析边界、日期规则和入口文件，而不是只停留在旧摘要。 -->
+## 0. 2026-04-01 证券分析主线补充
+
+### 0.1 当前证券分析已经做到哪
+
+- 底层单证券技术面 Tool：`src/ops/technical_consultation_basic.rs`
+- 上层环境聚合 Tool：`src/ops/security_analysis_contextual.rs`
+- 上层全面证券分析 Tool：`src/ops/security_analysis_fullstack.rs`
+- dispatcher 接入：
+  - `src/tools/dispatcher/stock_ops.rs`
+  - `src/tools/dispatcher.rs`
+- catalog 接入：
+  - `src/tools/catalog.rs`
+
+### 0.2 当前产品级证券分析主链
+
+- `technical_consultation_basic`
+  - 负责单证券日线技术面，不混入财报、公告、大盘、板块语义
+- `security_analysis_contextual`
+  - 负责个股 + 大盘代理 + 板块代理的环境共振
+- `security_analysis_fullstack`
+  - 负责技术面 + 财报快照 + 公告摘要 + 行业上下文 + 综合结论
+
+### 0.3 后续 AI 必须遵守的日期锚定规则
+
+- 证券分析默认只允许锚定“当前日期”
+- 如果当前日期没有有效收盘数据，才允许退到前一个交易日
+- 输出必须显式写明实际分析日期，例如“按 2026-04-01 收盘分析”
+- 不要混用多个日期的数据去拼一个结论
+
+### 0.4 后续 AI 必须遵守的边界
+
+- 不要把信息面回灌到 `technical_consultation_basic`
+- 不要绕开项目内 Tool 主链，回退成泛化股评
+- 免费公开源失败时可以降级为 `technical_only`，但必须明确说明降级范围
+- 当前证券分析专用 Skill 已新增：`skills/security-analysis-v1/SKILL.md`
+
+### 0.5 先看哪些文件
+
+- `skills/security-analysis-v1/SKILL.md`
+- `src/ops/security_analysis_contextual.rs`
+- `src/ops/security_analysis_fullstack.rs`
+- `tests/security_analysis_contextual_cli.rs`
+- `tests/security_analysis_fullstack_cli.rs`
+- `docs/acceptance/2026-04-01-security-analysis-contextual-v1.md`
+- `docs/acceptance/2026-04-01-security-analysis-fullstack-v1.md`
+- `CHANGELOG_TASK.MD`
