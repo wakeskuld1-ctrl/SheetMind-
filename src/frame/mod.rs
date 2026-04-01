@@ -1,0 +1,16 @@
+// 2026-03-21: 这里导出表注册模块，原因是需要承接已加载表对象的生命周期管理；目的是让上层可以稳定复用已装载的数据表。
+pub mod registry;
+// 2026-03-21: 这里导出整表加载模块，原因是需要承接“已确认表头 -> DataFrame”的主路径；目的是让后续 Tool 共享统一承载层。
+pub mod loader;
+// 2026-03-22: 这里导出显式区域加载模块，原因是需要补齐“按 range 装载局部表”的基础能力；目的是让局部确认结果也能进入统一后续流程。
+pub mod region_loader;
+// 2026-03-22: 这里导出中间结果持久化模块，原因是链式分析结果需要跨请求复用；目的是让 result_ref 能稳定回放。
+pub mod result_ref_store;
+// 2026-03-23: ???? chart_ref ????????????? Tool ???????????????? build_chart/export_chart_image ? report_delivery ?????
+pub mod chart_ref_store;
+// 2026-03-23: 这里导出源文件引用持久化模块，原因是需要把“已打开文件 + 第几个 Sheet”沉淀成跨请求可复用入口；目的是避免后续流程重复依赖中文路径与中文 Sheet 名。
+pub mod source_file_ref_store;
+// 2026-03-22: 这里导出 workbook 草稿持久化模块，原因是多 Sheet 导出计划需要跨请求复用；目的是保持导出链路与源文件链路职责分离。
+pub mod workbook_ref_store;
+// 2026-03-22: 这里导出确认态 table_ref 持久化模块，原因是整表确认结果需要跨请求复用；目的是让后续分析建模优先消费稳定表引用。
+pub mod table_ref_store;

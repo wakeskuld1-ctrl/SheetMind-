@@ -1,0 +1,377 @@
+# 表处理 Skill V1 固定请求模板
+
+这些模板只覆盖当前 Tool 层已经稳定支持的请求。
+
+使用原则：
+
+- 先用建议型 Tool，再用执行型 Tool
+- 先补参数，再发请求
+- 不在 Skill 内自行发明新字段
+
+## 路径恢复前置动作
+
+这部分不是 Rust 计算 Tool，而是进入 Tool 之前的入口恢复动作。
+
+### 1. Windows 路径格式纠偏
+
+适用场景：
+
+- 第一次打开工作簿失败
+- 错误更像 Windows 路径语法不正确
+
+动作顺序：
+
+1. 明确告诉用户这更像路径格式问题，不是文件内容问题
+2. 改用 Windows 原生反斜杠路径重新打开
+3. 再继续 `open_workbook`、`normalize_table` 或后续表处理
+
+### 2. 中文路径 ASCII 临时副本降级
+
+适用场景：
+
+- PowerShell 能定位到文件
+- Tool 层直接读取中文路径失败
+
+动作顺序：
+
+1. 明确告诉用户文件存在，失败点更像中文路径兼容问题
+2. 如果宿主环境支持复制动作，先征求用户确认；只有用户同意后，才复制到 ASCII 临时路径
+3. 用 ASCII 临时副本继续 `open_workbook`
+4. 继续读取 sheet 列表、判断表头、后续表处理
+
+注意：
+
+- 临时副本只用于分析，不代表修改原文件
+- 如果宿主环境不支持复制能力，不要伪造“已经复制成功”
+
+## 单表模板
+
+### 0. 先列出工作簿 sheet
+
+```json
+{
+  "tool": "open_workbook",
+  "args": {
+    "path": "tests/fixtures/basic-sales.xlsx"
+  }
+}
+```
+
+### 1. 表头判断
+
+```json
+{
+  "tool": "normalize_table",
+  "args": {
+    "path": "tests/fixtures/basic-sales.xlsx",
+    "sheet": "Sales"
+  }
+}
+```
+
+### 2. 预览前几行
+
+```json
+{
+  "tool": "preview_table",
+  "args": {
+    "path": "tests/fixtures/basic-sales.xlsx",
+    "sheet": "Sales",
+    "limit": 5
+  }
+}
+```
+
+### 3. 统计摘要
+
+```json
+{
+  "tool": "stat_summary",
+  "args": {
+    "path": "tests/fixtures/basic-sales.xlsx",
+    "sheet": "Sales",
+    "columns": ["region", "sales"],
+    "top_k": 5
+  }
+}
+```
+
+### 4. 选择列
+
+```json
+{
+  "tool": "select_columns",
+  "args": {
+    "path": "tests/fixtures/basic-sales.xlsx",
+    "sheet": "Sales",
+    "columns": ["user_id", "region", "sales"]
+  }
+}
+```
+
+### 5. 条件筛选
+
+```json
+{
+  "tool": "filter_rows",
+  "args": {
+    "path": "tests/fixtures/basic-sales.xlsx",
+    "sheet": "Sales",
+    "conditions": [
+      {
+        "column": "region",
+        "operator": "equals",
+        "value": "East"
+      }
+    ]
+  }
+}
+```
+
+### 6. 分组汇总
+
+```json
+{
+  "tool": "group_and_aggregate",
+  "args": {
+    "path": "tests/fixtures/group-sales.xlsx",
+    "sheet": "Sales",
+    "casts": [
+      {
+        "column": "sales",
+        "target_type": "int64"
+      }
+    ],
+    "group_by": ["region"],
+    "aggregations": [
+      {
+        "column": "sales",
+        "operator": "sum"
+      }
+    ]
+  }
+}
+```
+
+### 7. 排序
+
+```json
+{
+  "tool": "sort_rows",
+  "args": {
+    "path": "tests/fixtures/group-sales.xlsx",
+    "sheet": "Sales",
+    "casts": [
+      {
+        "column": "sales",
+        "target_type": "int64"
+      }
+    ],
+    "sorts": [
+      {
+        "column": "sales",
+        "descending": true
+      }
+    ],
+    "limit": 10
+  }
+}
+```
+
+### 8. 前 N 行
+
+```json
+{
+  "tool": "top_n",
+  "args": {
+    "path": "tests/fixtures/group-sales.xlsx",
+    "sheet": "Sales",
+    "casts": [
+      {
+        "column": "sales",
+        "target_type": "int64"
+      }
+    ],
+    "sorts": [
+      {
+        "column": "sales",
+        "descending": true
+      }
+    ],
+    "n": 5
+  }
+}
+```
+
+## 双表模板
+
+### 1. 双表工作流判断
+
+```json
+{
+  "tool": "suggest_table_workflow",
+  "args": {
+    "left": {
+      "path": "tests/fixtures/join-customers.xlsx",
+      "sheet": "Customers"
+    },
+    "right": {
+      "path": "tests/fixtures/join-orders.xlsx",
+      "sheet": "Orders"
+    },
+    "max_link_candidates": 3
+  }
+}
+```
+
+### 2. 显性关联候选
+
+```json
+{
+  "tool": "suggest_table_links",
+  "args": {
+    "left": {
+      "path": "tests/fixtures/join-customers.xlsx",
+      "sheet": "Customers"
+    },
+    "right": {
+      "path": "tests/fixtures/join-orders.xlsx",
+      "sheet": "Orders"
+    },
+    "max_candidates": 3
+  }
+}
+```
+
+### 3. 结构相同表追加
+
+```json
+{
+  "tool": "append_tables",
+  "args": {
+    "top": {
+      "path": "tests/fixtures/append-sales-a.xlsx",
+      "sheet": "Sales"
+    },
+    "bottom": {
+      "path": "tests/fixtures/append-sales-b.xlsx",
+      "sheet": "Sales"
+    },
+    "limit": 10
+  }
+}
+```
+
+### 4. 显性关联执行
+
+```json
+{
+  "tool": "join_tables",
+  "args": {
+    "left": {
+      "path": "tests/fixtures/join-customers.xlsx",
+      "sheet": "Customers"
+    },
+    "right": {
+      "path": "tests/fixtures/join-orders.xlsx",
+      "sheet": "Orders"
+    },
+    "left_on": "user_id",
+    "right_on": "user_id",
+    "keep_mode": "matched_only"
+  }
+}
+```
+
+## 多表模板
+
+### 1. 多表顺序计划
+
+```json
+{
+  "tool": "suggest_multi_table_plan",
+  "args": {
+    "tables": [
+      {
+        "path": "tests/fixtures/join-customers.xlsx",
+        "sheet": "Customers",
+        "alias": "customers"
+      },
+      {
+        "path": "tests/fixtures/append-sales-a.xlsx",
+        "sheet": "Sales",
+        "alias": "sales_a"
+      },
+      {
+        "path": "tests/fixtures/append-sales-b.xlsx",
+        "sheet": "Sales",
+        "alias": "sales_b"
+      }
+    ],
+    "max_link_candidates": 3
+  }
+}
+```
+
+### 2. 多表第一步是追加时
+
+如果计划第一步返回的是 `append_tables`，只执行第一步：
+
+```json
+{
+  "tool": "append_tables",
+  "args": {
+    "top": {
+      "path": "tests/fixtures/append-sales-a.xlsx",
+      "sheet": "Sales"
+    },
+    "bottom": {
+      "path": "tests/fixtures/append-sales-b.xlsx",
+      "sheet": "Sales"
+    },
+    "limit": 10
+  }
+}
+```
+
+### 3. 多表第一步是关联时
+
+如果计划第一步返回的是 `join_tables`，只执行第一步：
+
+```json
+{
+  "tool": "join_tables",
+  "args": {
+    "left": {
+      "path": "tests/fixtures/join-customers.xlsx",
+      "sheet": "Customers"
+    },
+    "right": {
+      "path": "tests/fixtures/join-orders.xlsx",
+      "sheet": "Orders"
+    },
+    "left_on": "user_id",
+    "right_on": "user_id",
+    "keep_mode": "matched_only"
+  }
+}
+```
+
+## 当前不允许伪造的模板
+
+下面这些当前不要在 Skill 里伪造：
+
+- `result_ref` 作为 `append_tables.top`
+- `result_ref` 作为 `append_tables.bottom`
+- `result_ref` 作为 `join_tables.left`
+- `result_ref` 作为 `join_tables.right`
+
+原因：
+
+- 当前 `dispatcher` 里的 `append_tables` 和 `join_tables` 仍只接受 `path` + `sheet` 输入
+- `step_n_result` 当前主要用于计划解释，不是已经落地的跨请求执行引用
+
+## 2026-03-23 兼容补充
+- 如果 `open_workbook` 或 `list_sheets` 已返回 `file_ref` 与 `sheets`，后续请求优先使用 `file_ref + sheet_index`。
+- 面向用户时统一问“请确认是第几个 Sheet”，不要要求用户重复输入中文 Sheet 名。
+- 如果需要复制到 ASCII 临时路径，必须先征求用户确认，不能默认直接复制。

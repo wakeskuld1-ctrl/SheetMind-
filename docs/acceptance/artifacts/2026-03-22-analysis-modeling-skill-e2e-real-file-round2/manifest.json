@@ -1,0 +1,50 @@
+{
+  "workbook_path": "D:\\Excel测试\\新疆客户\\2026文旅体台账.xlsx",
+  "sheet": "旅责险",
+  "table_ref": "table_35252_1774146114818448900",
+  "selected_columns": [
+    "column_23",
+    "column_25",
+    "column_26"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "name": "open_workbook",
+      "status": "ok"
+    },
+    {
+      "step": 2,
+      "name": "apply_header_schema_lvz",
+      "status": "ok"
+    },
+    {
+      "step": 3,
+      "name": "stat_summary_by_table_ref",
+      "status": "ok"
+    },
+    {
+      "step": 4,
+      "name": "analyze_by_table_ref",
+      "status": "ok"
+    },
+    {
+      "step": 5,
+      "name": "cluster_by_table_ref",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 6,
+      "name": "linear_by_table_ref",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 7,
+      "name": "logistic_by_table_ref",
+      "status": "error",
+      "error": "目标列 `column_10` 只有一个类别，暂时不能做逻辑回归"
+    }
+  ]
+}

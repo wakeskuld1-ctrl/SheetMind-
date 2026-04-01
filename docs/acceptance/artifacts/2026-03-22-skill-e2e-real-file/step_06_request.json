@@ -1,0 +1,7 @@
+{
+  "tool": "normalize_table",
+  "args": {
+    "path": "D:\\Excel测试\\新疆客户\\2026文旅体台账.xlsx",
+    "sheet": "咨询费"
+  }
+}

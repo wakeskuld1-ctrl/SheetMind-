@@ -1,0 +1,60 @@
+{
+  "workbook_path": "D:\\Excel测试\\新疆客户\\2026文旅体台账.xlsx",
+  "sheet": "旅责险",
+  "table_ref": "table_19696_1774147924673065800",
+  "selected_columns": [
+    "column_23",
+    "column_25",
+    "column_26"
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "name": "step_01_open_workbook",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 2,
+      "name": "step_02_apply_header_schema_lvz",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 3,
+      "name": "step_03_analyze_by_table_ref",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 4,
+      "name": "step_04_stat_summary_by_table_ref",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 5,
+      "name": "step_05_decision_assistant_by_table_ref",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 6,
+      "name": "step_06_cluster_by_table_ref",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 7,
+      "name": "step_07_linear_by_table_ref",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 8,
+      "name": "step_08_logistic_by_table_ref",
+      "status": "error",
+      "error": "目标列 `column_10` 只有一个类别，暂时不能做逻辑回归；建议先看目标列分布，确认是否选错目标列，或更换为真正的二分类目标列后再试"
+    }
+  ]
+}

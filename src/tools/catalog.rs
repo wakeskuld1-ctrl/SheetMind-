@@ -1,0 +1,158 @@
+pub const FOUNDATION_TOOL_NAMES: &[&str] = &[
+    "license_activate",
+    "license_status",
+    "license_deactivate",
+    "open_workbook",
+    "list_sheets",
+    "inspect_sheet_range",
+    "load_table_region",
+    "normalize_table",
+    "apply_header_schema",
+    "get_session_state",
+    "update_session_state",
+    "preview_table",
+    "select_columns",
+    "normalize_text_columns",
+    "rename_columns",
+    "fill_missing_values",
+    "distinct_rows",
+    "deduplicate_by_key",
+    "format_table_for_export",
+    "fill_missing_from_lookup",
+    "parse_datetime_columns",
+    "lookup_values",
+    "window_calculation",
+    "filter_rows",
+    "cast_column_types",
+    "derive_columns",
+    "group_and_aggregate",
+    "pivot_table",
+    "sort_rows",
+    "top_n",
+    "compose_workbook",
+    "report_delivery",
+    "build_chart",
+    "export_chart_image",
+    "export_csv",
+    "export_excel",
+    "export_excel_workbook",
+    "join_tables",
+    "suggest_table_links",
+    "suggest_table_workflow",
+    "suggest_multi_table_plan",
+    "append_tables",
+    "summarize_table",
+    "analyze_table",
+    "stat_summary",
+    "correlation_analysis",
+    "outlier_detection",
+    "distribution_analysis",
+    "trend_analysis",
+    "diagnostics_report_excel_report",
+    "diagnostics_report",
+    "capacity_assessment",
+    "capacity_assessment_from_inventory",
+    "ssh_inventory",
+    "capacity_assessment_excel_report",
+    "linear_regression",
+    "logistic_regression",
+    "cluster_kmeans",
+    "decision_assistant",
+];
+
+pub const STOCK_TOOL_NAMES: &[&str] = &[
+    // 2026-03-31 CST: 这里把股票能力从通用目录中独立分组，原因是用户已经明确要求底座能力与股票业务域隔离。
+    // 目的：让 catalog 在保持平铺兼容输出的同时，也能明确告诉调用方这些能力属于 stock 模块。
+    "technical_consultation_basic",
+    "security_analysis_contextual",
+    "security_analysis_fullstack",
+    "import_stock_price_history",
+    "sync_stock_price_history",
+];
+
+pub const TOOL_NAMES: &[&str] = &[
+    "license_activate",
+    "license_status",
+    "license_deactivate",
+    "open_workbook",
+    "list_sheets",
+    "inspect_sheet_range",
+    "load_table_region",
+    "normalize_table",
+    "apply_header_schema",
+    "get_session_state",
+    "update_session_state",
+    "preview_table",
+    "select_columns",
+    "normalize_text_columns",
+    "rename_columns",
+    "fill_missing_values",
+    "distinct_rows",
+    "deduplicate_by_key",
+    "format_table_for_export",
+    "fill_missing_from_lookup",
+    "parse_datetime_columns",
+    "lookup_values",
+    "window_calculation",
+    "filter_rows",
+    "cast_column_types",
+    "derive_columns",
+    "group_and_aggregate",
+    "pivot_table",
+    "sort_rows",
+    "top_n",
+    "compose_workbook",
+    "report_delivery",
+    "build_chart",
+    "export_chart_image",
+    "export_csv",
+    "export_excel",
+    "export_excel_workbook",
+    "join_tables",
+    "suggest_table_links",
+    "suggest_table_workflow",
+    "suggest_multi_table_plan",
+    "append_tables",
+    "summarize_table",
+    "analyze_table",
+    "stat_summary",
+    "correlation_analysis",
+    "outlier_detection",
+    "distribution_analysis",
+    "trend_analysis",
+    "technical_consultation_basic",
+    "security_analysis_contextual",
+    "security_analysis_fullstack",
+    "import_stock_price_history",
+    "sync_stock_price_history",
+    "diagnostics_report_excel_report",
+    "diagnostics_report",
+    "capacity_assessment",
+    "capacity_assessment_from_inventory",
+    "ssh_inventory",
+    "capacity_assessment_excel_report",
+    "linear_regression",
+    "logistic_regression",
+    "cluster_kmeans",
+    "decision_assistant",
+];
+
+pub fn tool_names() -> &'static [&'static str] {
+    TOOL_NAMES
+}
+
+pub fn foundation_tool_names() -> &'static [&'static str] {
+    FOUNDATION_TOOL_NAMES
+}
+
+pub fn stock_tool_names() -> &'static [&'static str] {
+    STOCK_TOOL_NAMES
+}
+
+pub fn is_supported_tool(tool_name: &str) -> bool {
+    TOOL_NAMES.contains(&tool_name)
+}
+
+pub fn is_stock_tool(tool_name: &str) -> bool {
+    STOCK_TOOL_NAMES.contains(&tool_name)
+}

@@ -1,0 +1,45 @@
+﻿[package]
+name = "excel_skill"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+# 2026-03-31 CST: 这里把 GUI 依赖收口到可选 feature，原因是当前产品默认主线并不需要桌面 GUI 参与 CLI / Tool / Skill 构建；
+# 目的：让默认编译链先回到纯 Rust / EXE / SQLite 主线，避免股票和命令行测试继续被 GUI 系统依赖拖入链接阶段。
+gui = ["dep:eframe", "dep:egui_extras", "dep:rfd"]
+
+[dependencies]
+encoding_rs = "0.8"
+calamine = "0.31"
+chrono = "0.4"
+polars = { version = "0.51", default-features = false, features = ["dtype-date", "dtype-datetime"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+rusqlite = { version = "0.37", features = ["bundled"] }
+rust_xlsxwriter = "0.89"
+ureq = "2"
+# 2026-03-29 CST: 这里增加 eframe 依赖，原因是首发桌面 GUI 方案已确定为 Rust 原生 GUI 壳；
+# 目的：为 `sheetmind_app` 提供窗口运行时，同时不改动现有 CLI 主链。
+# 2026-03-31 CST: 这里把 GUI 运行时依赖改成 optional，原因是默认产品主线不再把桌面壳混入 CLI / Tool / 股票测试；
+# 目的：只有显式开启 `gui` feature 时才参与编译，避免默认构建链继续背上 GUI 链接负担。
+eframe = { version = "0.34.1", default-features = true, optional = true }
+# 2026-03-29 CST: 这里增加 egui_extras 依赖，原因是后续表格预览和布局容器需要 GUI 扩展组件；
+# 目的：为 GUI 层的数据预览与紧凑布局提供官方扩展能力。
+egui_extras = { version = "0.34.1", optional = true }
+# 2026-03-29 CST: 这里增加 rfd 依赖，原因是桌面 GUI 首版需要原生文件选择器；
+# 目的：为“打开 Excel 文件”主路径预留标准文件对话框能力。
+rfd = { version = "0.17.2", optional = true }
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+zip = "2"
+
+[[bin]]
+name = "sheetmind_app"
+path = "src/bin/sheetmind_app.rs"
+# 2026-03-31 CST: 这里把 GUI 二进制显式挂到 `gui` feature 上，原因是桌面壳不应混入默认主线构建；
+# 目的：让默认 `cargo test` 和 CLI 验证只覆盖主业务链，只有显式开启 GUI 时才编译桌面入口。
+required-features = ["gui"]

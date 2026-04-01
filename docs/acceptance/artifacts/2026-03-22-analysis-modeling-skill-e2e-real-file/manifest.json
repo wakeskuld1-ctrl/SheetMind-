@@ -1,0 +1,79 @@
+{
+  "workbook_path": "D:\\Excel测试\\新疆客户\\2026文旅体台账.xlsx",
+  "sheet_lvz": "旅责险",
+  "sheet_zbzx": "总部分入-线上",
+  "sheet_zxf": "咨询费",
+  "selected_columns": {
+    "feature_a": "保险金额（人民币）",
+    "feature_b": "总保费（人民币）",
+    "feature_c": "保费",
+    "target_numeric": "价税合计",
+    "target_binary": "是否全面营销"
+  },
+  "steps": [
+    {
+      "step": 1,
+      "name": "open_workbook",
+      "request_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_01_open_workbook_request.json",
+      "response_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_01_open_workbook_response.json",
+      "status": "ok",
+      "error": null
+    },
+    {
+      "step": 2,
+      "name": "analyze_lvz",
+      "request_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_02_analyze_lvz_request.json",
+      "response_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_02_analyze_lvz_response.json",
+      "status": "needs_confirmation",
+      "error": null
+    },
+    {
+      "step": 3,
+      "name": "stat_summary_lvz",
+      "request_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_03_stat_summary_lvz_request.json",
+      "response_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_03_stat_summary_lvz_response.json",
+      "status": "needs_confirmation",
+      "error": null
+    },
+    {
+      "step": 4,
+      "name": "analyze_zbzx",
+      "request_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_04_analyze_zbzx_request.json",
+      "response_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_04_analyze_zbzx_response.json",
+      "status": "needs_confirmation",
+      "error": null
+    },
+    {
+      "step": 5,
+      "name": "analyze_zxf",
+      "request_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_05_analyze_zxf_request.json",
+      "response_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_05_analyze_zxf_response.json",
+      "status": "error",
+      "error": "????????????"
+    },
+    {
+      "step": 6,
+      "name": "linear_regression_lvz",
+      "request_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_06_linear_regression_lvz_request.json",
+      "response_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_06_linear_regression_lvz_response.json",
+      "status": "needs_confirmation",
+      "error": null
+    },
+    {
+      "step": 7,
+      "name": "logistic_regression_lvz",
+      "request_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_07_logistic_regression_lvz_request.json",
+      "response_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_07_logistic_regression_lvz_response.json",
+      "status": "needs_confirmation",
+      "error": null
+    },
+    {
+      "step": 8,
+      "name": "cluster_kmeans_lvz",
+      "request_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_08_cluster_kmeans_lvz_request.json",
+      "response_file": "D:\\Rust\\Excel_Skill\\docs\\acceptance\\artifacts\\2026-03-22-analysis-modeling-skill-e2e-real-file\\step_08_cluster_kmeans_lvz_response.json",
+      "status": "needs_confirmation",
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,80 @@
+{
+  "status": "ok",
+  "data": {
+    "business_observations": [
+      {
+        "column": "column_23",
+        "message": "column_23 列的取值范围大致在 160000 到 25000000",
+        "type": "numeric_range"
+      },
+      {
+        "column": "column_25",
+        "message": "column_25 列的取值范围大致在 -4276.80 到 113483.14",
+        "type": "numeric_range"
+      },
+      {
+        "column": "column_26",
+        "message": "column_26 列的取值范围大致在 -4034.72 到 70890.82",
+        "type": "numeric_range"
+      },
+      {
+        "column": "column_23",
+        "message": "column_23 列的平均值约为 3876122.18",
+        "type": "numeric_center"
+      },
+      {
+        "column": "column_25",
+        "message": "column_25 列的平均值约为 8909.59",
+        "type": "numeric_center"
+      }
+    ],
+    "column_count": 3,
+    "human_summary": {
+      "major_issues": [
+        "column_23 列疑似存在异常值",
+        "column_25 列疑似存在异常值",
+        "column_26 列疑似存在异常值"
+      ],
+      "overall": "这张表可以继续分析，但建议先处理几个明显的数据风险。",
+      "quick_insights": [
+        "column_23 列的取值范围大致在 160000 到 25000000",
+        "column_23 列的平均值约为 3876122.18"
+      ],
+      "recommended_next_step": "建议先核查分布异常和极端值，再决定是否直接用于统计或建模。"
+    },
+    "next_actions": [
+      "建议先核查分布异常和极端值，再决定是否直接用于统计或建模。"
+    ],
+    "row_count": 683,
+    "structured_findings": [
+      {
+        "code": "outlier_suspected",
+        "column": "column_23",
+        "message": "column_23 列疑似存在异常值",
+        "scope": "column",
+        "severity": "medium",
+        "suggestion": "建议先核查极端值来源，再决定是否直接用于统计或建模。"
+      },
+      {
+        "code": "outlier_suspected",
+        "column": "column_25",
+        "message": "column_25 列疑似存在异常值",
+        "scope": "column",
+        "severity": "medium",
+        "suggestion": "建议先核查极端值来源，再决定是否直接用于统计或建模。"
+      },
+      {
+        "code": "outlier_suspected",
+        "column": "column_26",
+        "message": "column_26 列疑似存在异常值",
+        "scope": "column",
+        "severity": "medium",
+        "suggestion": "建议先核查极端值来源，再决定是否直接用于统计或建模。"
+      }
+    ],
+    "table_health": {
+      "level": "warning",
+      "score": 0.7
+    }
+  }
+}

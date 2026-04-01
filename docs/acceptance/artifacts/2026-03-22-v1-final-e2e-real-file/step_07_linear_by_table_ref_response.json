@@ -1,0 +1,65 @@
+{
+  "status": "ok",
+  "data": {
+    "assumptions": [
+      "当前模型只支持数值型特征列和数值型目标列",
+      "当前结果反映线性相关关系，不等于因果关系",
+      "当前模型已包含截距项",
+      "遇到缺失值时，当前模型会直接跳过整行样本"
+    ],
+    "coefficients": [
+      {
+        "feature": "column_23",
+        "value": 3.213823564912621e-11
+      },
+      {
+        "feature": "column_25",
+        "value": -9.744904883035588e-10
+      },
+      {
+        "feature": "column_26",
+        "value": 1.0599999769663706
+      }
+    ],
+    "data_summary": {
+      "dropped_rows": 0,
+      "feature_count": 3,
+      "intercept_enabled": true,
+      "missing_strategy": "drop_rows",
+      "row_count_used": 683
+    },
+    "dropped_rows": 0,
+    "features": [
+      "column_23",
+      "column_25",
+      "column_26"
+    ],
+    "human_summary": {
+      "key_points": [
+        "本次建模使用了 683 行有效样本",
+        "对 `column_28` 影响最明显的特征列是 `column_26`",
+        "当前模型的 R2 为 1.0000"
+      ],
+      "overall": "系统已基于 683 行有效样本完成线性回归，当前模型对 `column_28` 的拟合度为 1.0000。",
+      "recommended_next_step": "建议继续结合业务含义检查主要系数方向是否符合预期。"
+    },
+    "intercept": -4.065719258505851e-05,
+    "model_kind": "linear_regression",
+    "problem_type": "regression",
+    "quality_summary": {
+      "primary_metric": {
+        "name": "r2",
+        "value": 0.9999999999997927
+      },
+      "secondary_metrics": [
+        {
+          "name": "intercept",
+          "value": -4.065719258505851e-05
+        }
+      ]
+    },
+    "r2": 0.9999999999997927,
+    "row_count_used": 683,
+    "target": "column_28"
+  }
+}

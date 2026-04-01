@@ -1,0 +1,28 @@
+{
+  "tool": "logistic_regression",
+  "args": {
+    "table_ref": "table_19696_1774147924673065800",
+    "features": [
+      "column_23",
+      "column_25",
+      "column_26"
+    ],
+    "target": "column_10",
+    "positive_label": "?",
+    "casts": [
+      {
+        "column": "column_23",
+        "target_type": "float64"
+      },
+      {
+        "column": "column_25",
+        "target_type": "float64"
+      },
+      {
+        "column": "column_26",
+        "target_type": "float64"
+      }
+    ],
+    "missing_strategy": "drop_rows"
+  }
+}
