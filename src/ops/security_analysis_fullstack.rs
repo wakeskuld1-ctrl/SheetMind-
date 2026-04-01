@@ -3,8 +3,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::ops::stock::security_analysis_contextual::{
-    SecurityAnalysisContextualError, SecurityAnalysisContextualRequest,
-    SecurityAnalysisContextualResult, security_analysis_contextual,
+    security_analysis_contextual, SecurityAnalysisContextualError,
+    SecurityAnalysisContextualRequest, SecurityAnalysisContextualResult,
 };
 
 const DEFAULT_DISCLOSURE_LIMIT: usize = 8;

@@ -59,5 +59,23 @@ pub use foundation::window;
 pub use stock::import_stock_price_history;
 pub use stock::security_analysis_contextual;
 pub use stock::security_analysis_fullstack;
+pub use stock::security_decision_card;
+pub use stock::security_decision_approval_bridge;
+pub use stock::security_decision_approval_brief;
+pub use stock::security_approval_brief_signature;
+// 2026-04-02 CST: 这里导出证券审批包能力，原因是外层仍通过 `crate::ops::...` 兼容访问股票链路；
+// 目的：不要求调用方立刻改路径，也能使用新的 decision package 构造能力。
+pub use stock::security_decision_package;
+// 2026-04-02 CST: 这里导出证券审批包版本化能力，原因是外层调用方仍通过 `crate::ops::...` 兼容访问股票链路；
+// 目的：让新的 revision Tool 不要求调用方立刻改模块路径，也能沿现有入口被消费。
+pub use stock::security_decision_package_revision;
+pub use stock::security_decision_committee;
+pub use stock::security_decision_evidence_bundle;
+pub use stock::security_decision_submit_approval;
+// 2026-04-02 CST: 这里导出证券审批包校验能力，原因是外层调用方仍通过 `crate::ops::...` 兼容访问股票链路；
+// 目的：让新的 verify Tool 不要求调用方立刻改模块路径，也能沿现有入口被消费。
+pub use stock::security_decision_verify_package;
+pub use stock::security_position_plan;
+pub use stock::security_risk_gates;
 pub use stock::sync_stock_price_history;
 pub use stock::technical_consultation_basic;

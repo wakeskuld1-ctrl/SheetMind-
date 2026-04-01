@@ -1,19 +1,34 @@
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::ops::stock::import_stock_price_history::{
-    ImportStockPriceHistoryRequest, import_stock_price_history,
+    import_stock_price_history, ImportStockPriceHistoryRequest,
 };
 use crate::ops::stock::security_analysis_contextual::{
-    SecurityAnalysisContextualRequest, security_analysis_contextual,
+    security_analysis_contextual, SecurityAnalysisContextualRequest,
 };
 use crate::ops::stock::security_analysis_fullstack::{
-    SecurityAnalysisFullstackRequest, security_analysis_fullstack,
+    security_analysis_fullstack, SecurityAnalysisFullstackRequest,
+};
+use crate::ops::stock::security_decision_committee::{
+    security_decision_committee, SecurityDecisionCommitteeRequest,
+};
+use crate::ops::stock::security_decision_evidence_bundle::{
+    security_decision_evidence_bundle, SecurityDecisionEvidenceBundleRequest,
+};
+use crate::ops::stock::security_decision_submit_approval::{
+    security_decision_submit_approval, SecurityDecisionSubmitApprovalRequest,
+};
+use crate::ops::stock::security_decision_package_revision::{
+    security_decision_package_revision, SecurityDecisionPackageRevisionRequest,
+};
+use crate::ops::stock::security_decision_verify_package::{
+    security_decision_verify_package, SecurityDecisionVerifyPackageRequest,
 };
 use crate::ops::stock::sync_stock_price_history::{
-    SyncStockPriceHistoryRequest, sync_stock_price_history,
+    sync_stock_price_history, SyncStockPriceHistoryRequest,
 };
 use crate::ops::stock::technical_consultation_basic::{
-    TechnicalConsultationBasicRequest, technical_consultation_basic,
+    technical_consultation_basic, TechnicalConsultationBasicRequest,
 };
 use crate::tools::contracts::ToolResponse;
 
@@ -82,6 +97,76 @@ pub(super) fn dispatch_security_analysis_fullstack(args: Value) -> ToolResponse 
     };
 
     match security_analysis_fullstack(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_decision_evidence_bundle(args: Value) -> ToolResponse {
+    // 2026-04-01 CST: 这里新增证券投决证据包 dispatcher 入口，原因是方案 B 先要把研究链结果冻结成统一证据对象；
+    // 目的：让 CLI / Skill / 后续审批层都能稳定调起“同源证据冻结”，而不是重复手工拼接 fullstack 返回。
+    let request = match serde_json::from_value::<SecurityDecisionEvidenceBundleRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_decision_evidence_bundle(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_decision_committee(args: Value) -> ToolResponse {
+    // 2026-04-01 CST: 这里新增证券投决会 dispatcher 入口，原因是顶层产品需要一个单次请求完成“证据 -> 正反方 -> 闸门 -> 裁决”的总入口；
+    // 目的：把研究结论升级成结构化投决结果，并为对话式 Skill 提供稳定的主调用点。
+    let request = match serde_json::from_value::<SecurityDecisionCommitteeRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_decision_committee(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_decision_submit_approval(args: Value) -> ToolResponse {
+    // 2026-04-02 CST: 这里新增证券审批提交 dispatcher 入口，原因是 P0-1 要让证券投决结果正式进入审批主线；
+    // 目的：把 “committee -> approval objects -> runtime files” 收口成一个稳定 Tool，而不是外层分散拼接。
+    let request = match serde_json::from_value::<SecurityDecisionSubmitApprovalRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_decision_submit_approval(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_decision_verify_package(args: Value) -> ToolResponse {
+    // 2026-04-02 CST: 这里新增证券审批包校验 dispatcher 入口，原因是正式 decision package 已经生成，需要一个主链可调用的核验 Tool；
+    // 目的：把 “读取 package -> 校验工件/哈希/签名/治理绑定 -> 返回 verification report” 收口成稳定产品入口。
+    let request = match serde_json::from_value::<SecurityDecisionVerifyPackageRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_decision_verify_package(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_decision_package_revision(args: Value) -> ToolResponse {
+    // 2026-04-02 CST: 这里新增证券审批包版本化 dispatcher 入口，原因是 decision package 需要随着审批动作生成新版本；
+    // 目的：把 “读取旧 package -> 重建 manifest -> 生成 v2 package -> 可选重跑 verify” 收口成正式主链 Tool。
+    let request = match serde_json::from_value::<SecurityDecisionPackageRevisionRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_decision_package_revision(&request) {
         Ok(result) => ToolResponse::ok(json!(result)),
         Err(error) => ToolResponse::error(error.to_string()),
     }

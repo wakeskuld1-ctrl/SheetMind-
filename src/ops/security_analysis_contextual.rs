@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::ops::stock::technical_consultation_basic::{
-    TechnicalConsultationBasicError, TechnicalConsultationBasicRequest,
-    TechnicalConsultationBasicResult, technical_consultation_basic,
+    technical_consultation_basic, TechnicalConsultationBasicError,
+    TechnicalConsultationBasicRequest, TechnicalConsultationBasicResult,
 };
 
 const DEFAULT_LOOKBACK_DAYS: usize = 260;
@@ -187,9 +187,7 @@ fn build_contextual_conclusion(
                 ),
                 "当前更适合把环境强弱视为观察背景，而不是直接替代个股确认信号".to_string(),
             ],
-            risk_flags: vec![
-                "个股自身尚未完成方向确认，贸然追随环境可能放大假突破风险".to_string(),
-            ],
+            risk_flags: vec!["个股自身尚未完成方向确认，贸然追随环境可能放大假突破风险".to_string()],
         };
     }
 

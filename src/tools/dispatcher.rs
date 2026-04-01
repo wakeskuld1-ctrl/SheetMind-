@@ -3,17 +3,17 @@ use std::fs;
 use std::path::Path;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::domain::handles::TableHandle;
-use crate::domain::schema::{ConfidenceLevel, HeaderInference, infer_schema_state_label};
+use crate::domain::schema::{infer_schema_state_label, ConfidenceLevel, HeaderInference};
 use crate::excel::header_inference::infer_header_schema;
 use crate::excel::reader::{list_sheets, open_workbook};
 use crate::excel::sheet_range::inspect_sheet_range;
 use crate::frame::chart_ref_store::{
     ChartDraftStore, PersistedChartDraft, PersistedChartSeriesSpec, PersistedChartType,
 };
-use crate::frame::loader::{LoadedTable, load_confirmed_table, load_table_from_table_ref};
+use crate::frame::loader::{load_confirmed_table, load_table_from_table_ref, LoadedTable};
 use crate::frame::region_loader::load_table_region;
 use crate::frame::result_ref_store::{PersistedResultDataset, ResultRefStore};
 use crate::frame::source_file_ref_store::{PersistedSourceFileRef, SourceFileRefStore};
@@ -25,47 +25,47 @@ use crate::frame::workbook_ref_store::{
 };
 use crate::ops::analyze::analyze_table;
 use crate::ops::append::append_tables;
-use crate::ops::cast::{CastColumnSpec, cast_column_types, summarize_column_types};
+use crate::ops::cast::{cast_column_types, summarize_column_types, CastColumnSpec};
 use crate::ops::chart_svg::render_chart_svg;
 use crate::ops::cluster_kmeans::cluster_kmeans;
 use crate::ops::correlation_analysis::correlation_analysis;
 use crate::ops::decision_assistant::decision_assistant;
-use crate::ops::deduplicate_by_key::{DeduplicateKeep, OrderSpec, deduplicate_by_key};
-use crate::ops::derive::{DerivationSpec, derive_columns};
-use crate::ops::distinct_rows::{DistinctKeep, distinct_rows};
+use crate::ops::deduplicate_by_key::{deduplicate_by_key, DeduplicateKeep, OrderSpec};
+use crate::ops::derive::{derive_columns, DerivationSpec};
+use crate::ops::distinct_rows::{distinct_rows, DistinctKeep};
 use crate::ops::distribution_analysis::distribution_analysis;
 use crate::ops::export::{export_csv, export_excel, export_excel_workbook};
-use crate::ops::fill_lookup::{FillLookupRule, fill_missing_from_lookup_by_keys};
-use crate::ops::fill_missing_values::{FillMissingRule, fill_missing_values};
-use crate::ops::filter::{FilterCondition, filter_rows};
-use crate::ops::format_table_for_export::{ExportFormatOptions, format_table_for_export};
-use crate::ops::group::{AggregationSpec, group_and_aggregate};
-use crate::ops::join::{JoinKeepMode, join_tables};
+use crate::ops::fill_lookup::{fill_missing_from_lookup_by_keys, FillLookupRule};
+use crate::ops::fill_missing_values::{fill_missing_values, FillMissingRule};
+use crate::ops::filter::{filter_rows, FilterCondition};
+use crate::ops::format_table_for_export::{format_table_for_export, ExportFormatOptions};
+use crate::ops::group::{group_and_aggregate, AggregationSpec};
+use crate::ops::join::{join_tables, JoinKeepMode};
 use crate::ops::linear_regression::linear_regression;
 use crate::ops::logistic_regression::logistic_regression;
-use crate::ops::lookup_values::{LookupSelect, lookup_values_by_keys};
+use crate::ops::lookup_values::{lookup_values_by_keys, LookupSelect};
 use crate::ops::model_prep::MissingStrategy;
 use crate::ops::multi_table_plan::suggest_multi_table_plan;
-use crate::ops::normalize_text::{NormalizeTextRule, normalize_text_columns};
-use crate::ops::outlier_detection::{OutlierDetectionMethod, outlier_detection};
-use crate::ops::parse_datetime::{ParseDateTimeRule, parse_datetime_columns};
-use crate::ops::pivot::{PivotAggregation, pivot_table};
+use crate::ops::normalize_text::{normalize_text_columns, NormalizeTextRule};
+use crate::ops::outlier_detection::{outlier_detection, OutlierDetectionMethod};
+use crate::ops::parse_datetime::{parse_datetime_columns, ParseDateTimeRule};
+use crate::ops::pivot::{pivot_table, PivotAggregation};
 use crate::ops::preview::preview_table;
-use crate::ops::rename::{RenameColumnMapping, rename_columns};
+use crate::ops::rename::{rename_columns, RenameColumnMapping};
 use crate::ops::report_delivery::{
-    ReportDeliveryChart, ReportDeliveryChartSeries, ReportDeliveryChartType,
-    ReportDeliveryLegendPosition, ReportDeliveryRequest, ReportDeliverySection,
-    build_report_delivery_draft, chart_ref_to_report_delivery_chart,
+    build_report_delivery_draft, chart_ref_to_report_delivery_chart, ReportDeliveryChart,
+    ReportDeliveryChartSeries, ReportDeliveryChartType, ReportDeliveryLegendPosition,
+    ReportDeliveryRequest, ReportDeliverySection,
 };
 use crate::ops::select::select_columns;
-use crate::ops::sort::{SortSpec, sort_rows};
+use crate::ops::sort::{sort_rows, SortSpec};
 use crate::ops::stat_summary::stat_summary;
 use crate::ops::summary::summarize_table;
 use crate::ops::table_links::suggest_table_links;
 use crate::ops::table_workflow::suggest_table_workflow;
 use crate::ops::top_n::top_n_rows;
 use crate::ops::trend_analysis::trend_analysis;
-use crate::ops::window::{WindowCalculation, WindowOrderSpec, window_calculation};
+use crate::ops::window::{window_calculation, WindowCalculation, WindowOrderSpec};
 use crate::runtime::local_memory::{
     EventLogInput, LocalMemoryRuntime, SchemaStatus, SessionStage, SessionStatePatch,
 };
@@ -150,6 +150,31 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         }
         // 2026-03-31 CST: 这里把股票历史导入 Tool 切到 stock dispatcher，原因是股票历史导入属于股票业务域而不是通用分析域。
         // 目的：把 “CSV -> SQLite” 明确收口到 stock 模块，和 foundation 底座入口隔离开。
+        // 2026-04-01 CST: 这里接入证券投决证据包 Tool，原因是方案 B 需要先把研究链冻结成统一 evidence bundle；
+        // 目的：让 CLI / Skill 在单次对话里也能确保正反方共享同源证据，而不是各自直接读取研究 Tool。
+        "security_decision_evidence_bundle" => {
+            stock_ops::dispatch_security_decision_evidence_bundle(request.args)
+        }
+        // 2026-04-01 CST: 这里接入证券投决会总入口 Tool，原因是用户已经明确要求研究链上面补一个双立场投决层；
+        // 目的：正式暴露“证据冻结 + 正反方 + 闸门 + 投决卡”的统一产品入口。
+        "security_decision_committee" => {
+            stock_ops::dispatch_security_decision_committee(request.args)
+        }
+        // 2026-04-02 CST: 这里接入证券审批提交总入口 Tool，原因是用户已经批准把证券投决结果正式送进审批治理主线；
+        // 目的：让 CLI / Skill 可以一次完成“投决 + 提交审批”，不再停留在单纯研究建议。
+        "security_decision_submit_approval" => {
+            stock_ops::dispatch_security_decision_submit_approval(request.args)
+        }
+        // 2026-04-02 CST: 这里接入证券审批包校验总入口 Tool，原因是用户已经批准把 decision package 从“可生成”推进到“可核验”；
+        // 目的：让 CLI / Skill 可以正式调用 package verify，而不是在外层手工读文件比哈希。
+        "security_decision_verify_package" => {
+            stock_ops::dispatch_security_decision_verify_package(request.args)
+        }
+        // 2026-04-02 CST: 这里接入证券审批包版本化总入口 Tool，原因是用户已经批准让 decision package 跟随审批动作生成新版本；
+        // 目的：让 CLI / Skill 可以正式调用 package revision，而不是在外层手工复制和重算 package。
+        "security_decision_package_revision" => {
+            stock_ops::dispatch_security_decision_package_revision(request.args)
+        }
         "import_stock_price_history" => {
             stock_ops::dispatch_import_stock_price_history(request.args)
         }

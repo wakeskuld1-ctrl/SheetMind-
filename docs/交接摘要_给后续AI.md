@@ -1,5 +1,5 @@
 # 项目交接摘要（给后续 AI）
-更新日期：2026-03-31
+更新日期：2026-04-02
 
 ## 1. 项目目标
 
@@ -367,3 +367,99 @@
 - `docs/acceptance/2026-04-01-security-analysis-contextual-v1.md`
 - `docs/acceptance/2026-04-01-security-analysis-fullstack-v1.md`
 - `CHANGELOG_TASK.MD`
+
+<!-- 2026-04-02 CST: 追加证券投前治理交接总摘要，原因是 2026-04-02 已把证券链从 analysis 扩到 committee / approval / package / verify / revision / PM Skill；目的是让下一位 AI 在总交接里也能一眼知道证券这条线已经进入投前治理阶段。 -->
+## 14. 2026-04-02 证券投前治理补充
+
+### 14.1 这轮到底推进到了哪里
+
+- 当前证券主线已经不只是：
+  - `technical_consultation_basic`
+  - `security_analysis_contextual`
+  - `security_analysis_fullstack`
+- 还新增并打通了：
+  - `security_decision_evidence_bundle`
+  - `security_decision_committee`
+  - `security_risk_gates`
+  - `security_decision_card`
+  - `security_decision_approval_bridge`
+  - `security_decision_submit_approval`
+  - `security_position_plan`
+  - `security_decision_approval_brief`
+  - `security_approval_brief_signature`
+  - `security_decision_package`
+  - `security_decision_verify_package`
+  - `security_decision_package_revision`
+  - `skills/security-pm-assistant-v1/SKILL.md`
+
+一句话：
+
+- 证券线已经形成“研究 -> 投决会 -> 审批对象 -> 仓位计划 -> 审批简报 -> decision package -> 校验 -> 修订”的投前治理闭环雏形。
+
+### 14.2 这轮已跑过的关键验证
+
+- `cargo test --test security_decision_evidence_bundle_cli`
+- `cargo test --test security_decision_committee_cli`
+- `cargo test --test security_decision_submit_approval_cli`
+- `cargo test --test security_decision_verify_package_cli`
+- `cargo test --test security_decision_package_revision_cli`
+- 组合切片：
+  - `cargo test --test security_decision_evidence_bundle_cli --test security_decision_committee_cli --test security_decision_submit_approval_cli --test security_decision_verify_package_cli --test security_decision_package_revision_cli`
+
+说明：
+
+- 上述都是当前会话里真实跑过的命令。
+- 结果是证券投前治理切片通过，不代表整仓重新全绿。
+
+### 14.3 159866 正式投研会案例要点
+
+- 案例工件：
+  - `tests/runtime_fixtures/live_committee_159866_runtime/committee_result.json`
+- 标的与仓位背景：
+  - 工银日经 ETF `159866.SZ`
+  - 用户持仓 `40%`
+  - 用户成本 `1.466`
+- 正式过会关键输出：
+  - `decision_card.status = needs_more_evidence`
+  - `direction = long`
+  - `position_size_suggestion = pilot`
+  - `confidence_score = 0.12`
+- 结论翻译：
+  - 日本方向没有被否决
+  - 但当前不支持继续把 `40%` 视为合理执行仓位
+  - 当前更接近“只能观察仓/试探仓”
+
+### 14.4 为什么 ETF 会出现“信息面不足”
+
+- 不是因为日本没有宏观信息。
+- 是因为当前 ETF 信息面仍偏股票口径：
+  - 财报层默认按个股财报抓取，ETF 不适配。
+  - 公告层默认按股票公告抓取，ETF 专用公告覆盖不足。
+- 因此像 `159866.SZ` 这种跨境 ETF 当前容易退化成：
+  - `fundamental_context = unavailable`
+  - `disclosure_context = unavailable`
+  - `integrated_conclusion = technical_only`
+
+### 14.5 下一位 AI 最先该看什么
+
+1. `docs/交接摘要_证券分析_给后续AI.md`
+2. `docs/execution-notes-2026-04-02-security-governance.md`
+3. `skills/security-pm-assistant-v1/SKILL.md`
+4. `src/ops/security_decision_committee.rs`
+5. `src/ops/security_decision_submit_approval.rs`
+6. `src/ops/security_decision_verify_package.rs`
+7. `src/ops/security_decision_package_revision.rs`
+
+### 14.6 最值得继续补的不是更多股评，而是这三件事
+
+1. ETF 专用信息面：
+   - 溢价/折价
+   - IOPV/NAV 偏离
+   - 跟踪误差
+   - ETF 专用公告
+   - 日元/日经宏观映射
+2. 决策纠错与复盘台账：
+   - 把后续修正继续绑定到 `decision_ref / approval_ref / package_path`
+3. 审批后进一步治理：
+   - package 自身签名
+   - revision 自动触发
