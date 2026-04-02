@@ -27,6 +27,14 @@ impl ToolResponse {
         }
     }
 
+    // 2026-04-02 CST: 这里补一个强类型序列化入口，原因是 security_decision_briefing 后续会引入更厚的结构化响应，不适合在每个 dispatcher 分支重复手写 `json!(result)`；
+    // 目的：让 Tool 层可以直接复用 serde 序列化结果，统一合同输出路径并减少重复样板。
+    pub fn ok_serialized<T: Serialize>(data: &T) -> Self {
+        let serialized =
+            serde_json::to_value(data).expect("tool response serialization should succeed");
+        Self::ok(serialized)
+    }
+
     pub fn needs_confirmation(data: Value) -> Self {
         Self {
             status: "needs_confirmation".to_string(),

@@ -1497,6 +1497,7 @@ dependencies = [
  "encoding_rs",
  "polars",
  "predicates",
+ "regex",
  "rfd",
  "rusqlite",
  "rust_xlsxwriter",

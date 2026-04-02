@@ -211,6 +211,92 @@ impl StockHistoryStore {
         Ok(rows)
     }
 
+    // 2026-04-02 CST: 这里补“某个快照日之后”的顺序历史读取，原因是 forward returns 回填必须拿到 snapshot 之后的未来窗口，
+    // 目的：把未来收益研究也继续收口在 stock history store，而不是在上层研究模块直接拼 SQL。
+    pub fn load_rows_after(
+        &self,
+        symbol: &str,
+        after_date: &str,
+        limit: usize,
+    ) -> Result<Vec<StockHistoryRow>, StockHistoryStoreError> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                "
+                SELECT trade_date, open, high, low, close, adj_close, volume
+                FROM stock_price_history
+                WHERE symbol = ?1
+                  AND trade_date > ?2
+                ORDER BY trade_date ASC
+                LIMIT ?3
+                ",
+            )
+            .map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?;
+
+        let mapped_rows = statement
+            .query_map(params![symbol, after_date, limit as i64], |row| {
+                Ok(StockHistoryRow {
+                    trade_date: row.get(0)?,
+                    open: row.get(1)?,
+                    high: row.get(2)?,
+                    low: row.get(3)?,
+                    close: row.get(4)?,
+                    adj_close: row.get(5)?,
+                    volume: row.get(6)?,
+                })
+            })
+            .map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?;
+
+        let mut rows = Vec::new();
+        for row in mapped_rows {
+            rows.push(row.map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?);
+        }
+        Ok(rows)
+    }
+
+    // 2026-04-02 CST: 这里补“按日期区间读取升序行情”的统一入口，原因是模板级共振因子同步需要把多个代理 symbol 对齐到同一时间窗口；
+    // 目的：继续把日期过滤和升序输出收口在 stock history store，避免上层同步逻辑重复手写 SQL 与排序规则。
+    pub fn load_rows_in_range(
+        &self,
+        symbol: &str,
+        start_date: &str,
+        end_date: &str,
+    ) -> Result<Vec<StockHistoryRow>, StockHistoryStoreError> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                "
+                SELECT trade_date, open, high, low, close, adj_close, volume
+                FROM stock_price_history
+                WHERE symbol = ?1
+                  AND trade_date >= ?2
+                  AND trade_date <= ?3
+                ORDER BY trade_date ASC
+                ",
+            )
+            .map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?;
+
+        let mapped_rows = statement
+            .query_map(params![symbol, start_date, end_date], |row| {
+                Ok(StockHistoryRow {
+                    trade_date: row.get(0)?,
+                    open: row.get(1)?,
+                    high: row.get(2)?,
+                    low: row.get(3)?,
+                    close: row.get(4)?,
+                    adj_close: row.get(5)?,
+                    volume: row.get(6)?,
+                })
+            })
+            .map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?;
+
+        let mut rows = Vec::new();
+        for row in mapped_rows {
+            rows.push(row.map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?);
+        }
+        Ok(rows)
+    }
+
     fn open_connection(&self) -> Result<Connection, StockHistoryStoreError> {
         if let Some(parent) = self.db_path.parent() {
             fs::create_dir_all(parent)

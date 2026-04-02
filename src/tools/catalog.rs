@@ -66,6 +66,23 @@ pub const STOCK_TOOL_NAMES: &[&str] = &[
     "technical_consultation_basic",
     "security_analysis_contextual",
     "security_analysis_fullstack",
+    // 2026-04-02 CST: 这里把 security_decision_briefing 接入 stock 工具目录，原因是统一 briefing 已经成为咨询与投决的共同事实入口；
+    // 目的：让 CLI、Skill 和后续 GUI 可以先发现 briefing Tool，再围绕它建立统一路由。
+    "security_decision_briefing",
+    // 2026-04-02 CST: 这里把 security_committee_vote 加进 stock 目录，原因是正式投决会已经成为 briefing 之后的标准主链，
+    // 目的：让 tool_catalog 能显式暴露“briefing -> committee vote”的连续发现路径。
+    "security_committee_vote",
+    "register_resonance_factor",
+    "append_resonance_factor_series",
+    "append_resonance_event_tags",
+    "sync_template_resonance_factors",
+    "bootstrap_resonance_template_factors",
+    "evaluate_security_resonance",
+    "security_analysis_resonance",
+    "record_security_signal_snapshot",
+    "backfill_security_signal_outcomes",
+    "study_security_signal_analogs",
+    "signal_outcome_research_summary",
     "import_stock_price_history",
     "sync_stock_price_history",
 ];
@@ -123,6 +140,23 @@ pub const TOOL_NAMES: &[&str] = &[
     "technical_consultation_basic",
     "security_analysis_contextual",
     "security_analysis_fullstack",
+    // 2026-04-02 CST: 这里把 security_decision_briefing 接入扁平总目录，原因是现有 tool_catalog 契约仍要求返回统一可发现工具列表；
+    // 目的：确保 briefing Tool 不仅存在于 stock 分组，也能在顶层目录中被外层调用方稳定发现。
+    "security_decision_briefing",
+    // 2026-04-02 CST: 这里把 security_committee_vote 补进顶层总目录，原因是 CLI/Skill 依赖统一 catalog 判断可发现性，
+    // 目的：保证新 Tool 同时出现在 stock 分组和全局工具清单里。
+    "security_committee_vote",
+    "register_resonance_factor",
+    "append_resonance_factor_series",
+    "append_resonance_event_tags",
+    "sync_template_resonance_factors",
+    "bootstrap_resonance_template_factors",
+    "evaluate_security_resonance",
+    "security_analysis_resonance",
+    "record_security_signal_snapshot",
+    "backfill_security_signal_outcomes",
+    "study_security_signal_analogs",
+    "signal_outcome_research_summary",
     "import_stock_price_history",
     "sync_stock_price_history",
     "diagnostics_report_excel_report",

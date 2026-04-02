@@ -170,6 +170,31 @@ fn cli_tool_catalog_matches_registered_tool_names() {
 }
 
 #[test]
+fn explicit_tool_catalog_request_returns_registered_tool_names() {
+    // 2026-04-02 CST: 这里补显式 `tool_catalog` 请求回归，原因是当前 catalog 既支持空输入兜底，也被新 stock Tool 测试当作正式 Tool 调用；
+    // 目的：锁住“显式请求”和“空输入兜底”返回同一份目录合同，避免后续只保住默认入口却让 dispatcher 路由悄悄漂移。
+    let output = run_cli_with_json(r#"{"tool":"tool_catalog","args":{}}"#);
+    let actual = output["data"]["tool_catalog"]
+        .as_array()
+        .expect("tool catalog should be an array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("tool name should be a string")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+
+    let expected = excel_skill::tools::catalog::tool_names()
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn tool_catalog_response_uses_registered_tool_names() {
     let response = ToolResponse::tool_catalog();
     let actual = response.data["tool_catalog"]
@@ -403,4 +428,190 @@ fn technical_consultation_basic_contract_exposes_range_wait_conclusion() {
             .filter_map(|value| value.as_str())
             .any(|text| text.contains("方向确认不足"))
     );
+}
+
+#[test]
+fn security_decision_briefing_contract_exposes_required_top_level_fields() {
+    // 2026-04-02 CST: 这里先用最小夹具锁定 security_decision_briefing 的正式对外合同，原因是本轮第一步只需要先把 briefing
+    // Tool 的字段边界钉住，再继续做 assembler 和 dispatcher；目的：避免后续实现过程中字段名漂移，导致咨询场景与投决场景拿到不同口径。
+    let serialized = json!({
+        "symbol": "600519.SH",
+        "analysis_date": "2026-04-02",
+        "summary": "结构化简报合同样例",
+        "evidence_version": "briefing-contract-v1",
+        "fundamental_brief": {
+            "headline": "财报叙事样例",
+            "profit_signal": "stable_growth"
+        },
+        "technical_brief": {
+            "consultation_conclusion": {
+                "bias": "bullish_continuation"
+            }
+        },
+        "resonance_brief": {
+            "resonance_score": 0.72,
+            "action_bias": "add_on_strength"
+        },
+        "execution_plan": {
+            "add_trigger_price": 1510.0,
+            "add_trigger_volume_ratio": 1.35,
+            "add_position_pct": 0.12,
+            "reduce_trigger_price": 1460.0,
+            "rejection_zone": "1495-1510",
+            "reduce_position_pct": 0.08,
+            "stop_loss_price": 1420.0,
+            "invalidation_price": 1398.0,
+            "watch_points": ["量价共振是否延续"],
+            "explanation": ["execution_plan 样例仅用于锁定合同字段"]
+        },
+        "committee_payload": {
+            "symbol": "600519.SH",
+            "analysis_date": "2026-04-02",
+            "recommended_action": "hold_and_confirm",
+            "confidence": "medium",
+            "key_risks": ["高位放量回撤"],
+            "minority_objection_points": ["尚未突破关键阻力"],
+            "evidence_version": "briefing-contract-v1",
+            "briefing_digest": "结构化简报摘要样例"
+        }
+    });
+
+    for field_name in [
+        "summary",
+        "fundamental_brief",
+        "technical_brief",
+        "resonance_brief",
+        "execution_plan",
+        "committee_payload",
+    ] {
+        assert!(
+            serialized.get(field_name).is_some(),
+            "security_decision_briefing should expose top-level field `{field_name}`"
+        );
+    }
+
+    for field_name in [
+        "recommended_action",
+        "confidence",
+        "key_risks",
+        "evidence_version",
+    ] {
+        assert!(
+            serialized["committee_payload"].get(field_name).is_some(),
+            "committee_payload should expose field `{field_name}`"
+        );
+    }
+}
+
+#[test]
+fn security_decision_briefing_is_cataloged() {
+    let output = run_cli_with_json("");
+    let tool_catalog = output["data"]["tool_catalog"]
+        .as_array()
+        .expect("tool_catalog should be an array")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>();
+    let stock_catalog = output["data"]["tool_catalog_modules"]["stock"]
+        .as_array()
+        .expect("stock tool catalog should be an array")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>();
+
+    // 2026-04-02 CST: 这里先锁 security_decision_briefing 的目录可见性，原因是 Task 4 的目标是把 briefing Tool 正式接入
+    // catalog / dispatcher 主链；目的：防止后续只在 ops 层存在实现，但外层 CLI / Skill 仍无法发现或路由到它。
+    assert!(
+        tool_catalog.contains(&"security_decision_briefing"),
+        "tool_catalog should include security_decision_briefing"
+    );
+    assert!(
+        stock_catalog.contains(&"security_decision_briefing"),
+        "stock tool group should include security_decision_briefing"
+    );
+}
+
+#[test]
+fn signal_outcome_platform_contract_exposes_research_tools_and_required_fields() {
+    let flat_catalog = excel_skill::tools::catalog::tool_names();
+    let stock_catalog = excel_skill::tools::catalog::stock_tool_names();
+
+    // 2026-04-02 CST：这里先锁研究平台 Tool 家族的可发现性，原因是方案C要求把“快照 -> forward returns -> analog study”
+    // 做成正式平台入口，而不是只留在内部 helper；目的：保证后续咨询、briefing 和投决会都能基于统一 Tool 主链读取研究结果。
+    for tool_name in [
+        "record_security_signal_snapshot",
+        "backfill_security_signal_outcomes",
+        "study_security_signal_analogs",
+        "signal_outcome_research_summary",
+    ] {
+        assert!(
+            flat_catalog.contains(&tool_name),
+            "tool catalog should include `{tool_name}`"
+        );
+        assert!(
+            stock_catalog.contains(&tool_name),
+            "stock tool catalog should include `{tool_name}`"
+        );
+    }
+
+    let signal_outcome_contract = json!({
+        "snapshot": {
+            "symbol": "600519.SH",
+            "snapshot_date": "2026-04-02",
+            "indicator_digest": "adx=31.2|rsi=63.4|rsrs=0.58",
+            "resonance_score": 0.73,
+            "action_bias": "hold_and_confirm"
+        },
+        "forward_returns": [
+            {
+                "horizon_days": 5,
+                "forward_return_pct": 0.042,
+                "max_drawdown_pct": -0.018
+            }
+        ],
+        "analog_summary": {
+            "sample_count": 24,
+            "win_rate": 0.625,
+            "avg_return_pct": 0.031,
+            "median_return_pct": 0.024
+        }
+    });
+
+    for field_name in [
+        "symbol",
+        "snapshot_date",
+        "indicator_digest",
+        "resonance_score",
+        "action_bias",
+    ] {
+        assert!(
+            signal_outcome_contract["snapshot"]
+                .get(field_name)
+                .is_some(),
+            "snapshot contract should expose `{field_name}`"
+        );
+    }
+
+    for field_name in ["horizon_days", "forward_return_pct", "max_drawdown_pct"] {
+        assert!(
+            signal_outcome_contract["forward_returns"][0]
+                .get(field_name)
+                .is_some(),
+            "forward return contract should expose `{field_name}`"
+        );
+    }
+
+    for field_name in [
+        "sample_count",
+        "win_rate",
+        "avg_return_pct",
+        "median_return_pct",
+    ] {
+        assert!(
+            signal_outcome_contract["analog_summary"]
+                .get(field_name)
+                .is_some(),
+            "analog summary contract should expose `{field_name}`"
+        );
+    }
 }

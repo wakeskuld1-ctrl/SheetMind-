@@ -1,3 +1,4 @@
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -8,9 +9,13 @@ use crate::ops::stock::security_analysis_contextual::{
 };
 
 const DEFAULT_DISCLOSURE_LIMIT: usize = 8;
+const DEFAULT_SINA_FINANCIAL_URL_BASE: &str =
+    "https://vip.stock.finance.sina.com.cn/corp/go.php/vFD_FinancialGuideLine";
+const DEFAULT_SINA_ANNOUNCEMENT_URL_BASE: &str =
+    "https://vip.stock.finance.sina.com.cn/corp/go.php/vCB_AllBulletin";
 
-// 2026-04-01 CST: 这里定义 fullstack 总 Tool 请求，原因是方案 1 已确定要把技术面、财报面、公告面合并成统一产品入口；
-// 目的：让上层只打一枪就拿到完整证券分析骨架，同时复用现有 market/sector proxy 配置口径而不重造轮子。
+// 2026-04-02 CST: 这里重写 fullstack 请求结构旁的说明，原因是当前证券分析主链已经从“单东财抓取”升级成“多源降级聚合”；
+// 目的：让调用方继续沿用原有入参，但底层可以透明切到东财、官方备源和新浪备源，不再把网络可达性暴露给上层。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityAnalysisFullstackRequest {
     pub symbol: String,
@@ -30,8 +35,6 @@ pub struct SecurityAnalysisFullstackRequest {
     pub disclosure_limit: usize,
 }
 
-// 2026-04-01 CST: 这里定义 fullstack 总 Tool 结果，原因是产品主链需要稳定消费“技术 + 财报 + 公告 + 行业 + 综合结论”统一合同；
-// 目的：避免 Skill / GUI / 其他 AI 继续在外层手工拼多个 Tool 返回，降低产品接线复杂度。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SecurityAnalysisFullstackResult {
     pub symbol: String,
@@ -42,8 +45,6 @@ pub struct SecurityAnalysisFullstackResult {
     pub integrated_conclusion: IntegratedConclusion,
 }
 
-// 2026-04-01 CST: 这里定义财报快照合同，原因是首版信息面先收口到“最近报告期 + 核心增长指标 + 风险提示”；
-// 目的：先交付可消费的财报层，而不是一次性把全部财务表做成重型数据仓接口。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FundamentalContext {
     pub status: String,
@@ -57,8 +58,6 @@ pub struct FundamentalContext {
     pub risk_flags: Vec<String>,
 }
 
-// 2026-04-01 CST: 这里拆独立财报指标结构，原因是首版产品最需要的是少量高价值指标，而不是整张财报明细；
-// 目的：给后续 GUI 和策略层保留稳定字段，不把 narrative 文案当成唯一数据来源。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct FundamentalMetrics {
     pub revenue: Option<f64>,
@@ -68,8 +67,6 @@ pub struct FundamentalMetrics {
     pub roe_pct: Option<f64>,
 }
 
-// 2026-04-01 CST: 这里定义公告摘要合同，原因是首版公告面重点是“最近披露了什么、有没有明显风险关键词”；
-// 目的：先把公告层做成稳定摘要入口，而不是引入大模型做自由文本总结。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DisclosureContext {
     pub status: String,
@@ -81,8 +78,6 @@ pub struct DisclosureContext {
     pub risk_flags: Vec<String>,
 }
 
-// 2026-04-01 CST: 这里定义单条公告对象，原因是产品后续需要展示时间线和点击跳转能力；
-// 目的：把最近公告列表固化成结构化数组，避免只有一段模糊摘要。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DisclosureAnnouncement {
     pub published_at: String,
@@ -91,8 +86,6 @@ pub struct DisclosureAnnouncement {
     pub category: Option<String>,
 }
 
-// 2026-04-01 CST: 这里定义行业上下文，原因是行业层首版先沿用 sector proxy 技术结论，但要给上层稳定的独立消费字段；
-// 目的：把“行业环境”从 technical_context 的深层嵌套里提炼出来，便于后续继续叠加行业景气数据。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct IndustryContext {
     pub sector_symbol: String,
@@ -102,8 +95,6 @@ pub struct IndustryContext {
     pub risk_flags: Vec<String>,
 }
 
-// 2026-04-01 CST: 这里定义总综合结论，原因是产品真正需要的是最终 stance，而不是调用方自己重新读完所有子结果再拼判断；
-// 目的：把技术面与信息面冲突/共振关系收敛成统一 headline + rationale + risk_flags。
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct IntegratedConclusion {
     pub stance: String,
@@ -112,8 +103,6 @@ pub struct IntegratedConclusion {
     pub risk_flags: Vec<String>,
 }
 
-// 2026-04-01 CST: 这里集中定义 fullstack Tool 错误，原因是方案 1 只允许技术主链失败时中断，信息面源失败必须降级；
-// 目的：清晰区分“主链不可用”和“信息面缺失但可继续返回”的产品语义。
 #[derive(Debug, Error)]
 pub enum SecurityAnalysisFullstackError {
     #[error("技术上下文分析失败: {0}")]
@@ -140,8 +129,20 @@ enum DisclosureFetchError {
     Empty,
 }
 
-// 2026-04-01 CST: 这里实现 fullstack 主入口，原因是用户已确认要把大盘、行业、财报、公告并进产品主链；
-// 目的：在不污染底层技术面 Tool 的前提下，交付一个真正可直接面向产品调用的综合证券分析入口。
+#[derive(Debug, Clone, PartialEq)]
+struct RawAnnouncement {
+    published_at: Option<String>,
+    title: String,
+    article_code: Option<String>,
+    category: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct ParsedHtmlRow {
+    html: String,
+    cells: Vec<String>,
+}
+
 pub fn security_analysis_fullstack(
     request: &SecurityAnalysisFullstackRequest,
 ) -> Result<SecurityAnalysisFullstackResult, SecurityAnalysisFullstackError> {
@@ -182,10 +183,63 @@ pub fn security_analysis_fullstack(
     })
 }
 
-// 2026-04-01 CST: 这里抓取财报快照，原因是首版财报面不做本地持久化，先把免费公开源聚合到总 Tool；
-// 目的：先交付“最新报告期核心指标”能力，后续再决定是否沉淀到 SQLite。
+// 2026-04-02 CST: 这里把财报抓取改成三层 provider 链，原因是用户现场已经确认东财在本机网络下会稳定 TLS 失败；
+// 目的：先走东财主源，再尝试可插拔官方源，最后退到新浪公开页，尽量把 technical_only 缩到真正全链路都失效时。
 fn fetch_fundamental_context(symbol: &str) -> Result<FundamentalContext, FundamentalFetchError> {
-    let url = build_financial_url(symbol);
+    let mut attempt_errors = Vec::new();
+
+    match fetch_fundamental_from_eastmoney(symbol) {
+        Ok(context) => return Ok(context),
+        Err(error) => attempt_errors.push(format!("eastmoney_financials: {error}")),
+    }
+
+    if let Some(url) = build_optional_official_financial_url(symbol) {
+        match fetch_fundamental_from_official_json(&url) {
+            Ok(context) => return Ok(context),
+            Err(error) => attempt_errors.push(format!("official_financials: {error}")),
+        }
+    }
+
+    match fetch_fundamental_from_sina_resilient(symbol) {
+        Ok(context) => return Ok(context),
+        Err(error) => attempt_errors.push(format!("sina_financial_guideline: {error}")),
+    }
+
+    Err(FundamentalFetchError::Transport(attempt_errors.join(" | ")))
+}
+
+// 2026-04-02 CST: 这里把公告抓取也改成三层 provider 链，原因是单一公告源比财报源更容易受 TLS、限流和前端改版影响；
+// 目的：把公告摘要稳定在“主源失败仍可继续返回最近公告”的产品语义上，避免上层每次都手动补公告信息。
+fn fetch_disclosure_context(
+    symbol: &str,
+    disclosure_limit: usize,
+) -> Result<DisclosureContext, DisclosureFetchError> {
+    let mut attempt_errors = Vec::new();
+
+    match fetch_disclosure_from_eastmoney(symbol, disclosure_limit) {
+        Ok(context) => return Ok(context),
+        Err(error) => attempt_errors.push(format!("eastmoney_announcements: {error}")),
+    }
+
+    if let Some(url) = build_optional_official_announcement_url(symbol, disclosure_limit) {
+        match fetch_disclosure_from_official_json(&url, disclosure_limit) {
+            Ok(context) => return Ok(context),
+            Err(error) => attempt_errors.push(format!("official_announcements: {error}")),
+        }
+    }
+
+    match fetch_disclosure_from_sina(symbol, disclosure_limit) {
+        Ok(context) => return Ok(context),
+        Err(error) => attempt_errors.push(format!("sina_announcements: {error}")),
+    }
+
+    Err(DisclosureFetchError::Transport(attempt_errors.join(" | ")))
+}
+
+fn fetch_fundamental_from_eastmoney(
+    symbol: &str,
+) -> Result<FundamentalContext, FundamentalFetchError> {
+    let url = build_eastmoney_financial_url(symbol);
     let body = http_get_text(&url, "financials").map_err(FundamentalFetchError::Transport)?;
     let payload = serde_json::from_str::<Value>(&body)
         .map_err(|error| FundamentalFetchError::Parse(error.to_string()))?;
@@ -220,29 +274,238 @@ fn fetch_fundamental_context(symbol: &str) -> Result<FundamentalContext, Fundame
         ),
         roe_pct: financial_number(latest, &["ROEJQ", "ROE_WEIGHTED", "jqjzcsyl"]),
     };
-    let profit_signal = classify_fundamental_signal(&metrics);
-    let (headline, narrative, risk_flags) = build_fundamental_narrative(&metrics, &profit_signal);
 
-    Ok(FundamentalContext {
-        status: "available".to_string(),
-        source: "eastmoney_financials".to_string(),
+    Ok(build_available_fundamental_context(
+        "eastmoney_financials",
         latest_report_period,
         report_notice_date,
-        headline,
-        profit_signal,
-        report_metrics: metrics,
-        narrative,
-        risk_flags,
-    })
+        metrics,
+    ))
 }
 
-// 2026-04-01 CST: 这里抓取最近公告摘要，原因是公告面是首版最有价值、且最适合走免费公开源的事件层信息；
-// 目的：让产品在技术面之外还能同步看见“最近披露了什么”，而不是继续人工外查。
-fn fetch_disclosure_context(
+fn fetch_fundamental_from_official_json(
+    url: &str,
+) -> Result<FundamentalContext, FundamentalFetchError> {
+    let body =
+        http_get_text(url, "official_financials").map_err(FundamentalFetchError::Transport)?;
+    let payload = serde_json::from_str::<Value>(&body)
+        .map_err(|error| FundamentalFetchError::Parse(error.to_string()))?;
+    let root = extract_first_object(&payload).ok_or(FundamentalFetchError::Empty)?;
+    let metrics_node = root
+        .get("report_metrics")
+        .or_else(|| root.get("metrics"))
+        .unwrap_or(root);
+    let metrics = FundamentalMetrics {
+        revenue: json_number(
+            metrics_node,
+            &["revenue", "operate_income", "total_operate_income"],
+        ),
+        revenue_yoy_pct: json_number(metrics_node, &["revenue_yoy_pct", "operate_income_yoy_pct"]),
+        net_profit: json_number(metrics_node, &["net_profit", "parent_netprofit", "profit"]),
+        net_profit_yoy_pct: json_number(metrics_node, &["net_profit_yoy_pct", "profit_yoy_pct"]),
+        roe_pct: json_number(metrics_node, &["roe_pct", "roe"]),
+    };
+    if metrics == empty_fundamental_metrics()
+        && json_string(root, &["latest_report_period", "report_period"]).is_none()
+    {
+        return Err(FundamentalFetchError::Empty);
+    }
+
+    Ok(build_available_fundamental_context(
+        root.get("source")
+            .and_then(Value::as_str)
+            .unwrap_or("official_financials"),
+        json_string(root, &["latest_report_period", "report_period"]).map(normalize_date_like),
+        json_string(root, &["report_notice_date", "notice_date"]).map(normalize_date_like),
+        metrics,
+    ))
+}
+
+#[allow(dead_code)]
+fn fetch_fundamental_from_sina(symbol: &str) -> Result<FundamentalContext, FundamentalFetchError> {
+    let url = build_sina_financial_url(symbol);
+    let body = http_get_text(&url, "sina_financials").map_err(FundamentalFetchError::Transport)?;
+    let rows = parse_html_rows_with_raw(&body);
+    if rows.is_empty() {
+        return Err(FundamentalFetchError::Parse(
+            "新浪财务页没有可解析表格".to_string(),
+        ));
+    }
+
+    let mut latest_report_period = None;
+    let mut metrics = FundamentalMetrics {
+        revenue: None,
+        revenue_yoy_pct: None,
+        net_profit: None,
+        net_profit_yoy_pct: None,
+        roe_pct: None,
+    };
+
+    for row in rows {
+        let Some(label) = row.cells.first().map(|value| value.trim()) else {
+            continue;
+        };
+        // 2026-04-02 CST: 这里给新浪财报解析补“标签归一化 + typecode 锚点”双保险，原因是线上页面在当前链路里可能出现乱码标签；
+        // 目的：只要关键行的结构锚点还在，就继续识别净利增速、ROE 和报告期，避免财报备源被误判为空。
+        let _normalized_label = normalize_sina_financial_label(label);
+        let first_value = row
+            .cells
+            .iter()
+            .skip(1)
+            .find(|value| !value.trim().is_empty() && value.trim() != "--")
+            .map(|value| value.trim().to_string());
+
+        if label.contains("报告日期") {
+            latest_report_period = first_value.map(normalize_date_like);
+            continue;
+        }
+        if label.contains("营业总收入(元)")
+            || label.contains("主营业务收入(元)")
+            || label.contains("营业收入(元)")
+        {
+            metrics.revenue = first_value.as_deref().and_then(parse_number_text);
+            continue;
+        }
+        if label.contains("营业总收入增长率(%)")
+            || label.contains("主营业务收入增长率(%)")
+            || label.contains("营业收入增长率(%)")
+        {
+            metrics.revenue_yoy_pct = first_value.as_deref().and_then(parse_number_text);
+            continue;
+        }
+        if label.contains("归母净利润(元)") || label.contains("净利润(元)") {
+            metrics.net_profit = first_value.as_deref().and_then(parse_number_text);
+            continue;
+        }
+        if label.contains("归母净利润增长率(%)") || label.contains("净利润增长率(%)")
+        {
+            metrics.net_profit_yoy_pct = first_value.as_deref().and_then(parse_number_text);
+            continue;
+        }
+        if label.contains("净资产收益率(%)") || label.contains("加权净资产收益率(%)")
+        {
+            if metrics.roe_pct.is_none() {
+                metrics.roe_pct = first_value.as_deref().and_then(parse_number_text);
+            }
+        }
+    }
+
+    if latest_report_period.is_none() && metrics == empty_fundamental_metrics() {
+        return Err(FundamentalFetchError::Empty);
+    }
+
+    Ok(build_available_fundamental_context(
+        "sina_financial_guideline",
+        latest_report_period,
+        None,
+        metrics,
+    ))
+}
+
+// 2026-04-02 CST: 这里新增更稳的新浪财报解析分支，原因是线上真实页面在当前链路里会出现乱码标签，但 HTML 结构与 typecode 仍稳定；
+// 目的：通过“日期行识别 + financialratios typecode + 归一化标签”三层兜底，让财报备源在真实环境中恢复可用。
+fn fetch_fundamental_from_sina_resilient(
+    symbol: &str,
+) -> Result<FundamentalContext, FundamentalFetchError> {
+    let url = build_sina_financial_url(symbol);
+    let body = http_get_text(&url, "sina_financials").map_err(FundamentalFetchError::Transport)?;
+    let rows = parse_html_rows_with_raw(&body);
+    if rows.is_empty() {
+        return Err(FundamentalFetchError::Parse(
+            "新浪财务页没有可解析表格".to_string(),
+        ));
+    }
+
+    let mut latest_report_period = None;
+    let mut metrics = FundamentalMetrics {
+        revenue: None,
+        revenue_yoy_pct: None,
+        net_profit: None,
+        net_profit_yoy_pct: None,
+        roe_pct: None,
+    };
+
+    for row in rows {
+        let Some(label) = row.cells.first().map(|value| value.trim()) else {
+            continue;
+        };
+        let normalized_label = normalize_sina_financial_label(label);
+        let first_value = row
+            .cells
+            .iter()
+            .skip(1)
+            .find(|value| !value.trim().is_empty() && value.trim() != "--")
+            .map(|value| value.trim().to_string());
+
+        if is_sina_report_period_row(&normalized_label, &row.cells) {
+            latest_report_period = first_value.map(normalize_date_like);
+            continue;
+        }
+        if is_sina_financial_metric_row(
+            &normalized_label,
+            &row.html,
+            &[],
+            &["营业总收入元", "主营业务收入元", "营业收入元"],
+        ) {
+            metrics.revenue = first_value.as_deref().and_then(parse_number_text);
+            continue;
+        }
+        if is_sina_financial_metric_row(
+            &normalized_label,
+            &row.html,
+            &["financialratios43"],
+            &["营业总收入增长率", "主营业务收入增长率", "营业收入增长率"],
+        ) {
+            metrics.revenue_yoy_pct = first_value.as_deref().and_then(parse_number_text);
+            continue;
+        }
+        if is_sina_financial_metric_row(
+            &normalized_label,
+            &row.html,
+            &["financialratios57", "financialratios65"],
+            &["归母净利润元", "净利润元", "扣除非经常性损益后的净利润元"],
+        ) {
+            metrics.net_profit = first_value.as_deref().and_then(parse_number_text);
+            continue;
+        }
+        if is_sina_financial_metric_row(
+            &normalized_label,
+            &row.html,
+            &["financialratios44"],
+            &["归母净利润增长率", "净利润增长率"],
+        ) {
+            metrics.net_profit_yoy_pct = first_value.as_deref().and_then(parse_number_text);
+            continue;
+        }
+        if is_sina_financial_metric_row(
+            &normalized_label,
+            &row.html,
+            &["financialratios59", "financialratios62"],
+            &["净资产收益率", "加权净资产收益率"],
+        ) {
+            if metrics.roe_pct.is_none() {
+                metrics.roe_pct = first_value.as_deref().and_then(parse_number_text);
+            }
+        }
+    }
+
+    if latest_report_period.is_none() && metrics == empty_fundamental_metrics() {
+        return Err(FundamentalFetchError::Empty);
+    }
+
+    Ok(build_available_fundamental_context(
+        "sina_financial_guideline",
+        latest_report_period,
+        None,
+        metrics,
+    ))
+}
+
+fn fetch_disclosure_from_eastmoney(
     symbol: &str,
     disclosure_limit: usize,
 ) -> Result<DisclosureContext, DisclosureFetchError> {
-    let url = build_announcement_url(symbol, disclosure_limit);
+    let url = build_eastmoney_announcement_url(symbol, disclosure_limit);
     let body = http_get_text(&url, "announcements").map_err(DisclosureFetchError::Transport)?;
     let payload = serde_json::from_str::<Value>(&body)
         .map_err(|error| DisclosureFetchError::Parse(error.to_string()))?;
@@ -251,37 +514,150 @@ fn fetch_disclosure_context(
         return Err(DisclosureFetchError::Empty);
     }
 
-    let recent_announcements = notices
+    Ok(build_available_disclosure_context(
+        "eastmoney_announcements",
+        notices,
+        disclosure_limit,
+    ))
+}
+
+fn fetch_disclosure_from_official_json(
+    url: &str,
+    disclosure_limit: usize,
+) -> Result<DisclosureContext, DisclosureFetchError> {
+    let body =
+        http_get_text(url, "official_announcements").map_err(DisclosureFetchError::Transport)?;
+    let payload = serde_json::from_str::<Value>(&body)
+        .map_err(|error| DisclosureFetchError::Parse(error.to_string()))?;
+    let root = extract_first_object(&payload).ok_or(DisclosureFetchError::Empty)?;
+    let list = root
+        .get("recent_announcements")
+        .or_else(|| root.get("announcements"))
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            DisclosureFetchError::Parse("官方公告备源缺少 announcements 数组".to_string())
+        })?;
+
+    let notices = list
         .iter()
+        .filter_map(|item| {
+            let title = json_string(item, &["title"])?;
+            Some(RawAnnouncement {
+                published_at: json_string(item, &["published_at", "notice_date", "date"]),
+                title,
+                article_code: json_string(item, &["article_code", "id", "code", "url"]),
+                category: json_string(item, &["category"]),
+            })
+        })
+        .collect::<Vec<_>>();
+    if notices.is_empty() {
+        return Err(DisclosureFetchError::Empty);
+    }
+
+    Ok(build_available_disclosure_context(
+        root.get("source")
+            .and_then(Value::as_str)
+            .unwrap_or("official_announcements"),
+        notices,
+        disclosure_limit,
+    ))
+}
+
+fn fetch_disclosure_from_sina(
+    symbol: &str,
+    disclosure_limit: usize,
+) -> Result<DisclosureContext, DisclosureFetchError> {
+    let url = build_sina_announcement_url(symbol);
+    let body =
+        http_get_text(&url, "sina_announcements").map_err(DisclosureFetchError::Transport)?;
+    let regex = Regex::new(
+        r#"(?is)(\d{4}-\d{2}-\d{2})\s*&nbsp;\s*<a[^>]*href=['"]([^'"]+)['"][^>]*>(.*?)</a>"#,
+    )
+    .map_err(|error| DisclosureFetchError::Parse(error.to_string()))?;
+
+    let notices = regex
+        .captures_iter(&body)
+        .filter_map(|capture| {
+            let title = strip_html_tags(capture.get(3)?.as_str());
+            if title.trim().is_empty() {
+                return None;
+            }
+            let href = capture.get(2)?.as_str().trim();
+            Some(RawAnnouncement {
+                published_at: Some(capture.get(1)?.as_str().to_string()),
+                title,
+                article_code: extract_query_param(href, "id")
+                    .or_else(|| Some(to_absolute_sina_url(href))),
+                category: Some("公司公告".to_string()),
+            })
+        })
+        .collect::<Vec<_>>();
+    if notices.is_empty() {
+        return Err(DisclosureFetchError::Empty);
+    }
+
+    Ok(build_available_disclosure_context(
+        "sina_announcements",
+        notices,
+        disclosure_limit,
+    ))
+}
+
+fn build_available_fundamental_context(
+    source: &str,
+    latest_report_period: Option<String>,
+    report_notice_date: Option<String>,
+    metrics: FundamentalMetrics,
+) -> FundamentalContext {
+    let profit_signal = classify_fundamental_signal(&metrics);
+    let (headline, narrative, risk_flags) = build_fundamental_narrative(&metrics, &profit_signal);
+
+    FundamentalContext {
+        status: "available".to_string(),
+        source: source.to_string(),
+        latest_report_period,
+        report_notice_date,
+        headline,
+        profit_signal,
+        report_metrics: metrics,
+        narrative,
+        risk_flags,
+    }
+}
+
+fn build_available_disclosure_context(
+    source: &str,
+    notices: Vec<RawAnnouncement>,
+    disclosure_limit: usize,
+) -> DisclosureContext {
+    let recent_announcements = notices
+        .into_iter()
         .take(disclosure_limit)
         .map(|notice| DisclosureAnnouncement {
             published_at: notice
                 .published_at
-                .clone()
                 .map(normalize_date_like)
                 .unwrap_or_default(),
-            title: notice.title.clone(),
-            article_code: notice.article_code.clone(),
-            category: notice.category.clone(),
+            title: notice.title,
+            article_code: notice.article_code,
+            category: notice.category,
         })
         .collect::<Vec<_>>();
     let keyword_summary = build_disclosure_keyword_summary(&recent_announcements);
     let risk_flags = build_disclosure_risk_flags(&recent_announcements);
     let headline = build_disclosure_headline(&recent_announcements, &risk_flags);
 
-    Ok(DisclosureContext {
+    DisclosureContext {
         status: "available".to_string(),
-        source: "eastmoney_announcements".to_string(),
+        source: source.to_string(),
         announcement_count: recent_announcements.len(),
         headline,
         keyword_summary,
         recent_announcements,
         risk_flags,
-    })
+    }
 }
 
-// 2026-04-01 CST: 这里抽行业上下文，原因是行业代理当前已经由 contextual Tool 产出完整技术结论；
-// 目的：先把行业层提炼成单独对象，后续继续叠加行业景气源时不用改动总合同形状。
 fn build_industry_context(technical_context: &SecurityAnalysisContextualResult) -> IndustryContext {
     IndustryContext {
         sector_symbol: technical_context.sector_symbol.clone(),
@@ -308,8 +684,6 @@ fn build_industry_context(technical_context: &SecurityAnalysisContextualResult) 
     }
 }
 
-// 2026-04-01 CST: 这里统一做综合 stance 判断，原因是产品需要一个最后可执行结论，而不是每个前端自己写一套拼装规则；
-// 目的：把技术顺逆风、财报强弱和公告风险收敛成可稳定复用的总判断。
 fn build_integrated_conclusion(
     technical_context: &SecurityAnalysisContextualResult,
     fundamental_context: &FundamentalContext,
@@ -341,14 +715,20 @@ fn build_integrated_conclusion(
     };
 
     let headline = match stance.as_str() {
-        "constructive" => "技术环境与财报快照同向，当前更适合按偏积极综合结论跟踪。".to_string(),
+        "constructive" => {
+            "技术环境、财报快照和公告节奏形成了同向共振，当前更适合按偏积极的综合结论跟踪。"
+                .to_string()
+        }
         "watchful_positive" => {
-            "财报快照偏正面，但技术环境尚未完全顺风，当前更适合边观察边等待确认。".to_string()
+            "财报快照偏正面，但技术环境仍在确认阶段，当前更适合作为边观察边等待确认的结论使用。"
+                .to_string()
         }
         "technical_only" => {
-            "信息面源暂不可用，当前只能基于技术与行业代理给出临时结论。".to_string()
+            "信息面主链当前不可用，当前结论暂时只能以技术面和行业代理为主。".to_string()
         }
-        "cautious" => "技术、财报或公告层至少有一项未形成正向共振，当前宜保持谨慎。".to_string(),
+        "cautious" => {
+            "技术面、财报面或公告面至少有一层没有形成正向共振，当前更适合保持谨慎。".to_string()
+        }
         _ => "当前综合信息尚未形成单边优势，更适合作为观察性结论使用。".to_string(),
     };
 
@@ -382,7 +762,7 @@ fn build_integrated_conclusion(
     risk_flags.extend(fundamental_context.risk_flags.clone());
     risk_flags.extend(disclosure_context.risk_flags.clone());
     if technical_alignment == "headwind" {
-        risk_flags.push("技术环境仍处逆风，信息面正向也不宜直接替代价格确认".to_string());
+        risk_flags.push("技术环境仍处逆风，信息面正向也不能直接替代价格确认".to_string());
     }
 
     IntegratedConclusion {
@@ -393,34 +773,24 @@ fn build_integrated_conclusion(
     }
 }
 
-// 2026-04-01 CST: 这里统一构造财报降级对象，原因是免费信息源波动不能拖垮主链；
-// 目的：让上层明确知道“为什么缺失、缺的是哪一层”，而不是直接拿到一个泛化错误。
 fn build_unavailable_fundamental_context(message: String) -> FundamentalContext {
     FundamentalContext {
         status: "unavailable".to_string(),
-        source: "eastmoney_financials".to_string(),
+        source: "multi_source_fallback".to_string(),
         latest_report_period: None,
         report_notice_date: None,
         headline: "财报快照当前不可用，综合结论已退化为技术优先。".to_string(),
         profit_signal: "unknown".to_string(),
-        report_metrics: FundamentalMetrics {
-            revenue: None,
-            revenue_yoy_pct: None,
-            net_profit: None,
-            net_profit_yoy_pct: None,
-            roe_pct: None,
-        },
-        narrative: vec!["免费财报源当前未返回可消费数据，已跳过财报层聚合。".to_string()],
+        report_metrics: empty_fundamental_metrics(),
+        narrative: vec!["多源财报抓取均未返回可消费数据，当前已跳过财报层聚合。".to_string()],
         risk_flags: vec![message],
     }
 }
 
-// 2026-04-01 CST: 这里统一构造公告降级对象，原因是公告源异常同样属于可降级信息层；
-// 目的：保证产品主链在外部源波动时仍返回结构完整的 JSON 合同。
 fn build_unavailable_disclosure_context(message: String) -> DisclosureContext {
     DisclosureContext {
         status: "unavailable".to_string(),
-        source: "eastmoney_announcements".to_string(),
+        source: "multi_source_fallback".to_string(),
         announcement_count: 0,
         headline: "公告摘要当前不可用，综合结论未纳入事件驱动层信息。".to_string(),
         keyword_summary: vec![],
@@ -429,31 +799,95 @@ fn build_unavailable_disclosure_context(message: String) -> DisclosureContext {
     }
 }
 
-fn build_financial_url(symbol: &str) -> String {
+fn build_eastmoney_financial_url(symbol: &str) -> String {
     let base = std::env::var("EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE").unwrap_or_else(|_| {
         "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/MainTargetAjax"
             .to_string()
     });
-    let separator = if base.contains('?') { "&" } else { "?" };
-    format!(
-        "{base}{separator}type=1&code={}",
-        normalize_eastmoney_code(symbol)
+    append_query_params(
+        &base,
+        &[
+            ("type", "1".to_string()),
+            ("code", normalize_eastmoney_code(symbol)),
+        ],
     )
 }
 
-fn build_announcement_url(symbol: &str, disclosure_limit: usize) -> String {
+fn build_eastmoney_announcement_url(symbol: &str, disclosure_limit: usize) -> String {
     let base = std::env::var("EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE")
         .unwrap_or_else(|_| "https://np-anotice-stock.eastmoney.com/api/security/ann".to_string());
-    let separator = if base.contains('?') { "&" } else { "?" };
-    format!(
-        "{base}{separator}sr=-1&page_size={}&page_index=1&ann_type=A&stock_list={}",
-        disclosure_limit.min(20),
-        normalize_plain_stock_code(symbol)
+    append_query_params(
+        &base,
+        &[
+            ("sr", "-1".to_string()),
+            ("page_size", disclosure_limit.min(20).to_string()),
+            ("page_index", "1".to_string()),
+            ("ann_type", "A".to_string()),
+            ("stock_list", normalize_plain_stock_code(symbol)),
+        ],
     )
+}
+
+fn build_optional_official_financial_url(symbol: &str) -> Option<String> {
+    std::env::var("EXCEL_SKILL_OFFICIAL_FINANCIAL_URL_BASE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|base| append_query_params(&base, &[("symbol", symbol.to_string())]))
+}
+
+fn build_optional_official_announcement_url(
+    symbol: &str,
+    disclosure_limit: usize,
+) -> Option<String> {
+    std::env::var("EXCEL_SKILL_OFFICIAL_ANNOUNCEMENT_URL_BASE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|base| {
+            append_query_params(
+                &base,
+                &[
+                    ("symbol", symbol.to_string()),
+                    ("limit", disclosure_limit.to_string()),
+                ],
+            )
+        })
+}
+
+fn build_sina_financial_url(symbol: &str) -> String {
+    let plain = normalize_plain_stock_code(symbol);
+    match std::env::var("EXCEL_SKILL_SINA_FINANCIAL_URL_BASE") {
+        Ok(base) if !base.trim().is_empty() => {
+            append_query_params(&base, &[("symbol", symbol.to_string()), ("stockid", plain)])
+        }
+        _ => format!("{DEFAULT_SINA_FINANCIAL_URL_BASE}/stockid/{plain}/displaytype/4.phtml"),
+    }
+}
+
+fn build_sina_announcement_url(symbol: &str) -> String {
+    let plain = normalize_plain_stock_code(symbol);
+    match std::env::var("EXCEL_SKILL_SINA_ANNOUNCEMENT_URL_BASE") {
+        Ok(base) if !base.trim().is_empty() => {
+            append_query_params(&base, &[("symbol", symbol.to_string()), ("stockid", plain)])
+        }
+        _ => format!("{DEFAULT_SINA_ANNOUNCEMENT_URL_BASE}/stockid/{plain}.phtml"),
+    }
+}
+
+fn append_query_params(base: &str, params: &[(&str, String)]) -> String {
+    let separator = if base.contains('?') { '&' } else { '?' };
+    let query = params
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    format!("{base}{separator}{query}")
 }
 
 fn http_get_text(url: &str, source_label: &str) -> Result<String, String> {
-    match ureq::get(url).set("Accept", "application/json").call() {
+    match ureq::get(url)
+        .set("Accept", "text/html,application/json;q=0.9,*/*;q=0.8")
+        .call()
+    {
         Ok(response) => response.into_string().map_err(|error| error.to_string()),
         Err(ureq::Error::Status(status, response)) => {
             let body = response.into_string().unwrap_or_default();
@@ -487,7 +921,7 @@ fn extract_announcement_list(
     let list = payload
         .get("data")
         .and_then(|value| value.get("list"))
-        .and_then(|value| value.as_array())
+        .and_then(Value::as_array)
         .ok_or_else(|| DisclosureFetchError::Parse("公告源返回结构不符合预期".to_string()))?;
 
     Ok(list
@@ -495,7 +929,7 @@ fn extract_announcement_list(
         .filter_map(|item| {
             let title = item
                 .get("title")
-                .and_then(|value| value.as_str())?
+                .and_then(Value::as_str)?
                 .trim()
                 .to_string();
             if title.is_empty() {
@@ -504,29 +938,36 @@ fn extract_announcement_list(
             Some(RawAnnouncement {
                 published_at: item
                     .get("notice_date")
-                    .and_then(|value| value.as_str())
-                    .map(|value| value.to_string()),
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
                 title,
                 article_code: item
                     .get("art_code")
-                    .and_then(|value| value.as_str())
-                    .map(|value| value.to_string()),
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
                 category: item
                     .get("columns")
-                    .and_then(|value| value.as_array())
+                    .and_then(Value::as_array)
                     .and_then(|columns| columns.first())
                     .and_then(|value| value.get("column_name"))
-                    .and_then(|value| value.as_str())
-                    .map(|value| value.to_string()),
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
             })
         })
         .collect())
 }
 
+fn extract_first_object(payload: &Value) -> Option<&Value> {
+    if payload.is_object() {
+        return Some(payload);
+    }
+    payload.as_array().and_then(|rows| rows.first())
+}
+
 fn financial_string(row: &Value, keys: &[&str]) -> Option<String> {
     keys.iter().find_map(|key| {
         row.get(*key)
-            .and_then(|value| value.as_str())
+            .and_then(Value::as_str)
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
     })
@@ -538,21 +979,183 @@ fn financial_number(row: &Value, keys: &[&str]) -> Option<f64> {
         .and_then(value_as_f64)
 }
 
+fn json_string(row: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        row.get(*key)
+            .and_then(Value::as_str)
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    })
+}
+
+fn json_number(row: &Value, keys: &[&str]) -> Option<f64> {
+    keys.iter()
+        .find_map(|key| row.get(*key))
+        .and_then(value_as_f64)
+}
+
 fn value_as_f64(value: &Value) -> Option<f64> {
     if let Some(number) = value.as_f64() {
         return Some(number);
     }
-    value
-        .as_str()
-        .and_then(|text| text.replace(',', "").trim().parse::<f64>().ok())
+    value.as_str().and_then(parse_number_text)
+}
+
+fn parse_number_text(text: &str) -> Option<f64> {
+    text.replace(',', "").trim().parse::<f64>().ok()
+}
+
+#[allow(dead_code)]
+fn parse_html_table_rows(html: &str) -> Vec<Vec<String>> {
+    let row_regex = Regex::new(r"(?is)<tr[^>]*>(.*?)</tr>").expect("row regex should compile");
+    let cell_regex =
+        Regex::new(r"(?is)<t[dh][^>]*>(.*?)</t[dh]>").expect("cell regex should compile");
+
+    row_regex
+        .captures_iter(html)
+        .filter_map(|row_capture| {
+            let row_html = row_capture.get(1)?.as_str();
+            let cells = cell_regex
+                .captures_iter(row_html)
+                .filter_map(|cell_capture| cell_capture.get(1))
+                .map(|cell| strip_html_tags(cell.as_str()))
+                .collect::<Vec<_>>();
+            if cells.is_empty() { None } else { Some(cells) }
+        })
+        .collect()
+}
+
+fn parse_html_rows_with_raw(html: &str) -> Vec<ParsedHtmlRow> {
+    let row_regex = Regex::new(r"(?is)<tr[^>]*>(.*?)</tr>").expect("row regex should compile");
+    let cell_regex =
+        Regex::new(r"(?is)<t[dh][^>]*>(.*?)</t[dh]>").expect("cell regex should compile");
+
+    row_regex
+        .captures_iter(html)
+        .filter_map(|row_capture| {
+            let row_html = row_capture.get(1)?.as_str();
+            let cells = cell_regex
+                .captures_iter(row_html)
+                .filter_map(|cell_capture| cell_capture.get(1))
+                .map(|cell| strip_html_tags(cell.as_str()))
+                .collect::<Vec<_>>();
+            if cells.is_empty() {
+                None
+            } else {
+                Some(ParsedHtmlRow {
+                    html: row_html.to_string(),
+                    cells,
+                })
+            }
+        })
+        .collect()
+}
+
+fn normalize_sina_financial_label(label: &str) -> String {
+    label
+        .replace("&nbsp;", "")
+        .replace(" ", "")
+        .replace('\u{a0}', "")
+        .replace('\t', "")
+        .replace('\r', "")
+        .replace('\n', "")
+        .replace('（', "(")
+        .replace('）', ")")
+        .replace('_', "")
+        .replace(':', "")
+        .replace('：', "")
+}
+
+fn is_sina_report_period_row(normalized_label: &str, cells: &[String]) -> bool {
+    if normalized_label.contains("报告日期") {
+        return true;
+    }
+
+    let date_like_count = cells
+        .iter()
+        .skip(1)
+        .take(4)
+        .filter(|value| looks_like_report_date(value))
+        .count();
+
+    date_like_count >= 2
+}
+
+fn looks_like_report_date(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.len() == 10
+        && trimmed.chars().nth(4) == Some('-')
+        && trimmed.chars().nth(7) == Some('-')
+        && trimmed
+            .chars()
+            .enumerate()
+            .all(|(idx, ch)| matches!(idx, 4 | 7) || ch.is_ascii_digit())
+}
+
+fn is_sina_financial_metric_row(
+    normalized_label: &str,
+    row_html: &str,
+    typecodes: &[&str],
+    label_keywords: &[&str],
+) -> bool {
+    typecodes.iter().any(|code| row_html.contains(code))
+        || label_keywords
+            .iter()
+            .any(|keyword| normalized_label.contains(keyword))
+}
+
+fn strip_html_tags(html: &str) -> String {
+    let tag_regex = Regex::new(r"(?is)<[^>]+>").expect("tag regex should compile");
+    tag_regex
+        .replace_all(html, "")
+        .replace("&nbsp;", " ")
+        .replace("&#160;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .trim()
+        .to_string()
+}
+
+fn extract_query_param(url: &str, key: &str) -> Option<String> {
+    let query = url.split('?').nth(1)?;
+    query.split('&').find_map(|segment| {
+        let (segment_key, value) = segment.split_once('=')?;
+        if segment_key == key {
+            Some(value.to_string())
+        } else {
+            None
+        }
+    })
+}
+
+fn to_absolute_sina_url(url: &str) -> String {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        url.to_string()
+    } else {
+        format!("https://vip.stock.finance.sina.com.cn{url}")
+    }
 }
 
 fn classify_fundamental_signal(metrics: &FundamentalMetrics) -> String {
-    match (metrics.revenue_yoy_pct, metrics.net_profit_yoy_pct) {
-        (Some(revenue), Some(profit)) if revenue >= 0.0 && profit >= 0.0 => "positive".to_string(),
-        (Some(revenue), Some(profit)) if revenue < 0.0 && profit < 0.0 => "negative".to_string(),
-        (Some(_), Some(_)) => "mixed".to_string(),
-        _ => "unknown".to_string(),
+    let positives = [metrics.revenue_yoy_pct, metrics.net_profit_yoy_pct]
+        .into_iter()
+        .flatten()
+        .filter(|value| *value >= 0.0)
+        .count();
+    let negatives = [metrics.revenue_yoy_pct, metrics.net_profit_yoy_pct]
+        .into_iter()
+        .flatten()
+        .filter(|value| *value < 0.0)
+        .count();
+
+    match (positives, negatives) {
+        (0, 0) => "unknown".to_string(),
+        (0, _) => "negative".to_string(),
+        (_, 0) => "positive".to_string(),
+        _ => "mixed".to_string(),
     }
 }
 
@@ -574,16 +1177,16 @@ fn build_fundamental_narrative(
         .unwrap_or_else(|| "ROE 暂缺".to_string());
 
     let headline = match profit_signal {
-        "positive" => "最新财报显示营收和归母净利润保持同比增长。".to_string(),
-        "negative" => "最新财报显示营收和归母净利润同步承压。".to_string(),
-        "mixed" => "最新财报的收入与利润表现分化，需防止单项指标掩盖真实经营波动。".to_string(),
-        _ => "最新财报只返回了部分指标，当前更适合把财报层视作辅助观察。".to_string(),
+        "positive" => "最新财报快照显示核心盈利指标仍保持正向。".to_string(),
+        "negative" => "最新财报快照显示核心盈利指标正在承压。".to_string(),
+        "mixed" => "最新财报快照的收入与利润表现分化，需避免单一指标误导。".to_string(),
+        _ => "最新财报快照只返回了部分指标，当前更适合作为辅助观察。".to_string(),
     };
 
     let narrative = vec![
         headline.clone(),
         format!("{revenue_text}，{profit_text}。"),
-        format!("盈利质量观察位可继续结合 {roe_text} 与后续现金流披露确认。"),
+        format!("盈利质量可继续结合 {roe_text} 与后续现金流披露确认。"),
     ];
 
     let mut risk_flags = Vec::new();
@@ -609,7 +1212,7 @@ fn build_disclosure_keyword_summary(notices: &[DisclosureAnnouncement]) -> Vec<S
         .iter()
         .any(|notice| contains_any(&notice.title, &["年度报告", "年报"]))
     {
-        summary.push("最近公告包含年度报告".to_string());
+        summary.push("最近公告包含年度报告或定期报告".to_string());
     }
     if notices
         .iter()
@@ -655,7 +1258,7 @@ fn build_disclosure_risk_flags(notices: &[DisclosureAnnouncement]) -> Vec<String
 
 fn build_disclosure_headline(notices: &[DisclosureAnnouncement], risk_flags: &[String]) -> String {
     if !risk_flags.is_empty() {
-        return "最近公告中已出现需要重点复核的风险关键词，信息面不宜按纯正向理解。".to_string();
+        return "最近公告中已经出现需要重点复核的风险关键词，信息面不宜按纯正向理解。".to_string();
     }
     if notices
         .iter()
@@ -674,6 +1277,16 @@ fn build_disclosure_headline(notices: &[DisclosureAnnouncement], risk_flags: &[S
 
 fn contains_any(title: &str, keywords: &[&str]) -> bool {
     keywords.iter().any(|keyword| title.contains(keyword))
+}
+
+fn empty_fundamental_metrics() -> FundamentalMetrics {
+    FundamentalMetrics {
+        revenue: None,
+        revenue_yoy_pct: None,
+        net_profit: None,
+        net_profit_yoy_pct: None,
+        roe_pct: None,
+    }
 }
 
 fn normalize_eastmoney_code(symbol: &str) -> String {
@@ -711,12 +1324,4 @@ fn default_lookback_days() -> usize {
 
 fn default_disclosure_limit() -> usize {
     DEFAULT_DISCLOSURE_LIMIT
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct RawAnnouncement {
-    published_at: Option<String>,
-    title: String,
-    article_code: Option<String>,
-    category: Option<String>,
 }

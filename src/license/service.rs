@@ -8,7 +8,14 @@ use crate::license::types::{
 };
 use crate::runtime::license_store::{LicenseStore, LicenseStoreError, StoredLicenseState};
 
-const PUBLIC_LICENSE_TOOLS: &[&str] = &["license_activate", "license_status", "license_deactivate"];
+const PUBLIC_LICENSE_TOOLS: &[&str] = &[
+    "license_activate",
+    "license_status",
+    "license_deactivate",
+    // 2026-04-02 CST: 这里把 `tool_catalog` 纳入公开工具白名单，原因是能力目录本身属于发现入口，不应依赖激活后的业务权限才能读取；
+    // 目的：保证显式 `tool_catalog` 请求、空输入兜底和 GUI 目录探测在授权开启时仍共享同一条可访问发现链。
+    "tool_catalog",
+];
 
 #[derive(Debug, Error)]
 pub enum LicenseServiceError {
