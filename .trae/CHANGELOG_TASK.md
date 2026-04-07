@@ -2928,3 +2928,58 @@
 ### 关闭项
 - 已完成 GitHub 上传前的交接补记。
 - 已完成远端、分支和目标提交的推送前核对。
+## 2026-04-08
+### 修改内容
+- 补齐 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\src\ops\foundation\evidence_assembler.rs` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\tests\evidence_assembler_unit.rs`，把 Task 8 的结构化证据装配与单测闭环正式带回 foundation 分支系。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\src\ops\foundation\navigation_pipeline.rs` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\tests\navigation_pipeline_integration.rs`，把 Task 9 的最小集成入口 `question -> route -> roam -> retrieve -> assemble` 正式补齐。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\docs\execution-notes-2026-04-08-navigation-pipeline.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\docs\execution-notes-2026-04-08-foundation-delivery-closeout.md`，并更新 `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`，将 foundation 当前状态收口到“Tasks 1-10 的最小导航基线已闭环”。
+- 已执行 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture` 与 `cargo test --test navigation_pipeline_integration -- --nocapture`，确认 foundation 当前最小全集与核心集成测试全部通过。
+### 修改原因
+- 用户要求按“先整理提交，再安全带回当前分支”的顺序继续推进，而原工作区存在并行 security 脏改动与编译阻塞，不能直接在原工作区硬合并 foundation 改动。
+- 这轮的目的就是把 clean worktree 里已经验证通过的 Task 8-10 基线安全回带到 foundation 分支系，同时继续保持 foundation 与并行业务线隔离。
+### 方案还差什么?
+- [ ] foundation 当前最小计划已经闭环，但 metadata-aware filtering 还没有正式进入设计与实现。
+- [ ] provider-based enhancement 仍停留在方向层，还没有形成独立接口契约和测试集。
+### 潜在问题
+- [ ] 当前回带的是一条安全派生分支 `codex/foundation-navigation-kernel-closeout`，不是直接改写原工作区上已脏的 `codex/foundation-navigation-kernel` 工作树状态。
+- [ ] 当前 pipeline 仍是纯内存最小实现，后续若接入持久化、向量索引或 provider，必须先补红灯测试。
+- [ ] `cargo test` 期间仍会打印既有 `dispatcher` 未使用 warning，这不是本轮引入的问题，但后续提交时仍要按主题严格分开 stage。
+### 关闭项
+- 已完成 Task 8-10 的安全回带提交准备。
+- 已完成 foundation 最小导航基线在 clean branch 上的闭环交付。
+- 已完成当前基础骨架阶段到增强阶段的 handoff 切换。
+## 2026-04-08
+### 修改内容
+- 在 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout` 上补做 fresh verification，不再复用 `C:` 盘空间不足的旧编译目录，改为独立设置 `CARGO_TARGET_DIR=D:\Rust\cargo-targets\foundation-kernel-closeout`，确保安全回带分支可以在不碰原脏工作区的前提下完成验证。
+- 已执行 `cargo test --test navigation_pipeline_integration -- --nocapture`，确认导航主链集成测试 `2/2` 通过。
+- 已执行 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，确认 foundation 最小全集 `19/19` 通过。
+### 修改原因
+- 上一轮安全回带已经完成提交与 cherry-pick，但 fresh verification 被 `C:` 盘剩余空间仅约 `0.07 GB` 的环境问题阻塞，必须补一轮独立验证，才能诚实地说明 `1 -> 2` 已经真正收口。
+- 这轮优先切换到 `D:` 盘独立构建目录，而不是清理用户当前工作区或删除源码，是为了继续遵守“不要碰原工作区脏改动、不混入并行 security 线”的约束。
+### 方案还差什么?
+- [ ] 安全回带分支 `codex/foundation-navigation-kernel-closeout` 还没有按用户指令决定是否继续推送到 GitHub 或合并回其他目标分支。
+- [ ] foundation 主线后续仍待进入 metadata-aware filtering 与 provider-based enhancement 阶段，但这已经超出本轮 `1 -> 2` 的收尾范围。
+### 潜在问题
+- [ ] 当前验证依赖 `D:\Rust\cargo-targets\foundation-kernel-closeout` 这套独立构建产物目录；如果后续要长期复用，需要统一约定 target 清理策略，避免 `D:` 盘编译产物继续膨胀。
+- [ ] 测试通过时仍会打印仓库既有的 `dispatcher` 未使用 warning，这不是本轮回带引入的问题，但后续若要提升可维护性，建议单独立题处理。
+### 关闭项
+- 已完成安全回带分支在独立 `D:` 盘构建目录下的 fresh verification。
+- 已确认 `1 -> 2` 这一轮的“整理提交 + 安全带回 + fresh verification”闭环完成。
+## 2026-04-08
+### 修改内容
+- 在隔离 worktree `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-main-merge-closeout` 上执行 `main <- codex/foundation-navigation-kernel-closeout` 合并，将 foundation closeout 的 Task 8-10 代码、execution notes、AI handoff 更新带回 `main`，并保持原工作区 `D:\Rust\Excel_Skill` 的脏改动完全不参与本轮合并。
+- 本轮合并只出现 `.trae/CHANGELOG_TASK.md` 一处冲突，已按 append-only 规则保留 `main` 既有记录与 closeout 分支新增记录，没有覆盖历史条目。
+- 已执行 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，确认合并后的 foundation 最小全集 `19/19` 通过。
+- 已执行 `cargo test --test integration_tool_contract -- --nocapture`，确认合并后的主线工具契约测试 `7/7` 通过。
+### 修改原因
+- 用户明确要求按方案 A 把已推送的安全回带分支合并到 `main`，同时继续遵守“不碰原工作区脏改动、在隔离环境完成合并与验证”的约束。
+- 由于 `main` 相比 closeout 分支已经继续前进，必须先在隔离 worktree 上做真实 merge 和 fresh verification，才能安全推送 `main`。
+### 方案还差什么?
+- [ ] 还未执行最终 `git push origin main`；需要在 merge commit 形成后完成远端同步。
+- [ ] 合并完成后是否删除 `codex/foundation-navigation-kernel-closeout` 与对应 worktree，仍需按用户后续指令处理。
+### 潜在问题
+- [ ] 合并后的测试仍会打印仓库既有的 `dispatcher` 未使用 warning，这不是本轮 merge 引入的问题，但后续如要降低告警噪声，建议单独立题处理。
+- [ ] 当前 foundation pipeline 仍是纯内存最小实现；后续若继续进入 metadata-aware filtering 或 provider-based enhancement，必须继续坚持先补红灯测试再扩展实现。
+### 关闭项
+- 已完成 `main <- codex/foundation-navigation-kernel-closeout` 的隔离合并与冲突解决。
+- 已完成合并结果上的 foundation 最小全集与 `integration_tool_contract` fresh verification。
