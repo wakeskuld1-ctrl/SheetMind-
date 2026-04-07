@@ -231,3 +231,60 @@ Any future AI session should follow this read order before doing architecture wo
 3. Existing project dynamic records such as `task_plan.md`, `progress.md`, and `findings.md`
 
 If a future session conflicts with these documents, it should stop and re-align before continuing.
+
+## 16. Current Foundation Delivery Status (2026-04-07)
+
+The foundation navigation kernel has completed Tasks 1 through 7 in the current implementation sequence:
+
+1. foundation module entry wiring
+2. ontology schema
+3. ontology store
+4. knowledge record and knowledge graph store
+5. capability router
+6. roaming engine
+7. retrieval engine
+
+The current confirmed implementation order remains:
+
+`ontology-lite -> roaming -> retrieval -> evidence assembly`
+
+This ordering is now a maintenance rule, not a temporary suggestion.
+
+Do not re-open completed Tasks 1-7 for speculative restructuring when a future AI session starts.
+
+## 17. Module Scope Guardrails For This Line
+
+The current `src/ops/foundation/` line is only for the business-agnostic navigation kernel.
+
+It currently includes:
+
+- ontology structures and relation lookup
+- knowledge node / edge / evidence data structures
+- question-to-concept routing
+- candidate-scope roaming
+- scoped retrieval inside candidate concepts
+
+It must not absorb:
+
+- security decision workflow logic
+- stock analysis workflow logic
+- GUI interaction flow logic
+- dispatcher-side application orchestration
+
+If the repo is dirty, stage and commit only the files belonging to this foundation line.
+
+## 18. Next Step After Task 7
+
+The next implementation target is Task 8: `evidence_assembler`.
+
+The expected direction is:
+
+- consume route / roaming path / retrieval hits
+- preserve evidence references and path context
+- keep the result structured for CLI-first and later upper-layer consumers
+
+Before moving on, re-read:
+
+1. [execution-notes-2026-04-07-foundation-navigation-kernel.md](/D:/Rust/Excel_Skill/docs/execution-notes-2026-04-07-foundation-navigation-kernel.md)
+2. [retrieval_engine.rs](/D:/Rust/Excel_Skill/src/ops/foundation/retrieval_engine.rs)
+3. [retrieval_engine_unit.rs](/D:/Rust/Excel_Skill/tests/retrieval_engine_unit.rs)
