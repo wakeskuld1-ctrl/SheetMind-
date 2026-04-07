@@ -2464,7 +2464,7 @@ fn security_committee_vote_consumes_briefing_payload_with_historical_digest() {
             .expect("briefing evidence_version should exist")
     );
     assert_eq!(vote_result.committee_mode, "standard");
-    assert_eq!(vote_result.votes.len(), 5);
+    assert_eq!(vote_result.votes.len(), 7);
     assert!(vote_result.quorum_met);
     assert!(
         ["approved", "approved_with_conditions", "deferred"]
@@ -2569,9 +2569,58 @@ fn security_decision_briefing_includes_default_committee_recommendations_for_all
         let embedded_vote: SecurityCommitteeVoteResult =
             serde_json::from_value(recommendations[mode]["vote"].clone())
                 .expect("embedded committee recommendation should deserialize");
+        assert_eq!(embedded_vote.symbol, expected_vote.symbol);
+        assert_eq!(embedded_vote.analysis_date, expected_vote.analysis_date);
+        assert_eq!(embedded_vote.evidence_version, expected_vote.evidence_version);
+        assert_eq!(embedded_vote.committee_engine, expected_vote.committee_engine);
+        assert_eq!(embedded_vote.committee_mode, expected_vote.committee_mode);
         assert_eq!(
-            embedded_vote, expected_vote,
-            "briefing embedded vote for `{mode}` should reuse the formal committee vote result"
+            embedded_vote.deliberation_seat_count,
+            expected_vote.deliberation_seat_count
         );
+        assert_eq!(embedded_vote.risk_seat_count, expected_vote.risk_seat_count);
+        assert_eq!(embedded_vote.majority_vote, expected_vote.majority_vote);
+        assert_eq!(embedded_vote.majority_count, expected_vote.majority_count);
+        assert_eq!(embedded_vote.final_decision, expected_vote.final_decision);
+        assert_eq!(embedded_vote.final_action, expected_vote.final_action);
+        assert_eq!(embedded_vote.final_confidence, expected_vote.final_confidence);
+        assert_eq!(embedded_vote.approval_ratio, expected_vote.approval_ratio);
+        assert_eq!(embedded_vote.quorum_met, expected_vote.quorum_met);
+        assert_eq!(embedded_vote.veto_triggered, expected_vote.veto_triggered);
+        assert_eq!(embedded_vote.veto_role, expected_vote.veto_role);
+        assert_eq!(embedded_vote.conditions, expected_vote.conditions);
+        assert_eq!(embedded_vote.key_disagreements, expected_vote.key_disagreements);
+        assert_eq!(embedded_vote.warnings, expected_vote.warnings);
+
+        let embedded_votes_by_role = embedded_vote
+            .votes
+            .iter()
+            .map(|vote| (vote.role.as_str(), vote))
+            .collect::<HashMap<_, _>>();
+        let expected_votes_by_role = expected_vote
+            .votes
+            .iter()
+            .map(|vote| (vote.role.as_str(), vote))
+            .collect::<HashMap<_, _>>();
+        assert_eq!(embedded_votes_by_role.len(), expected_votes_by_role.len());
+
+        for (role, expected_member_vote) in expected_votes_by_role {
+            let embedded_member_vote = embedded_votes_by_role
+                .get(role)
+                .expect("embedded vote should contain the same committee role");
+            assert_eq!(embedded_member_vote.member_id, expected_member_vote.member_id);
+            assert_eq!(embedded_member_vote.seat_kind, expected_member_vote.seat_kind);
+            assert_eq!(embedded_member_vote.evidence_version, expected_member_vote.evidence_version);
+            assert_eq!(embedded_member_vote.vote, expected_member_vote.vote);
+            assert_eq!(embedded_member_vote.confidence, expected_member_vote.confidence);
+            assert_eq!(embedded_member_vote.rationale, expected_member_vote.rationale);
+            assert_eq!(embedded_member_vote.focus_points, expected_member_vote.focus_points);
+            assert_eq!(embedded_member_vote.blockers, expected_member_vote.blockers);
+            assert_eq!(embedded_member_vote.conditions, expected_member_vote.conditions);
+            assert_eq!(embedded_member_vote.execution_mode, "child_process");
+            assert_eq!(expected_member_vote.execution_mode, "child_process");
+            assert_ne!(embedded_member_vote.execution_instance_id, expected_member_vote.execution_instance_id);
+            assert_ne!(embedded_member_vote.process_id, expected_member_vote.process_id);
+        }
     }
 }

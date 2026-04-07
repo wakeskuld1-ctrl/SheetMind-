@@ -528,3 +528,23 @@
 ### 记忆点
 - 这轮真实生产修补只有 `0.15` 最小缓冲浮点边界；本轮新增的 4 条回归只是把失败态和观察态继续补到 CLI 真链路。
 - 后续继续做股票能力时，优先消费现有关键位信号，不要再为了“看起来一次到位”而重开架构；用户已经明确要求以后按当前架构推进，非必要不重构。
+## 2026-04-08
+### 修改内容
+- 将 `security_committee_vote` 从旧 5 席实现升级为 `seven_seat_committee_v3`，固定为 6 名审议委员加 1 名风控委员。
+- 在 `src/tools/contracts.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs` 补齐内部 `security_committee_member_agent` 子进程分发所需协议与入口。
+- 更新 `tests/security_committee_vote_cli.rs` 与 `tests/security_analysis_resonance_cli.rs`，让正式测试合同同时覆盖七席结构与独立执行证明。
+- 补充本轮执行说明与证券分析交接摘要，明确“为什么现在能证明独立执行”以及后续接手入口。
+### 修改原因
+- 用户明确要求沿方案 B 继续推进，不恢复旧投决入口，而是在现有 briefing -> vote 主链上落七席委员会与独立执行证明。
+- 需要让投决会的正式结果能够证明每个委员是独立执行的，而不是父进程直接拼接结论。
+### 方案还差什么
+- [ ] 七席委员会的更细人格倾向、议事规则和后续更强审计材料仍可继续增强，但不属于本轮 P0 实装阻塞项。
+- [ ] 当前没有顺手治理仓库已有的 `dead_code` warning，后续如需收口应单开批次。
+### 潜在问题
+- [ ] `process_id / execution_instance_id` 属于动态审计字段，任何重新执行都会变化；后续测试不要再拿它们做跨调用全等。
+- [ ] 如果未来修改内部 child-process 路径解析，必须保住 integration test 场景下“从测试 harness 回推正式二进制”的兼容逻辑。
+### 关闭项
+- 红绿验证已通过：`cargo test --test security_committee_vote_cli security_committee_vote_exposes_seven_seat_independent_execution -- --nocapture`
+- 回归验证已通过：`cargo test --test security_committee_vote_cli -- --nocapture`
+- 联动验证已通过：`cargo test --test security_analysis_resonance_cli security_committee_vote_consumes_briefing_payload_with_historical_digest -- --nocapture`
+- 联动验证已通过：`cargo test --test security_analysis_resonance_cli security_decision_briefing_includes_default_committee_recommendations_for_all_modes -- --nocapture`

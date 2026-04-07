@@ -8,6 +8,7 @@ use excel_skill::ops::stock::security_decision_briefing::{
     CommitteeRecommendationDigest, CommitteeResonanceDigest, ExecutionPlan,
 };
 use serde_json::json;
+use std::collections::HashSet;
 
 use crate::common::run_cli_with_json;
 
@@ -144,11 +145,13 @@ fn security_committee_vote_emits_fixed_member_votes() {
     })
     .expect("valid payload should vote successfully");
 
-    assert_eq!(result.votes.len(), 5);
+    assert_eq!(result.votes.len(), 7);
     for role in [
         "chair",
         "fundamental_reviewer",
         "technical_reviewer",
+        "event_reviewer",
+        "valuation_reviewer",
         "risk_officer",
         "execution_reviewer",
     ] {
@@ -160,6 +163,8 @@ fn security_committee_vote_emits_fixed_member_votes() {
         assert!(!vote.vote.is_empty());
         assert!(!vote.confidence.is_empty());
         assert!(!vote.rationale.is_empty());
+        assert!(!vote.member_id.is_empty());
+        assert!(!vote.execution_instance_id.is_empty());
     }
 }
 
@@ -250,4 +255,72 @@ fn security_committee_vote_cli_returns_structured_result() {
             "CLI vote result should expose `{field_name}`"
         );
     }
+}
+
+#[test]
+fn security_committee_vote_exposes_seven_seat_independent_execution() {
+    let payload = serde_json::to_value(build_committee_payload())
+        .expect("committee payload should serialize");
+    let request = json!({
+        "tool": "security_committee_vote",
+        "args": {
+            "committee_payload": payload,
+            "committee_mode": "standard",
+            "meeting_id": "meeting-cli-seven-seat-001"
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["committee_engine"],
+        "seven_seat_committee_v3"
+    );
+    assert_eq!(output["data"]["deliberation_seat_count"], 6);
+    assert_eq!(output["data"]["risk_seat_count"], 1);
+
+    let votes = output["data"]["votes"]
+        .as_array()
+        .expect("votes should be an array");
+    assert_eq!(votes.len(), 7);
+
+    let mut evidence_versions = HashSet::new();
+    let mut execution_instance_ids = HashSet::new();
+    let mut process_ids = HashSet::new();
+    let mut risk_seat_count = 0_usize;
+
+    for vote in votes {
+        assert!(vote["member_id"].is_string());
+        assert!(vote["seat_kind"].is_string());
+        assert_eq!(vote["execution_mode"], "child_process");
+        assert!(vote["vote"].is_string());
+        assert!(vote["rationale"].is_string());
+
+        evidence_versions.insert(
+            vote["evidence_version"]
+                .as_str()
+                .expect("evidence_version should exist")
+                .to_string(),
+        );
+        execution_instance_ids.insert(
+            vote["execution_instance_id"]
+                .as_str()
+                .expect("execution_instance_id should exist")
+                .to_string(),
+        );
+        process_ids.insert(
+            vote["process_id"]
+                .as_u64()
+                .expect("process_id should exist"),
+        );
+
+        if vote["seat_kind"] == "risk_control" {
+            risk_seat_count += 1;
+        }
+    }
+
+    assert_eq!(risk_seat_count, 1);
+    assert_eq!(evidence_versions.len(), 1);
+    assert_eq!(execution_instance_ids.len(), 7);
+    assert_eq!(process_ids.len(), 7);
 }

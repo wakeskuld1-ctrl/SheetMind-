@@ -159,6 +159,11 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         // 2026-04-02 CST: 这里接入 security_committee_vote 分发分支，原因是正式投决会已经进入可调用实现阶段，
         // 目的：让 CLI / Skill 可以沿统一 dispatcher 主链直接消费 committee payload 并获得结构化投票结果。
         "security_committee_vote" => stock_ops::dispatch_security_committee_vote(request.args),
+        // 2026-04-08 CST: 这里补内部席位 agent 的 dispatcher 分支，原因是七席委员会要用子进程级 seat tool 证明成员独立执行；
+        // 目的：让父进程仍通过正式 CLI 主入口拉起子进程，而不是在投决会内部再维护第二套隐藏调用协议。
+        "security_committee_member_agent" => {
+            stock_ops::dispatch_security_committee_member_agent(request.args)
+        }
         // 2026-04-02 CST：这里接入共振平台 Tool 家族，原因是方案 3 已确认先把“因子注册、序列落库、事件落库、共振分析”做成正式平台入口；
         // 目的：让 CLI / Skill 能沿现有主分发链直接使用共振研究与分析能力，而不是回到脚本式临时流程。
         "register_resonance_factor" => stock_ops::dispatch_register_resonance_factor(request.args),

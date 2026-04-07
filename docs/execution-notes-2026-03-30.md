@@ -149,3 +149,35 @@
   - `0.15` 最小缓冲掉判：真实浮点 bug，已经在生产逻辑修补
   - 多根 `retest_watch` 初始红灯：测试样本预热不够导致锚点窗口混入前缀高价，已通过修正样本构造解决，不属于生产逻辑 bug
 - 按用户明确要求，后续仍然遵守“以后按照架构来干，非必要不重构”；关键位主线继续在 `technical_consultation_basic` 内增量补强。
+## 2026-04-08 七席委员会补充说明
+
+- 本轮目标：
+  - 按已批准的方案 B，在现有 `security_decision_briefing -> security_committee_vote` 正式主链上，把投决会从旧 5 席升级为 7 席。
+  - 保持对外正式入口不变，只新增内部 `security_committee_member_agent` 子进程分发，用于证明委员独立执行。
+- 本轮实际修改：
+  - `src/ops/security_committee_vote.rs`
+    - 升级为 `seven_seat_committee_v3`
+    - 固定 6 名审议委员 + 1 名风控委员
+    - 为每席补齐 `member_id / seat_kind / execution_mode / execution_instance_id / process_id / evidence_version`
+    - 父进程通过 CLI 子进程逐席调用内部 seat agent，生成独立执行证据
+  - `src/tools/contracts.rs`
+    - 补 `ToolRequest: Serialize`
+    - 补 `ToolResponse: Deserialize`
+  - `src/tools/dispatcher.rs`
+  - `src/tools/dispatcher/stock_ops.rs`
+    - 接入内部 `security_committee_member_agent` 分发
+  - `tests/security_committee_vote_cli.rs`
+  - `tests/security_analysis_resonance_cli.rs`
+    - 升级测试到 7 席合同，并把 briefing 联动测试改成“比较稳定语义 + 单独校验独立执行证明”
+- 本轮重新验证的命令：
+  - `cargo test --test security_committee_vote_cli security_committee_vote_exposes_seven_seat_independent_execution -- --nocapture`
+    - 结果：通过，红测翻绿
+  - `cargo test --test security_committee_vote_cli -- --nocapture`
+    - 结果：通过，`7 passed; 0 failed`
+  - `cargo test --test security_analysis_resonance_cli security_committee_vote_consumes_briefing_payload_with_historical_digest -- --nocapture`
+    - 结果：通过
+  - `cargo test --test security_analysis_resonance_cli security_decision_briefing_includes_default_committee_recommendations_for_all_modes -- --nocapture`
+    - 结果：通过
+- 当前已知边界：
+  - `process_id / execution_instance_id` 是每次独立执行生成的动态证明，不应再被拿来和另一轮重新执行做整对象全等。
+  - 当前仍存在仓库历史 `dead_code` warning，本轮没有顺手清理，避免把结构升级与大范围警告治理混在一起。

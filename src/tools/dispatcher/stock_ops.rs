@@ -17,7 +17,8 @@ use crate::ops::stock::security_analysis_resonance::{
     evaluate_security_resonance, register_resonance_factor, security_analysis_resonance,
 };
 use crate::ops::stock::security_committee_vote::{
-    SecurityCommitteeVoteRequest, security_committee_vote,
+    SecurityCommitteeMemberAgentRequest, SecurityCommitteeVoteRequest,
+    security_committee_member_agent, security_committee_vote,
 };
 use crate::ops::stock::security_decision_briefing::{
     SecurityDecisionBriefingRequest, security_decision_briefing,
@@ -146,6 +147,20 @@ pub(super) fn dispatch_security_committee_vote(args: Value) -> ToolResponse {
     };
 
     match security_committee_vote(&request) {
+        Ok(result) => ToolResponse::ok_serialized(&result),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+// 2026-04-08 CST: 这里补七席委员会内部 seat agent 分发，原因是独立执行证明要求每个委员都经由单独 CLI 子进程产出投票；
+// 目的：把内部子进程调用也绑定在现有 stock dispatcher 上，保证委员会正式入口仍然只有 briefing 与 vote 两层，对外不新增目录噪音。
+pub(super) fn dispatch_security_committee_member_agent(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityCommitteeMemberAgentRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_committee_member_agent(&request) {
         Ok(result) => ToolResponse::ok_serialized(&result),
         Err(error) => ToolResponse::error(error.to_string()),
     }

@@ -129,3 +129,42 @@
 ## 11. 一句话结论
 
 当前证券分析主线已经不是“单证券技术面 demo”，而是一个能跑通 `技术面 -> 环境 -> 财报/公告 -> 综合结论` 的本地产品链；后续 AI 要做的是沿这条链继续加深，而不是重开一套分析架构。
+## 12. 2026-04-08 七席委员会 V3 补充
+
+- 当前正式投决主链：
+  - `security_decision_briefing`
+  - `security_committee_vote`
+- 不要恢复旧 `security_decision_committee` 主链，也不要再造第二套正式投决入口。
+- `security_committee_vote` 当前已升级为：
+  - `committee_engine = "seven_seat_committee_v3"`
+  - `6 名审议委员 + 1 名风控委员`
+  - 固定席位：
+    - `chair`
+    - `fundamental_reviewer`
+    - `technical_reviewer`
+    - `event_reviewer`
+    - `valuation_reviewer`
+    - `execution_reviewer`
+    - `risk_officer`
+- “如何证明独立”当前依赖的正式证据字段：
+  - 每席 `execution_mode == "child_process"`
+  - 每席都有真实 `process_id`
+  - 每席都有唯一 `execution_instance_id`
+  - 同一轮 vote 的 7 个 `process_id` 唯一
+  - 同一轮 vote 的 7 个 `execution_instance_id` 唯一
+- 关键代码入口：
+  - `src/ops/security_committee_vote.rs`
+  - `src/tools/dispatcher.rs`
+  - `src/tools/dispatcher/stock_ops.rs`
+  - `tests/security_committee_vote_cli.rs`
+  - `tests/security_analysis_resonance_cli.rs`
+- 本轮特别修过的坑：
+  - integration test 里的直接函数调用，`current_exe()` 不一定是 `excel_skill.exe`
+  - 需要从测试 harness 邻近目录回推正式二进制，才能让 direct call 也复用真实 child process 路径
+  - `briefing` 内嵌 vote 与重新执行 vote 的稳定语义应一致，但 `process_id / execution_instance_id` 不能再做全等比较
+- 下次接手建议先读：
+  - `docs/plans/2026-04-08-security-committee-vote-seven-seat-design.md`
+  - `docs/plans/2026-04-08-security-committee-vote-seven-seat.md`
+  - `src/ops/security_committee_vote.rs`
+  - `tests/security_committee_vote_cli.rs`
+  - `tests/security_analysis_resonance_cli.rs`
