@@ -2915,3 +2915,20 @@
 - 已完成 Task 8-10 的安全回带提交准备。
 - 已完成 foundation 最小导航基线在 clean branch 上的闭环交付。
 - 已完成当前基础骨架阶段到增强阶段的 handoff 切换。
+## 2026-04-08
+### 修改内容
+- 在 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout` 上补做 fresh verification，不再复用 `C:` 盘空间不足的旧编译目录，改为独立设置 `CARGO_TARGET_DIR=D:\Rust\cargo-targets\foundation-kernel-closeout`，确保安全回带分支可以在不碰原脏工作区的前提下完成验证。
+- 已执行 `cargo test --test navigation_pipeline_integration -- --nocapture`，确认导航主链集成测试 `2/2` 通过。
+- 已执行 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，确认 foundation 最小全集 `19/19` 通过。
+### 修改原因
+- 上一轮安全回带已经完成提交与 cherry-pick，但 fresh verification 被 `C:` 盘剩余空间仅约 `0.07 GB` 的环境问题阻塞，必须补一轮独立验证，才能诚实地说明 `1 -> 2` 已经真正收口。
+- 这轮优先切换到 `D:` 盘独立构建目录，而不是清理用户当前工作区或删除源码，是为了继续遵守“不要碰原工作区脏改动、不混入并行 security 线”的约束。
+### 方案还差什么?
+- [ ] 安全回带分支 `codex/foundation-navigation-kernel-closeout` 还没有按用户指令决定是否继续推送到 GitHub 或合并回其他目标分支。
+- [ ] foundation 主线后续仍待进入 metadata-aware filtering 与 provider-based enhancement 阶段，但这已经超出本轮 `1 -> 2` 的收尾范围。
+### 潜在问题
+- [ ] 当前验证依赖 `D:\Rust\cargo-targets\foundation-kernel-closeout` 这套独立构建产物目录；如果后续要长期复用，需要统一约定 target 清理策略，避免 `D:` 盘编译产物继续膨胀。
+- [ ] 测试通过时仍会打印仓库既有的 `dispatcher` 未使用 warning，这不是本轮回带引入的问题，但后续若要提升可维护性，建议单独立题处理。
+### 关闭项
+- 已完成安全回带分支在独立 `D:` 盘构建目录下的 fresh verification。
+- 已确认 `1 -> 2` 这一轮的“整理提交 + 安全带回 + fresh verification”闭环完成。
