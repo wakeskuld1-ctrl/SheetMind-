@@ -4738,8 +4738,9 @@ fn report_delivery_export_freezes_title_and_header_rows() {
 
     // 2026-03-24: 这里先锁定带标题区的 report_delivery 页会冻结到首个数据行之前，原因是客户滚动台账时不能丢掉标题和表头；目的是把交付表从“能看”推进到“更适合直接使用”。
     assert!(sheet_xml.contains("state=\"frozen\""));
+    assert!(sheet_xml.contains("xSplit=\"1\""));
     assert!(sheet_xml.contains("ySplit=\"3\""));
-    assert!(sheet_xml.contains("topLeftCell=\"A4\""));
+    assert!(sheet_xml.contains("topLeftCell=\"B4\""));
 }
 
 #[test]

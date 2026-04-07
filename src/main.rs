@@ -1,9 +1,14 @@
 use std::io::{self, Read};
 
 use encoding_rs::GBK;
+use excel_skill::license::service::{LicenseService, LicenseServiceError};
+use excel_skill::license::types::{
+    LicenseActivateRequest, LicenseDeactivateResult, LicenseStatusRequest,
+};
 use excel_skill::tool_catalog_json;
 use excel_skill::tools::contracts::{ToolRequest, ToolResponse};
 use excel_skill::tools::dispatcher::dispatch;
+use serde_json::json;
 
 fn main() {
     let mut input_bytes = Vec::new();
@@ -32,10 +37,71 @@ fn main() {
 
 fn handle_request_input(input: String) -> ToolResponse {
     match serde_json::from_str::<ToolRequest>(&input) {
-        Ok(request) => dispatch(request),
+        Ok(request) => handle_tool_request(request),
         Err(error) => ToolResponse::error(format!(
             "\u{8bf7}\u{6c42} JSON \u{89e3}\u{6790}\u{5931}\u{8d25}: {error}"
         )),
+    }
+}
+
+fn handle_tool_request(request: ToolRequest) -> ToolResponse {
+    // 2026-03-29 CST: 这里把授权门禁挂在主入口，原因是 Lemon 授权属于 EXE 级别的运行前校验，
+    // 目的：不侵入现有 Excel / 分析 Tool 业务实现，就能统一拦截未授权调用。
+    let service = LicenseService::from_env();
+
+    match request.tool.as_str() {
+        "license_activate" => handle_license_activate(service, request.args),
+        "license_status" => handle_license_status(service, request.args),
+        "license_deactivate" => handle_license_deactivate(service),
+        _ => match service.enforce_tool_access(&request.tool) {
+            Ok(_) => dispatch(request),
+            Err(error) => ToolResponse::error(error.to_string()),
+        },
+    }
+}
+
+fn handle_license_activate(service: LicenseService, args: serde_json::Value) -> ToolResponse {
+    // 2026-03-29 CST: 这里把激活请求解析放在主入口，原因是授权工具和普通业务 Tool 不同，属于进程级控制面；
+    // 目的：让激活、状态、反激活都共用同一套授权服务，而不是再塞进业务 dispatcher。
+    let request = match serde_json::from_value::<LicenseActivateRequest>(args) {
+        Ok(request) => request,
+        Err(error) => {
+            return ToolResponse::error(format!("license_activate 参数解析失败: {error}"));
+        }
+    };
+
+    match service.activate(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+fn handle_license_status(service: LicenseService, args: serde_json::Value) -> ToolResponse {
+    let request = match serde_json::from_value::<LicenseStatusRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("license_status 参数解析失败: {error}")),
+    };
+
+    match service.status(request.refresh) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+fn handle_license_deactivate(service: LicenseService) -> ToolResponse {
+    match service.deactivate() {
+        Ok(LicenseDeactivateResult {
+            licensed,
+            deactivated,
+            message,
+        }) => ToolResponse::ok(json!({
+            "licensed": licensed,
+            "deactivated": deactivated,
+            "message": message
+        })),
+        Err(LicenseServiceError::Store(error)) => ToolResponse::error(error.to_string()),
+        Err(LicenseServiceError::Client(error)) => ToolResponse::error(error.to_string()),
+        Err(error) => ToolResponse::error(error.to_string()),
     }
 }
 

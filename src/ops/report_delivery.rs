@@ -5,7 +5,8 @@ use thiserror::Error;
 use crate::frame::chart_ref_store::{PersistedChartDraft, PersistedChartType};
 use crate::frame::workbook_ref_store::{
     PersistedWorkbookChartSpec, PersistedWorkbookChartType, PersistedWorkbookDraft,
-    PersistedWorkbookLegendPosition, WorkbookRefStoreError, WorkbookSheetInput,
+    PersistedWorkbookLegendPosition, PersistedWorkbookSheetExportOptions,
+    PersistedWorkbookSheetKind, WorkbookRefStoreError, WorkbookSheetInput,
 };
 
 #[derive(Debug)]
@@ -13,6 +14,8 @@ pub struct ReportDeliverySection {
     pub sheet_name: String,
     pub source_refs: Vec<String>,
     pub dataframe: DataFrame,
+    // 2026-03-24: 这里补充交付格式意图，原因是 report_delivery 段内 format 已经可以描述交付偏好；目的是让 workbook 草稿在导出前就冻结这些规则。
+    pub export_options: Option<PersistedWorkbookSheetExportOptions>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,7 +75,7 @@ pub struct ReportDeliveryChart {
 }
 
 pub fn chart_ref_to_report_delivery_chart(draft: &PersistedChartDraft) -> ReportDeliveryChart {
-    // 2026-03-24: 这里把 chart_ref 草稿桥接成 report_delivery 图表对象，原因是方案 A 要统一独立图表与 workbook 交付的规格表达；目的是让 dispatcher 只做装配，不再内嵌字段映射细节。
+    // 2026-03-24: 杩欓噷鎶?chart_ref 鑽夌妗ユ帴鎴?report_delivery 鍥捐〃瀵硅薄锛屽師鍥犳槸鏂规 A 瑕佺粺涓€鐙珛鍥捐〃涓?workbook 浜や粯鐨勮鏍艰〃杈撅紱鐩殑鏄 dispatcher 鍙仛瑁呴厤锛屼笉鍐嶅唴宓屽瓧娈垫槧灏勭粏鑺傘€?
     ReportDeliveryChart {
         chart_ref: Some(draft.chart_ref.clone()),
         source_refs: draft.source_refs.clone(),
@@ -115,19 +118,19 @@ pub struct ReportDeliveryRequest {
 
 #[derive(Debug, Error)]
 pub enum ReportDeliveryError {
-    #[error("report_delivery 的 report_name 不能为空")]
+    #[error("report_delivery 鐨?report_name 涓嶈兘涓虹┖")]
     EmptyReportName,
-    #[error("report_delivery 的图表页名称不能为空")]
+    #[error("report_delivery 鐨勫浘琛ㄩ〉鍚嶇О涓嶈兘涓虹┖")]
     EmptyChartSheetName,
     #[error("report_delivery 在关闭图表页时不能同时请求真实图表")]
     ChartsRequireChartSheet,
-    #[error("report_delivery 的图表字段不能为空: {0}")]
+    #[error("report_delivery 鐨勫浘琛ㄥ瓧娈典笉鑳戒负绌? {0}")]
     EmptyChartColumn(String),
     #[error("report_delivery 的图表至少需要一个数值系列")]
     EmptyChartSeries,
     #[error("report_delivery 的 pie 图暂时只支持一个数值系列")]
     PieChartRequiresSingleSeries,
-    #[error("report_delivery 无法构建 workbook 草稿: {0}")]
+    #[error("report_delivery 鏃犳硶鏋勫缓 workbook 鑽夌: {0}")]
     BuildWorkbook(#[from] WorkbookRefStoreError),
 }
 
@@ -150,12 +153,15 @@ pub fn build_report_delivery_draft(
     let chart_sheet_name = request.chart_sheet_name.clone();
     let report_subtitle = request.report_subtitle.clone();
 
-    // 2026-03-23: 这里先把摘要页和分析页始终固化进 workbook 草稿，原因是结果交付模板的骨架要稳定；目的是让上层只扩展图表元数据，而不反复改多 Sheet 壳层。
+    // 2026-03-23: 杩欓噷鍏堟妸鎽樿椤靛拰鍒嗘瀽椤靛缁堝浐鍖栬繘 workbook 鑽夌锛屽師鍥犳槸缁撴灉浜や粯妯℃澘鐨勯鏋惰绋冲畾锛涚洰鐨勬槸璁╀笂灞傚彧鎵╁睍鍥捐〃鍏冩暟鎹紝鑰屼笉鍙嶅鏀瑰 Sheet 澹冲眰銆?
     let mut worksheets = vec![
         WorkbookSheetInput {
             sheet_name: request.summary.sheet_name,
             source_refs: request.summary.source_refs,
             dataframe: request.summary.dataframe,
+            // 2026-03-24: 这里把摘要页明确标成数据页，原因是后续导出质量规则要对数据页生效；目的是让冻结首列、筛选等行为不再依赖页名猜测。
+            sheet_kind: PersistedWorkbookSheetKind::DataSheet,
+            export_options: request.summary.export_options,
             title: Some(request.report_name.clone()),
             subtitle: report_subtitle
                 .clone()
@@ -166,6 +172,9 @@ pub fn build_report_delivery_draft(
             sheet_name: request.analysis.sheet_name,
             source_refs: request.analysis.source_refs,
             dataframe: request.analysis.dataframe,
+            // 2026-03-24: 这里把分析页明确标成数据页，原因是分析结果通常仍是宽表浏览场景；目的是让数据页交付规则在 report_delivery 中自动落地。
+            sheet_kind: PersistedWorkbookSheetKind::DataSheet,
+            export_options: request.analysis.export_options,
             title: Some(request.report_name.clone()),
             subtitle: report_subtitle
                 .clone()
@@ -175,11 +184,14 @@ pub fn build_report_delivery_draft(
     ];
 
     if request.include_chart_sheet {
-        // 2026-03-23: 这里保留图表页的数据占位表，原因是图表导出前仍需要一个稳定的目标 worksheet；目的是让真实图表写入与无图表模板共用同一页签入口。
+        // 2026-03-23: 杩欓噷淇濈暀鍥捐〃椤电殑鏁版嵁鍗犱綅琛紝鍘熷洜鏄浘琛ㄥ鍑哄墠浠嶉渶瑕佷竴涓ǔ瀹氱殑鐩爣 worksheet锛涚洰鐨勬槸璁╃湡瀹炲浘琛ㄥ啓鍏ヤ笌鏃犲浘琛ㄦā鏉垮叡鐢ㄥ悓涓€椤电鍏ュ彛銆?
         worksheets.push(WorkbookSheetInput {
             sheet_name: chart_sheet_name.clone(),
             source_refs: vec!["report_delivery#chart_sheet".to_string()],
             dataframe: build_chart_sheet_dataframe(&request.report_name, request.charts.len()),
+            // 2026-03-24: 这里把图表页显式标成 chart_sheet，原因是图表页不该机械套用数据页的首列冻结规则；目的是给后续页类型差异化布局留出稳定抓手。
+            sheet_kind: PersistedWorkbookSheetKind::ChartSheet,
+            export_options: None,
             title: None,
             subtitle: None,
             data_start_row: 0,
@@ -276,7 +288,7 @@ fn resolve_chart_anchor(index: usize, chart: &ReportDeliveryChart) -> (u32, u16)
         return (chart.anchor_row.unwrap_or(1), chart.anchor_col.unwrap_or(0));
     }
 
-    // 2026-03-23: 这里把多图默认布局成两列网格，原因是单列竖排会让第二张图很快被折到视野外；目的是给第一版交付一个可读的默认布局。
+    // 2026-03-23: 杩欓噷鎶婂鍥鹃粯璁ゅ竷灞€鎴愪袱鍒楃綉鏍硷紝鍘熷洜鏄崟鍒楃珫鎺掍細璁╃浜屽紶鍥惧緢蹇鎶樺埌瑙嗛噹澶栵紱鐩殑鏄粰绗竴鐗堜氦浠樹竴涓彲璇荤殑榛樿甯冨眬銆?
     let grid_row = (index / 2) as u32;
     let grid_col = (index % 2) as u16;
     (1 + grid_row * 16, grid_col * 8)

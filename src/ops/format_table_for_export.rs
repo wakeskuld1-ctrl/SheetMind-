@@ -6,9 +6,13 @@ use thiserror::Error;
 
 use crate::domain::handles::TableHandle;
 use crate::frame::loader::LoadedTable;
+use crate::frame::workbook_ref_store::{
+    PersistedWorkbookColumnConditionalFormatRule, PersistedWorkbookColumnNumberFormatRule,
+};
 use crate::ops::rename::{RenameColumnError, RenameColumnMapping, rename_columns};
 
-// 2026-03-22: 这里定义导出前整理选项，目的是把“列顺序、表头别名、是否裁剪多余列”收口成一个稳定契约。
+// 2026-03-24: 这里重写导出整理选项定义，原因是历史乱码把 derive 属性吞进注释后已经破坏编译；
+// 目的是先恢复 format_table_for_export 的稳定语法边界，再继续承接数字格式元数据。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 pub struct ExportFormatOptions {
     #[serde(default)]
@@ -16,10 +20,15 @@ pub struct ExportFormatOptions {
     #[serde(default)]
     pub rename_mappings: Vec<RenameColumnMapping>,
     #[serde(default)]
+    pub number_formats: Vec<PersistedWorkbookColumnNumberFormatRule>,
+    #[serde(default)]
+    pub conditional_formats: Vec<PersistedWorkbookColumnConditionalFormatRule>,
+    #[serde(default)]
     pub drop_unspecified_columns: bool,
 }
 
-// 2026-03-22: 这里定义导出整理错误，目的是把列顺序配置错误、结果构建失败和重命名错误分层暴露。
+// 2026-03-24: 这里重写导出整理错误类型，原因是历史坏行把 Error derive 一起吞掉；
+// 目的是保留现有行为边界，同时让上层 dispatcher 能继续复用这些错误语义。
 #[derive(Debug, Error)]
 pub enum FormatTableForExportError {
     #[error("format_table_for_export 的 column_order 存在重复列: {0}")]
@@ -32,7 +41,8 @@ pub enum FormatTableForExportError {
     Rename(#[from] RenameColumnError),
 }
 
-// 2026-03-22: 这里执行导出前整理，目的是把“交付给客户看的列布局”在真正写文件前先沉淀成可复用结果表。
+// 2026-03-24: 这里恢复导出前整理主流程，原因是历史注释已把函数签名损坏；
+// 目的是继续维持“列顺序 -> 重建 DataFrame -> 可选重命名”的稳定执行顺序。
 pub fn format_table_for_export(
     loaded: &LoadedTable,
     options: &ExportFormatOptions,
@@ -41,8 +51,10 @@ pub fn format_table_for_export(
     let frame_columns = build_ordered_columns(loaded, &ordered_columns)?;
     let dataframe = DataFrame::new(frame_columns)
         .map_err(|error| FormatTableForExportError::BuildFrame(error.to_string()))?;
+
     let ordered_loaded = LoadedTable {
-        // 2026-03-22: 这里先按原列名重建 handle，目的是让后续 rename 校验仍基于真实源列口径执行。
+        // 2026-03-24: 这里按最终列顺序重建 handle，原因是后续 rename 校验必须基于可见列集合；
+        // 目的是保证 format_table_for_export 输出的 handle 与 dataframe 一致。
         handle: TableHandle::new_confirmed(
             loaded.handle.source_path(),
             loaded.handle.sheet_name(),
@@ -58,7 +70,8 @@ pub fn format_table_for_export(
     }
 }
 
-// 2026-03-22: 这里先解析最终导出列顺序，目的是让“显式列顺序 + 可选保留剩余列”的语义在进入数据重建前就固定下来。
+// 2026-03-24: 这里解析最终列顺序，原因是导出层既要支持显式列顺序，也要支持保留剩余列；
+// 目的是先把列布局语义冻结，再进入 DataFrame 重建阶段。
 fn resolve_column_order(
     loaded: &LoadedTable,
     options: &ExportFormatOptions,
@@ -95,7 +108,8 @@ fn resolve_column_order(
     Ok(ordered)
 }
 
-// 2026-03-22: 这里按确定好的列顺序重建表，目的是让 workbook 组装层拿到的就是稳定、面向交付的列布局。
+// 2026-03-24: 这里按既定列顺序重建 Polars 列集合，原因是导出整理只应做结构编排，不应改值；
+// 目的是让上层 workbook/report_delivery 直接拿到稳定的结果表。
 fn build_ordered_columns(
     loaded: &LoadedTable,
     ordered_columns: &[String],

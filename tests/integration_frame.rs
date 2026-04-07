@@ -9,7 +9,7 @@ use excel_skill::frame::region_loader::load_table_region;
 use excel_skill::frame::registry::TableRegistry;
 use excel_skill::frame::table_ref_store::PersistedTableRef;
 use excel_skill::frame::workbook_ref_store::{
-    PersistedWorkbookDraft, WorkbookDraftStore, WorkbookSheetInput,
+    PersistedWorkbookDraft, PersistedWorkbookSheetKind, WorkbookDraftStore, WorkbookSheetInput,
 };
 use excel_skill::ops::analyze::analyze_table;
 use excel_skill::ops::append::append_tables;
@@ -895,6 +895,8 @@ fn format_table_for_export_reorders_and_renames_columns() {
                     to: "瀹㈡埛ID".to_string(),
                 },
             ],
+            number_formats: vec![],
+            conditional_formats: vec![],
             drop_unspecified_columns: false,
         },
     )
@@ -939,6 +941,8 @@ fn format_table_for_export_drops_unspecified_columns_when_requested() {
         &ExportFormatOptions {
             column_order: vec!["user_id".to_string(), "sales".to_string()],
             rename_mappings: vec![],
+            number_formats: vec![],
+            conditional_formats: vec![],
             drop_unspecified_columns: true,
         },
     )
@@ -970,6 +974,8 @@ fn format_table_for_export_reports_missing_column_in_column_order() {
         &ExportFormatOptions {
             column_order: vec!["region".to_string()],
             rename_mappings: vec![],
+            number_formats: vec![],
+            conditional_formats: vec![],
             drop_unspecified_columns: false,
         },
     )
@@ -995,6 +1001,8 @@ fn workbook_draft_roundtrip_preserves_multiple_sheets() {
                     Series::new("閿€鍞".into(), vec![Some("120"), Some("95")]).into(),
                 ])
                 .unwrap(),
+                sheet_kind: PersistedWorkbookSheetKind::DataSheet,
+                export_options: None,
                 title: None,
                 subtitle: None,
                 data_start_row: 0,
@@ -1007,6 +1015,8 @@ fn workbook_draft_roundtrip_preserves_multiple_sheets() {
                     Series::new("浜у搧".into(), vec![Some("A"), Some("B")]).into(),
                 ])
                 .unwrap(),
+                sheet_kind: PersistedWorkbookSheetKind::DataSheet,
+                export_options: None,
                 title: None,
                 subtitle: None,
                 data_start_row: 0,
@@ -1043,6 +1053,8 @@ fn export_excel_workbook_writes_all_sheets_from_draft() {
                     Series::new("sales".into(), vec![Some("120"), Some("95")]).into(),
                 ])
                 .unwrap(),
+                sheet_kind: PersistedWorkbookSheetKind::DataSheet,
+                export_options: None,
                 title: None,
                 subtitle: None,
                 data_start_row: 0,
@@ -1055,6 +1067,8 @@ fn export_excel_workbook_writes_all_sheets_from_draft() {
                     Series::new("product".into(), vec![Some("A"), Some("B")]).into(),
                 ])
                 .unwrap(),
+                sheet_kind: PersistedWorkbookSheetKind::DataSheet,
+                export_options: None,
                 title: None,
                 subtitle: None,
                 data_start_row: 0,
@@ -1099,6 +1113,7 @@ fn report_delivery_builds_standard_template_draft() {
                     Series::new("\u{503c}".into(), vec![Some("2"), Some("215")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             analysis: ReportDeliverySection {
                 sheet_name: "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}".to_string(),
@@ -1108,6 +1123,7 @@ fn report_delivery_builds_standard_template_draft() {
                     Series::new("sales".into(), vec![Some("120"), Some("95")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             include_chart_sheet: true,
             chart_sheet_name: "\u{56fe}\u{8868}\u{9875}".to_string(),
@@ -1159,6 +1175,7 @@ fn report_delivery_can_build_template_without_chart_sheet() {
                     Series::new("\u{503c}".into(), vec![Some("2")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             analysis: ReportDeliverySection {
                 sheet_name: "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}".to_string(),
@@ -1168,6 +1185,7 @@ fn report_delivery_can_build_template_without_chart_sheet() {
                     Series::new("sales".into(), vec![Some("120"), Some("95")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             include_chart_sheet: false,
             chart_sheet_name: "\u{56fe}\u{8868}\u{9875}".to_string(),
@@ -1205,6 +1223,7 @@ fn report_delivery_builds_chart_specs_for_analysis_sheet() {
                     Series::new("\u{503c}".into(), vec![Some("3")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             analysis: ReportDeliverySection {
                 sheet_name: "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}".to_string(),
@@ -1214,6 +1233,7 @@ fn report_delivery_builds_chart_specs_for_analysis_sheet() {
                     Series::new("sales".into(), vec![Some("120"), Some("95")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             include_chart_sheet: true,
             chart_sheet_name: "\u{56fe}\u{8868}\u{9875}".to_string(),
@@ -1274,6 +1294,7 @@ fn report_delivery_builds_multi_series_chart_specs() {
                     Series::new("\u{503c}".into(), vec![Some("3")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             analysis: ReportDeliverySection {
                 sheet_name: "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}".to_string(),
@@ -1284,6 +1305,7 @@ fn report_delivery_builds_multi_series_chart_specs() {
                     Series::new("profit".into(), vec![Some("35"), Some("28")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             include_chart_sheet: true,
             chart_sheet_name: "\u{56fe}\u{8868}\u{9875}".to_string(),
@@ -1348,6 +1370,7 @@ fn report_delivery_auto_layouts_multiple_charts_into_grid() {
                     Series::new("\u{503c}".into(), vec![Some("3")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             analysis: ReportDeliverySection {
                 sheet_name: "\u{5206}\u{6790}\u{7ed3}\u{679c}\u{9875}".to_string(),
@@ -1358,6 +1381,7 @@ fn report_delivery_auto_layouts_multiple_charts_into_grid() {
                     Series::new("profit".into(), vec![Some("35"), Some("28")]).into(),
                 ])
                 .unwrap(),
+                export_options: None,
             },
             include_chart_sheet: true,
             chart_sheet_name: "\u{56fe}\u{8868}\u{9875}".to_string(),

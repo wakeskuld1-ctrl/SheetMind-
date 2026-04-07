@@ -1,555 +1,113 @@
-<!-- 2026-03-23: 新增这份双语 README，原因是用户准备发 GitHub 并开始宣发；目的是把产品价值、能力边界和试用入口整理成适合外部访客阅读的首页文案。 -->
-# SheetMind
+# SheetMind / Excel_Skill
 
-**Turn messy Excel work into structured analysis through a Rust binary-first, Skill-driven workflow.**  
-**通过“Rust 二进制优先 + Skill 编排”的方式，把杂乱 Excel 工作流收口成可复用的数据分析流程。**
+`SheetMind / Excel_Skill` is a Rust-first Excel analysis and foundation-capability repository.
 
-## 中文简介
+The current priority is not to keep expanding scattered business scenarios. The priority is to stabilize a reusable base that can support table processing, analysis, report delivery, and future domain extensions through a cleaner architecture.
 
-SheetMind 是一个面向普通业务用户的本地 Excel 智能分析系统。
+## Current Product Direction
 
-它的目标不是让用户学习 Python、pandas 或复杂数据工具，而是让用户通过自然语言和最少确认动作，就能完成：
+The current mainline is:
 
-- Excel 读取与表头确认
-- 单表整理、筛选、汇总
-- 多表追加与显性关联
-- 统计摘要与质量诊断
-- 线性回归、逻辑回归、聚类
-- 下一步建议与优先级解释
+- Rust / EXE / CLI-first delivery
+- foundation-first evolution
+- reusable Excel-oriented table, analysis, and report capabilities
+- business-agnostic navigation flow: `ontology-lite -> roaming -> retrieval -> evidence assembly`
 
-整个运行主链路坚持一个原则：
+Python historical materials may still exist in the repository, but they are not the current product mainline.
 
-- **客户侧正式运行只接受 Rust 二进制**
-- **不要求用户安装 Python**
-- **不依赖 pandas、Jupyter、Node 或其他脚本环境**
+## Read First
 
-## English Overview
+If you are a new AI session or a new engineer, start here:
 
-SheetMind is a local, binary-first Excel analysis system designed for non-technical business users.
+1. [AI_START_HERE.md](./AI_START_HERE.md)
+2. [docs/ai-memory/project-baseline.md](./docs/ai-memory/project-baseline.md)
+3. [docs/ai-handoff/AI_HANDOFF_MANUAL.md](./docs/ai-handoff/AI_HANDOFF_MANUAL.md)
+4. [docs/execution-notes-2026-04-07-foundation-navigation-kernel.md](./docs/execution-notes-2026-04-07-foundation-navigation-kernel.md)
+5. [docs/architecture/cli-modularization.md](./docs/architecture/cli-modularization.md)
 
-Instead of forcing users to learn Python, pandas, notebooks, or engineering-style data workflows, it lets them work through natural-language prompts and a small number of confirmation steps to complete:
+## What This Repository Is For
 
-- Excel ingestion and header confirmation
-- Single-table cleanup, filtering, and aggregation
-- Multi-table append and explicit joins
-- Statistical summaries and quality diagnostics
-- Linear regression, logistic regression, and clustering
-- Next-step recommendations and decision support
+This repository currently carries four closely related capability lines:
 
-The core runtime rule is simple:
+### 1. Excel and Table Processing
 
-- **Customer-facing execution is Rust binary only**
-- **No Python installation is required**
-- **No pandas, Jupyter, Node, or external scripting runtime is part of the product path**
+- workbook open and table loading
+- preview, filtering, sorting, grouping, and append/join flows
+- structured source references such as `file_ref`, `table_ref`, `result_ref`, and `workbook_ref`
 
-<!-- 2026-03-23: 新增这一段，原因是 GitHub 首页仍可能让普通用户误以为需要装 Rust/cargo；目的是把“用户入口”和“开发者构建入口”彻底分开。 -->
-## Delivery Rule / 交付规则
+### 2. Analysis and Modeling
 
-### 中文
+- statistical summary and diagnostics
+- regression and clustering workflows
+- report-oriented result shaping
 
-- 普通用户只使用预编译二进制，不直接接触源码工程。
-- 普通用户不需要安装 Rust。
-- 普通用户不需要安装 cargo。
-- 普通用户也不需要安装 Python、pandas、Jupyter 或 Node。
+### 3. Runtime and Delivery
 
-### English
+- session-aware local execution
+- structured CLI JSON contracts
+- workbook/report export pipeline
 
-- Ordinary users should use a prebuilt binary instead of the source workspace.
-- Ordinary users do not need to install Rust.
-- Ordinary users do not need to install cargo.
-- Ordinary users also do not need Python, pandas, Jupyter, or Node.
+### 4. Foundation Navigation Kernel
 
-## Why This Exists / 为什么做这个
+The current foundation work is moving along this fixed order:
 
-### 中文
+`ontology-lite -> roaming -> retrieval -> evidence assembly`
 
-大量 Excel 用户并不是 IT 人员，但他们每天都在处理真实业务数据。
+Current implemented foundation modules include:
 
-他们通常面临三个问题：
+- `ontology_schema`
+- `ontology_store`
+- `knowledge_record`
+- `knowledge_graph_store`
+- `capability_router`
+- `roaming_engine`
+- `retrieval_engine`
 
-1. 数据就在 Excel 里，但很难稳定整理
-2. 想做更高级分析，却被 Python 环境、脚本、安装过程拦住
-3. 即使有模型能力，也很难把“表处理 -> 分析建模 -> 决策建议”串成一条自然链路
+Do not treat retrieval as the system entry point, and do not restart architecture refactors without clear proof that the current baseline cannot carry the next requirement.
 
-Excel Skill 的定位，就是把这条链路做成本地、可交付、低部署成本的产品能力。
+## Repository Structure
 
-### English
+- `src/`: Rust application, CLI, runtime, tools, and foundation modules
+- `tests/`: Rust integration tests, unit tests, and runtime fixtures
+- `docs/`: plans, execution notes, acceptance records, and handoff materials
+- `skills/`: project-local skills and orchestration assets
+- `cli/`: historical CLI-related Python materials
+- `tradingagents/`: historical imported source materials, not the current product identity
 
-Many Excel-heavy users are not technical professionals, yet they deal with high-value business data every day.
+## Development Rules
 
-They usually face three problems:
+- Default to the Rust mainline
+- Keep foundation and application concerns separated
+- Prefer TDD and small verifiable steps
+- Do not re-architect by default when extending capabilities
+- Keep AI handoff materials continuously usable
 
-1. The data already lives in Excel, but cleanup and structuring are unstable
-2. More advanced analysis is blocked by Python environments, scripts, and setup friction
-3. Even when modeling exists, the full path from table processing to analysis to decision guidance is fragmented
+## Common Verification
 
-SheetMind is built to turn that path into a local, shippable, low-friction product workflow.
+### Check branch and worktree status
 
-## Core Capabilities / 核心能力
-
-### V1 Today / 当前 V1
-
-- Table processing / 表处理
-  - workbook open
-  - header inference and confirmation
-  - preview, filtering, column selection
-  - sorting, top-N, grouping and aggregation
-  - append tables
-  - explicit joins
-- Analysis and modeling / 分析建模
-  - summary profiling
-  - statistical summary
-  - quality diagnostics
-  - linear regression
-  - logistic regression
-  - k-means clustering
-- Decision support / 决策助手
-  - blocking risks
-  - next-step priorities
-  - tool suggestions based on current table state
-- Local memory / 本地记忆
-  - session state
-  - reusable `table_ref`
-  - stage-aware routing across Skills
-
-<!-- 2026-03-25: 这里补充结果交付能力说明，原因是本轮已经把条件格式表达从基础预警扩到区间阈值和复合键重复检查；目的是让 README 能准确反映当前 V1 补完后的可交付边界。 -->
-## Report Delivery / 结果交付
-
-### 中文
-
-当前 V1 补充版已经可以把分析结果继续收口成可交付的 Excel 工作簿，不只是“算完结果”，而是开始支持“把结果做成业务人员能直接看的报表”。
-
-当前可用能力包括：
-
-- `compose_workbook`：把多个结果表组织成一个 workbook 草稿
-- `report_delivery`：生成面向汇报的标题、摘要、分析页、图表页草稿
-- `export_excel_workbook`：把 workbook 草稿导出成 `.xlsx`
-- `format_table_for_export`：统一列顺序、列名、数字格式和导出前布局
-- `build_chart`：生成折线图、柱状图、饼图、散点图所需的图表草稿
-
-当前已经支持的条件格式类型：
-
-- `negative_red`
-- `null_warning`
-- `duplicate_warn`
-- `high_value_highlight`
-- `percent_low_warn`
-- `between_warn`
-- `composite_duplicate_warn`
-
-这些能力都走 Rust 二进制导出链路，Skill 只负责理解意图、组织调用顺序和解释结果，不负责任何实际计算。
-
-### English
-
-The current V1-plus build can now carry analysis outputs into deliverable Excel workbooks instead of stopping at raw computation.
-
-Available delivery capabilities include:
-
-- `compose_workbook` for workbook draft composition
-- `report_delivery` for report-oriented sheet assembly
-- `export_excel_workbook` for `.xlsx` export
-- `format_table_for_export` for export-ready table shaping
-- `build_chart` for line, column, pie, and scatter chart drafts
-
-Supported conditional format kinds:
-
-- `negative_red`
-- `null_warning`
-- `duplicate_warn`
-- `high_value_highlight`
-- `percent_low_warn`
-- `between_warn`
-- `composite_duplicate_warn`
-
-The delivery path remains Rust binary only. Skills orchestrate and explain; they do not compute.
-
-<!-- 2026-03-25: 这里补一个最小 JSON 示例，原因是 GitHub 访问者需要快速看懂“条件格式是怎么声明进去的”；目的是降低试用门槛，同时避免把实现细节写成长篇说明。 -->
-### Minimal JSON example / 最小 JSON 示例
-
-```json
-{
-  "tool": "compose_workbook",
-  "args": {
-    "worksheets": [
-      {
-        "sheet_name": "客户分析",
-        "source": { "result_ref": "result_ref_xxx" },
-        "format": {
-          "conditional_formats": [
-            { "column": "收入", "kind": "negative_red" },
-            {
-              "column": "毛利率",
-              "kind": "between_warn",
-              "min_threshold": "0",
-              "max_threshold": "0.15"
-            },
-            {
-              "columns": ["客户ID", "月份"],
-              "kind": "composite_duplicate_warn"
-            }
-          ]
-        }
-      }
-    ]
-  }
-}
-```
-## Why Rust Binary Only / 为什么坚持纯二进制
-
-### 中文
-
-我们选择 Rust，不是为了“炫技术”，而是为了交付形态。
-
-对目标用户来说，最重要的不是模型名词，而是：
-
-- 能不能直接运行
-- 会不会要求装环境
-- 出问题时能不能稳定落地
-
-所以这个项目明确拒绝把客户侧能力建立在 Python 环境之上。  
-Python 可以在研发阶段作为辅助工具存在，但**不能成为客户交付依赖**。
-
-### English
-
-Rust is not a branding choice here. It is a delivery choice.
-
-For the target audience, what matters is not the model vocabulary. What matters is:
-
-- Can it run directly?
-- Does it require environment setup?
-- Can it be delivered and supported reliably?
-
-That is why this project explicitly avoids making customer-facing capability depend on Python.  
-Python may exist as a development helper, but **it is not allowed to become a product runtime dependency**.
-
-## How It Works / 工作方式
-
-### 中文
-
-当前推荐的体验路径是三层：
-
-1. **表处理层**
-   - 先读 Excel
-   - 识别表头
-   - 建立确认态
-2. **分析建模层**
-   - 复用确认态 `table_ref`
-   - 做统计摘要、诊断、回归、聚类
-3. **决策助手层**
-   - 继续复用 `table_ref`
-   - 把当前结果翻译成下一步建议
-
-总入口 Skill 会在三层之间做路由，但不做计算。
-
-### English
-
-The current recommended user path is a three-layer flow:
-
-1. **Table Processing**
-   - open the workbook
-   - infer and confirm headers
-   - create a confirmed table state
-2. **Analysis & Modeling**
-   - reuse the confirmed `table_ref`
-   - run summaries, diagnostics, regressions, and clustering
-3. **Decision Assistant**
-   - continue reusing the same `table_ref`
-   - translate results into prioritized next actions
-
-The top-level orchestrator Skill routes between these layers, but does not perform computation.
-
-## Who It Is For / 适合谁
-
-### 中文
-
-- 以 Excel 为主工作界面的业务团队
-- 数据量不一定大，但流程复杂、表关系多的团队
-- 不希望部署 Python 环境的客户
-- 想把“会做 Excel”升级成“会做数据分析”的团队
-
-### English
-
-- Business teams that already live inside Excel
-- Teams with moderate data volume but messy multi-table workflows
-- Customers who do not want Python environment deployment
-- Organizations that want to upgrade from spreadsheet operations to guided analytics
-
-## Real-File Validation / 真实文件验收
-
-This repository already includes real-file acceptance writeups and artifacts.
-
-- Trial guide / 试用说明: `docs/acceptance/2026-03-22-customer-binary-trial-guide.md`
-- Real-file validation / 真实文件走查: `docs/acceptance/2026-03-22-v1-final-e2e-real-file.md`
-- Acceptance artifacts / 验收工件: `docs/acceptance/artifacts/2026-03-22-v1-final-e2e-real-file`
-- P0 risk-threshold trial guide: `docs/acceptance/2026-03-26-p0-join-risk-threshold-trial-guide.md`
-- P0 risk-threshold E2E record: `docs/acceptance/2026-03-26-p0-join-risk-threshold-e2e.md`
-- P0 risk-threshold artifacts: `docs/acceptance/artifacts/2026-03-26-p0-join-risk-threshold`
-- P1 ingress recovery E2E record: `docs/acceptance/2026-03-26-p1-ingress-recovery-e2e.md`
-- P1 ingress recovery regression gates: `docs/acceptance/2026-03-26-p1-ingress-recovery-regression-gates.md`
-- P1 ingress recovery artifacts: `docs/acceptance/artifacts/2026-03-26-p1-ingress-recovery`
-- P2 unknown failure observability E2E: `docs/acceptance/2026-03-26-p2-unknown-failure-e2e.md`
-- P2 unknown failure regression gates: `docs/acceptance/2026-03-26-p2-unknown-failure-regression-gates.md`
-- P2 unknown failure artifacts: `docs/acceptance/artifacts/2026-03-26-p2-unknown-failure`
-- Recovery regression one-shot runner: `scripts/run_recovery_regression_gates.ps1`
-
-The current acceptance evidence shows that V1 can already:
-
-- confirm a table structure
-- produce a reusable `table_ref`
-- continue analysis by `table_ref`
-- continue decision guidance by `table_ref`
-- recover ingress/runtime stops with deterministic A/B/C/D routing and unified UX wording
-- expose deterministic `failure_diagnostics` for unknown runtime/tool failure routing
-- provide deterministic state-sync/resume templates for unknown-failure recovery replay
-- support both blocked-step replay and full-chain resume templates after diagnostics
-- auto-provide full-chain continuation template once blocked-step replay succeeds
-- provide one-call recovery macro (`recover_multi_table_failure`) for replay + continuation
-- allow per-template recovery arg patching via `template_overrides` (or legacy `template_arg_overrides`)
-- expose `applied_template_overrides` / `ignored_template_overrides`, and support strict override key validation
-- support short-term warning forecast via `short_term_forecast_alert`
-- support period-over-period driver decomposition via `contribution_attribution`
-- support what-if impact comparison via `scenario_simulation`
-
-## Quick Start / 快速开始
-
-<!-- 2026-03-23: 重写 Quick Start，原因是原先把 cargo 放在首页主入口会让普通用户误解；目的是把“预编译二进制试用”和“开发者构建”明确拆开。 -->
-### Option A: Ordinary user trial / 普通用户试用
-
-If you are a business user or a customer-side trial user, start from the prebuilt binary path instead of the source code path.
-
-- Use the prebuilt executable delivered by the maintainer.
-- Start from the top-level Skill: `skills/excel-orchestrator-v1/SKILL.md`
-- Follow the customer binary trial flow: `docs/acceptance/2026-03-22-customer-binary-trial-guide.md`
-- Binary delivery guide: `docs/acceptance/2026-03-23-binary-delivery-guide.md`
-
-### Option B: Developer build / 开发者构建
-
-This path is only for maintainers, contributors, or local development. It is not a required step for ordinary users.
-
-Inspect the current tool catalog:
-
-```powershell
-cargo run --quiet
+```bash
+git status --short --branch
+git branch -vv
 ```
 
-Build the release binary:
+### Foundation regression sweep
 
-```powershell
-cargo build --release
+```bash
+cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit -- --nocapture
 ```
 
-Expected binary:
+## Not the Current Priority
 
-- `target/release/excel_skill.exe`
+This stage is not primarily about:
 
-### Option C: Skill-first walkthrough / 从总入口 Skill 开始
+- GUI-first intelligent Q&A
+- binding foundation to one single business domain
+- restarting large-scale architecture refactors for isolated scenarios
+- making cloud models a hard dependency
 
-Recommended top-level Skill:
+## Note for Future AI Sessions
 
-- `skills/excel-orchestrator-v1/SKILL.md`
+Do not trust the oldest historical naming in the repository as the current truth.
 
-Then follow:
-
-- `docs/acceptance/2026-03-22-customer-binary-trial-guide.md`
-- `docs/acceptance/2026-03-23-binary-delivery-guide.md`
-
-## Current V1 Boundaries / 当前 V1 边界
-
-### 中文
-
-- 中文路径恢复目前仍以规则层和宿主能力降级为主
-- 逻辑回归仍需要用户提供真正的二分类目标列
-- 决策助手给“下一步建议”，不替用户做最终经营拍板
-- 当前还不是 GUI 成品，更接近“可交付内核 + Skill 编排层”
-
-### English
-
-- Chinese-path recovery is still handled mainly through routing rules and host-level fallback logic
-- Logistic regression still requires a true binary target column
-- The decision assistant recommends next actions; it does not make final business decisions
-- This is not yet a polished GUI product; it is closer to a deliverable engine plus Skill orchestration layer
-
-## Roadmap / 路线图
-
-### Near-term / 近期
-
-- stronger join and multi-table planning
-- more robust entry recovery
-- cleaner customer-facing trial flow
-- binary-first packaging refinement
-- binary-first chart generation for common Excel visuals
-
-### Longer-term / 后续
-
-- simpler conversational UI
-- stronger local memory and lineage
-- richer modeling workflows
-- report-ready chart packs and guided visual outputs
-- better productized delivery around ordinary Excel users
-
-## Chart Capability Direction / 图表能力方向
-
-### 中文
-
-图表能力会作为下一阶段的重要补充方向，但会继续遵守“计算在 Rust Tool 层、交付以二进制为主”的原则。
-
-优先顺序会是：
-
-- 先支持基于确认后的表和分析结果生成常见图表
-- 优先覆盖折线图、饼图、柱状图、散点图等业务常用类型
-- 让用户通过问答生成更适合汇报和决策阅读的图形输出
-- 暂不把“读取并修改客户原始 Excel 内已有图表”作为近期承诺
-
-这意味着后续的产品链路会从“表处理 -> 分析建模 -> 决策建议”，进一步延伸到“图表表达与结果交付”。
-
-### English
-
-Chart capability is planned as a major next-stage extension, while keeping the same rule: computation stays in the Rust tool layer and delivery stays binary-first.
-
-The likely order is:
-
-- generate common charts from confirmed tables and analysis results first
-- prioritize line, pie, column, and scatter charts used in everyday business reporting
-- let users create more presentation-ready visual outputs through conversation
-- avoid promising near-term support for reading and modifying existing charts inside customer workbooks
-
-This extends the product path from table processing, analytics, and decision guidance into visual expression and deliverable-ready output.
-
-## Next Stage / 下一阶段
-
-### 中文
-
-下一阶段我们会优先推进这五件事：
-
-- 更强的多表计划与显性关联稳定性
-- 更稳的中文路径与文件入口恢复
-- 更简单的一体化问答入口体验
-- 面向汇报和交付的二进制优先图表生成能力
-- 更接近客户交付的二进制打包与试用流程
-
-目标不是单纯继续堆 Tool，而是把“表处理 -> 分析建模 -> 图表表达 -> 决策建议”这条链路做得更稳、更顺、更像真正能交付给普通业务团队的产品。
-
-### English
-
-The next stage will focus on five priorities:
-
-- stronger multi-table planning and explicit-join reliability
-- more robust Chinese-path and file-entry recovery
-- a simpler unified conversational entry experience
-- binary-first chart generation for reporting and deliverable output
-- cleaner binary packaging and customer trial flow
-
-The goal is not just to add more tools. It is to make the full path from table processing to analytics, visual output, and decision guidance more stable, smoother, and closer to a deliverable product for ordinary business teams.
-
-## Project Positioning / 项目定位
-
-**中文一句话：**  
-这是一个让普通 Excel 用户不用装 Python，也能通过问答方式获得高级数据处理与分析能力的本地二进制产品方向。
-
-**English one-liner:**  
-This is a local, binary-first product direction that helps ordinary Excel users gain advanced data-processing and analytics capability without installing Python.
-
-## P0 Default Execution Template (Multi-table)
-
-For customer-safe P0 execution, the recommended path is:
-
-1. Build a plan with `suggest_multi_table_plan`
-2. Execute with `execute_multi_table_plan`
-3. Keep `auto_confirm_join=true` only when risk guard is enabled
-
-### Step 1: plan
-
-```json
-{
-  "tool": "suggest_multi_table_plan",
-  "args": {
-    "tables": [
-      {
-        "path": "tests/fixtures/join-customers.xlsx",
-        "sheet": "Customers",
-        "alias": "customers"
-      },
-      {
-        "path": "tests/fixtures/join-orders.xlsx",
-        "sheet": "Orders",
-        "alias": "orders"
-      }
-    ],
-    "max_link_candidates": 3
-  }
-}
-```
-
-### Step 2: execute (default safe mode)
-
-```json
-{
-  "tool": "execute_multi_table_plan",
-  "args": {
-    "tables": [
-      {
-        "path": "tests/fixtures/join-customers.xlsx",
-        "sheet": "Customers",
-        "alias": "customers"
-      },
-      {
-        "path": "tests/fixtures/join-orders.xlsx",
-        "sheet": "Orders",
-        "alias": "orders"
-      }
-    ],
-    "max_link_candidates": 3,
-    "auto_confirm_join": true
-  }
-}
-```
-
-<!-- 2026-03-27 20:21:00 +08:00 修改原因与目的：新增跨仓门禁入口说明，支持 SheetMind- 与 SheetMind-Scenes 一次性联跑回归。 -->
-## Cross-Repo Gates
-
-Run unified regression + contract gates across both repositories:
-
-```powershell
-E:\Excel\SheetMind-\scripts\run_cross_repo_gates.ps1 -Suite all
-```
-
-When `auto_confirm_join=true` and no thresholds are provided, runtime applies defaults:
-
-- `max_left_unmatched_rows = 10`
-- `max_right_unmatched_rows = 10`
-- `max_left_duplicate_keys = 5`
-- `max_right_duplicate_keys = 5`
-
-If a `join_preflight` step exceeds threshold, execution stops with:
-
-- `execution_status = "stopped_join_risk_threshold"`
-- `stopped_at_step_id` set to the preflight step
-- `executed_steps[n].join_risk_guard_breaches` with breached metrics
-
-### Step 3: execute (strict custom guard)
-
-```json
-{
-  "tool": "execute_multi_table_plan",
-  "args": {
-    "tables": [
-      {
-        "path": "tests/fixtures/join-customers.xlsx",
-        "sheet": "Customers",
-        "alias": "customers"
-      },
-      {
-        "path": "tests/fixtures/join-orders.xlsx",
-        "sheet": "Orders",
-        "alias": "orders"
-      }
-    ],
-    "max_link_candidates": 3,
-    "auto_confirm_join": true,
-    "max_left_unmatched_rows": 0,
-    "max_right_unmatched_rows": 0,
-    "max_left_duplicate_keys": 0,
-    "max_right_duplicate_keys": 0
-  }
-}
-```
+Read the handoff and baseline documents first, confirm the active mainline, then decide whether a change belongs to the foundation layer or to a future extension project.

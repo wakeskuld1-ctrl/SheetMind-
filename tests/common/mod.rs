@@ -88,6 +88,24 @@ pub fn run_cli_with_json_and_runtime(input: &str, runtime_db_path: &PathBuf) -> 
     serde_json::from_str(&output).unwrap()
 }
 
+// 2026-03-29 CST: 这里补充带额外环境变量的 CLI 测试助手，原因是股票 HTTP 同步测试需要把本地假服务地址注入到子进程；
+// 目的：让测试能稳定隔离腾讯/新浪 provider，而不依赖真实外网或硬编码线上地址。
+#[allow(dead_code)]
+pub fn run_cli_with_json_runtime_and_envs(
+    input: &str,
+    runtime_db_path: &PathBuf,
+    envs: &[(&str, String)],
+) -> Value {
+    let mut cmd = Command::cargo_bin("excel_skill").unwrap();
+    cmd.env("EXCEL_SKILL_RUNTIME_DB", runtime_db_path);
+    for (key, value) in envs {
+        cmd.env(key, value);
+    }
+    let assert = cmd.write_stdin(input).assert().success();
+    let output = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    serde_json::from_str(&output).unwrap()
+}
+
 // 2026-03-22: ?????????????????????? Windows ??????????????????????
 #[allow(dead_code)]
 pub fn create_chinese_path_fixture(file_name: &str) -> PathBuf {
