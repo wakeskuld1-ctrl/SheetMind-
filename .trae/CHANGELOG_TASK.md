@@ -2913,3 +2913,18 @@
 - 已完成 `main <- codex/foundation-navigation-kernel` 的冲突解决。
 - 已完成 GitHub 首页 README 的主线纠偏。
 - 已完成本轮 merge 的最小验证证据补齐。
+## 2026-04-08
+### 修改内容
+- 基于已完成的本地 `main` merge 提交，补充 GitHub 上传前交接记录，明确这次对外同步的是隔离 worktree `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-merge-to-main-prep` 上的 `main`，而不是原工作区 `D:\Rust\Excel_Skill` 的未提交内容。
+- 复核远端仓库 `origin = https://github.com/wakeskuld1-ctrl/SheetMind-.git`、当前分支状态 `main...origin/main [ahead 140]` 与最近提交 `322c3e7 Merge branch 'codex/foundation-navigation-kernel' into main`，为后续推送提供可核对证据。
+### 修改原因
+- 用户已明确要求把当前 `main` 推到 GitHub，因此需要在推送前把这一步的交接信息也落到任务日志里，避免远端只有代码没有“这次为什么能推、推的是哪份工作区、验证依据是什么”的上下文。
+- 本项目对 AI 交接连续性要求很高，这条记录的目的就是避免后续 AI 把原工作区脏改动误认为已经随 `main` 上传。
+### 方案还差什么?
+- [ ] 还未执行实际 `git push origin main`；需要在这条记录写入后完成远端同步并再次核对分支状态。
+### 潜在问题
+- [ ] 远端如果在本地提交期间发生变化，推送时可能需要先拉取/重放；当前尚未发生该情况，但要以实际 push 结果为准。
+- [ ] 本次上传仅保证 `main` 上的已提交内容同步，不代表原工作区所有未提交文件也已纳入版本控制。
+### 关闭项
+- 已完成 GitHub 上传前的交接补记。
+- 已完成远端、分支和目标提交的推送前核对。
