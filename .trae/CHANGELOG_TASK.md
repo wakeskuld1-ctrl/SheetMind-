@@ -2749,3 +2749,19 @@
 ### 关闭项
 - 已完成脏工作区全面清理并恢复到干净 foundation 分支。
 - 已完成 foundation 导航内核 Task 1 的红绿闭环。
+## 2026-04-07
+### 修改内容
+- 扩展 `D:\Rust\Excel_Skill\tests\ontology_schema_unit.rs`，新增 `ontology_schema_indexes_concepts_and_aliases` 失败测试，先验证 concept name 与 alias 都能稳定命中 concept id。
+- 将 `D:\Rust\Excel_Skill\src\ops\foundation\ontology_schema.rs` 从占位结构升级为最小可用实现，新增 `OntologyConcept`、`OntologyRelationType`、`OntologyRelation`、`OntologySchemaError` 与 `OntologySchema`，并实现 `new`、`with_alias`、`find_concept_id`、`concept` 以及内部 lookup 索引构建逻辑。
+- 已执行 `cargo test --test ontology_schema_unit -- --nocapture`，确认 Task 2 当前两条测试全部通过。
+### 修改原因
+- foundation 导航内核已经完成入口挂接，下一步必须先把 `ontology_schema` 做成最小可用骨架，否则后续 router 和 roaming 都没有稳定的语义背板可依赖。
+- 当前阶段最关键的行为是“名称/别名 -> concept id” 映射，因此这轮只补最小索引能力，不提前扩到更重的关系校验和业务字段。
+### 方案还差什么
+- [ ] 还没有补 concept id 冲突、alias 冲突等 schema 校验回归测试。
+- [ ] `OntologyStore` 仍未实现，后续 relation 查询和邻接读取要在下一任务继续补齐。
+### 潜在问题
+- [ ] 当前 lookup 归一化只做了 `trim + to_lowercase`，后续如果要支持更复杂的别名标准化，还需要扩展策略但不能破坏现有测试契约。
+- [ ] `relations` 字段目前只是先挂在 schema 上，还没有验证 relation 引用 concept 是否存在。
+### 关闭项
+- 已完成 `ontology_schema` 名称与别名索引的红绿闭环。
