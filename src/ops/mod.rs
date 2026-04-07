@@ -69,6 +69,10 @@ pub use stock::security_decision_package;
 // 2026-04-02 CST: 这里导出证券审批包版本化能力，原因是外层调用方仍通过 `crate::ops::...` 兼容访问股票链路；
 // 目的：让新的 revision Tool 不要求调用方立刻改模块路径，也能沿现有入口被消费。
 pub use stock::security_decision_package_revision;
+// 2026-04-08 CST: 这里导出会后结论对象与记录入口，原因是现有外层兼容调用仍可能走 `crate::ops::...`；
+// 目的：在不打断旧路径的前提下，把 Task 3 新能力纳入统一兼容出口。
+pub use stock::security_post_meeting_conclusion;
+pub use stock::security_record_post_meeting_conclusion;
 pub use stock::security_decision_committee;
 pub use stock::security_decision_evidence_bundle;
 pub use stock::security_decision_submit_approval;

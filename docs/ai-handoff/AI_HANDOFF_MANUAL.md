@@ -232,9 +232,9 @@ Any future AI session should follow this read order before doing architecture wo
 
 If a future session conflicts with these documents, it should stop and re-align before continuing.
 
-## 16. Current Foundation Delivery Status (2026-04-07)
+## 16. Current Foundation Delivery Status (2026-04-08)
 
-The foundation navigation kernel has completed Tasks 1 through 7 in the current implementation sequence:
+The foundation navigation kernel has completed Tasks 1 through 8 in the current implementation sequence:
 
 1. foundation module entry wiring
 2. ontology schema
@@ -243,6 +243,7 @@ The foundation navigation kernel has completed Tasks 1 through 7 in the current 
 5. capability router
 6. roaming engine
 7. retrieval engine
+8. evidence assembler
 
 The current confirmed implementation order remains:
 
@@ -250,7 +251,7 @@ The current confirmed implementation order remains:
 
 This ordering is now a maintenance rule, not a temporary suggestion.
 
-Do not re-open completed Tasks 1-7 for speculative restructuring when a future AI session starts.
+Do not re-open completed Tasks 1-8 for speculative restructuring when a future AI session starts.
 
 ## 17. Module Scope Guardrails For This Line
 
@@ -263,6 +264,7 @@ It currently includes:
 - question-to-concept routing
 - candidate-scope roaming
 - scoped retrieval inside candidate concepts
+- structured evidence assembly
 
 It must not absorb:
 
@@ -273,18 +275,59 @@ It must not absorb:
 
 If the repo is dirty, stage and commit only the files belonging to this foundation line.
 
-## 18. Next Step After Task 7
+## 18. Next Step After Task 8
 
-The next implementation target is Task 8: `evidence_assembler`.
+The next implementation target is Task 9: `navigation_pipeline_integration`.
 
 The expected direction is:
 
-- consume route / roaming path / retrieval hits
-- preserve evidence references and path context
-- keep the result structured for CLI-first and later upper-layer consumers
+- connect route, roaming, retrieval, and evidence assembly into one minimal in-memory pipeline
+- keep the pipeline inside foundation scope
+- avoid introducing Tool dispatcher, GUI flow, or domain-specific shortcuts
 
 Before moving on, re-read:
 
-1. [execution-notes-2026-04-07-foundation-navigation-kernel.md](/D:/Rust/Excel_Skill/docs/execution-notes-2026-04-07-foundation-navigation-kernel.md)
-2. [retrieval_engine.rs](/D:/Rust/Excel_Skill/src/ops/foundation/retrieval_engine.rs)
-3. [retrieval_engine_unit.rs](/D:/Rust/Excel_Skill/tests/retrieval_engine_unit.rs)
+1. [execution-notes-2026-04-08-evidence-assembler.md](/D:/Rust/Excel_Skill/docs/execution-notes-2026-04-08-evidence-assembler.md)
+2. [evidence_assembler.rs](/D:/Rust/Excel_Skill/src/ops/foundation/evidence_assembler.rs)
+3. [evidence_assembler_unit.rs](/D:/Rust/Excel_Skill/tests/evidence_assembler_unit.rs)
+
+## 19. Parallel Security Governance Track Status (2026-04-08)
+
+There is an active parallel security decision workflow line in this repository. It is not part of the foundation navigation kernel, but future AI sessions must not ignore it when working on the stock governance path.
+
+The current confirmed status on branch `codex/foundation-navigation-kernel` is:
+
+- Task 3 minimum Green is complete for post-meeting conclusion recording
+- a formal `SecurityPostMeetingConclusion` object now exists
+- a formal `security_record_post_meeting_conclusion` Tool now exists
+- the Tool is wired into stock catalog and dispatcher entry points
+- the Tool can persist a post-meeting conclusion and then reuse package revision to produce the next package version
+
+Key files for this line are:
+
+- [security_post_meeting_conclusion.rs](/D:/Rust/Excel_Skill/src/ops/security_post_meeting_conclusion.rs)
+- [security_record_post_meeting_conclusion.rs](/D:/Rust/Excel_Skill/src/ops/security_record_post_meeting_conclusion.rs)
+- [security_post_meeting_conclusion_cli.rs](/D:/Rust/Excel_Skill/tests/security_post_meeting_conclusion_cli.rs)
+- [2026-04-08-security-post-meeting-conclusion-design.md](/D:/Rust/Excel_Skill/docs/plans/2026-04-08-security-post-meeting-conclusion-design.md)
+- [2026-04-08-security-post-meeting-conclusion-plan.md](/D:/Rust/Excel_Skill/docs/plans/2026-04-08-security-post-meeting-conclusion-plan.md)
+- [execution-notes-2026-04-08-security-post-meeting-conclusion.md](/D:/Rust/Excel_Skill/docs/execution-notes-2026-04-08-security-post-meeting-conclusion.md)
+
+Verified commands for this slice:
+
+- `cargo test --test security_post_meeting_conclusion_cli -- --nocapture`
+- `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+- `cargo test --test security_decision_verify_package_cli -- --nocapture`
+- `cargo test --test security_decision_package_revision_cli -- --nocapture`
+
+Important limitation:
+
+- Task 3 is not fully closed yet
+- the revised package does not yet formally carry `post_meeting_conclusion` inside `object_graph` or `artifact_manifest`
+- verify has not yet been extended to enforce post-meeting conclusion binding and integrity
+
+If a future AI continues the security governance line, read the security-specific handoff first:
+
+1. [交接摘要_证券分析_给后续AI.md](/D:/Rust/Excel_Skill/docs/交接摘要_证券分析_给后续AI.md)
+2. [execution-notes-2026-04-08-security-post-meeting-conclusion.md](/D:/Rust/Excel_Skill/docs/execution-notes-2026-04-08-security-post-meeting-conclusion.md)
+3. [security_record_post_meeting_conclusion.rs](/D:/Rust/Excel_Skill/src/ops/security_record_post_meeting_conclusion.rs)
+4. [security_post_meeting_conclusion_cli.rs](/D:/Rust/Excel_Skill/tests/security_post_meeting_conclusion_cli.rs)

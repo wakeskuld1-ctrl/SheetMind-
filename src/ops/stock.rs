@@ -22,6 +22,14 @@ pub mod security_decision_package;
 // 目的：让股票业务域在“可生成、可校验”之后继续具备“可演进”的审批包能力。
 #[path = "security_decision_package_revision.rs"]
 pub mod security_decision_package_revision;
+// 2026-04-08 CST: 这里挂入正式会后结论对象模块，原因是 Task 3 需要把会后治理对象纳入 stock 领域边界；
+// 目的：为独立 Tool、后续 package/revision/verify 扩展提供统一归属。
+#[path = "security_post_meeting_conclusion.rs"]
+pub mod security_post_meeting_conclusion;
+// 2026-04-08 CST: 这里挂入会后结论记录 Tool 模块，原因是要让“会后结论落盘 + 触发 revision”沿 stock 主链暴露；
+// 目的：避免在 CLI/Skill 层手工串包版本化细节。
+#[path = "security_record_post_meeting_conclusion.rs"]
+pub mod security_record_post_meeting_conclusion;
 #[path = "security_decision_committee.rs"]
 pub mod security_decision_committee;
 #[path = "security_decision_evidence_bundle.rs"]

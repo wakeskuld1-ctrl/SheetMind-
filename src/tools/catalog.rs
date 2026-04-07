@@ -61,16 +61,20 @@ pub const FOUNDATION_TOOL_NAMES: &[&str] = &[
 ];
 
 pub const STOCK_TOOL_NAMES: &[&str] = &[
-    // 2026-03-31 CST: 这里把股票能力从通用目录中独立分组，原因是用户已经明确要求底座能力与股票业务域隔离。
-    // 目的：让 catalog 在保持平铺兼容输出的同时，也能明确告诉调用方这些能力属于 stock 模块。
+    // 2026-03-31 CST: 这里把股票能力从通用目录里独立分组，原因是用户已经明确要求底座能力与股票业务域隔离；
+    // 目的：让 catalog 在保持平铺兼容输出的同时，也能明确告知调用方这些能力属于 stock 模块。
     "technical_consultation_basic",
     "security_analysis_contextual",
     "security_analysis_fullstack",
     "security_decision_evidence_bundle",
     "security_decision_committee",
+    "security_committee_member_agent",
     "security_decision_submit_approval",
     "security_decision_verify_package",
     "security_decision_package_revision",
+    // 2026-04-08 CST: 这里把会后结论记录 Tool 暴露到 stock 目录，原因是红测要求 catalog 可发现正式会后治理入口；
+    // 目的：让 CLI / Skill / 后续编排都能稳定发现该能力。
+    "security_record_post_meeting_conclusion",
     "import_stock_price_history",
     "sync_stock_price_history",
 ];
@@ -130,9 +134,13 @@ pub const TOOL_NAMES: &[&str] = &[
     "security_analysis_fullstack",
     "security_decision_evidence_bundle",
     "security_decision_committee",
+    "security_committee_member_agent",
     "security_decision_submit_approval",
     "security_decision_verify_package",
     "security_decision_package_revision",
+    // 2026-04-08 CST: 这里把会后结论记录 Tool 暴露到总目录，原因是主 dispatcher 仍依赖全量 TOOL_NAMES 做发现；
+    // 目的：保持 tool catalog 与实际 dispatcher 能力一致。
+    "security_record_post_meeting_conclusion",
     "import_stock_price_history",
     "sync_stock_price_history",
     "diagnostics_report_excel_report",

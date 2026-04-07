@@ -160,6 +160,9 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "security_decision_committee" => {
             stock_ops::dispatch_security_decision_committee(request.args)
         }
+        "security_committee_member_agent" => {
+            stock_ops::dispatch_security_committee_member_agent(request.args)
+        }
         // 2026-04-02 CST: 这里接入证券审批提交总入口 Tool，原因是用户已经批准把证券投决结果正式送进审批治理主线；
         // 目的：让 CLI / Skill 可以一次完成“投决 + 提交审批”，不再停留在单纯研究建议。
         "security_decision_submit_approval" => {
@@ -174,6 +177,11 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         // 目的：让 CLI / Skill 可以正式调用 package revision，而不是在外层手工复制和重算 package。
         "security_decision_package_revision" => {
             stock_ops::dispatch_security_decision_package_revision(request.args)
+        }
+        // 2026-04-08 CST: 这里把会后结论记录 Tool 接入主 dispatcher，原因是红测要求从 CLI 主入口即可调用该能力；
+        // 目的：让“会后结论正式落盘”成为一等治理入口，而不是外层脚本拼装动作。
+        "security_record_post_meeting_conclusion" => {
+            stock_ops::dispatch_security_record_post_meeting_conclusion(request.args)
         }
         "import_stock_price_history" => {
             stock_ops::dispatch_import_stock_price_history(request.args)

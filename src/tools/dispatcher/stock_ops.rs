@@ -10,7 +10,8 @@ use crate::ops::stock::security_analysis_fullstack::{
     security_analysis_fullstack, SecurityAnalysisFullstackRequest,
 };
 use crate::ops::stock::security_decision_committee::{
-    security_decision_committee, SecurityDecisionCommitteeRequest,
+    security_committee_member_agent, security_decision_committee,
+    SecurityCommitteeMemberAgentRequest, SecurityDecisionCommitteeRequest,
 };
 use crate::ops::stock::security_decision_evidence_bundle::{
     security_decision_evidence_bundle, SecurityDecisionEvidenceBundleRequest,
@@ -20,6 +21,9 @@ use crate::ops::stock::security_decision_submit_approval::{
 };
 use crate::ops::stock::security_decision_package_revision::{
     security_decision_package_revision, SecurityDecisionPackageRevisionRequest,
+};
+use crate::ops::stock::security_record_post_meeting_conclusion::{
+    security_record_post_meeting_conclusion, SecurityRecordPostMeetingConclusionRequest,
 };
 use crate::ops::stock::security_decision_verify_package::{
     security_decision_verify_package, SecurityDecisionVerifyPackageRequest,
@@ -130,6 +134,18 @@ pub(super) fn dispatch_security_decision_committee(args: Value) -> ToolResponse 
     }
 }
 
+pub(super) fn dispatch_security_committee_member_agent(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityCommitteeMemberAgentRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_committee_member_agent(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
 pub(super) fn dispatch_security_decision_submit_approval(args: Value) -> ToolResponse {
     // 2026-04-02 CST: 这里新增证券审批提交 dispatcher 入口，原因是 P0-1 要让证券投决结果正式进入审批主线；
     // 目的：把 “committee -> approval objects -> runtime files” 收口成一个稳定 Tool，而不是外层分散拼接。
@@ -167,6 +183,20 @@ pub(super) fn dispatch_security_decision_package_revision(args: Value) -> ToolRe
     };
 
     match security_decision_package_revision(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_record_post_meeting_conclusion(args: Value) -> ToolResponse {
+    // 2026-04-08 CST: 这里接入会后结论记录 dispatcher 入口，原因是 Task 3 需要正式的会后治理 Tool；
+    // 目的：让 CLI / Skill 通过统一 stock dispatcher 完成“结论落盘 + revision”动作。
+    let request = match serde_json::from_value::<SecurityRecordPostMeetingConclusionRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_record_post_meeting_conclusion(&request) {
         Ok(result) => ToolResponse::ok(json!(result)),
         Err(error) => ToolResponse::error(error.to_string()),
     }

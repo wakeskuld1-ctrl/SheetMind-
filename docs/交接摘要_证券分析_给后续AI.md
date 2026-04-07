@@ -237,3 +237,66 @@
 ## 11. 一句话结论
 
 当前证券主线已经从“单证券技术面 demo”推进成“研究链 + 投决会 + 审批包 + 校验 + 版本化”的投前治理产品雏形；后续 AI 要做的是继续补 ETF/信息面缺口和复盘纠错能力，而不是重开一套分析架构。
+
+## 12. 2026-04-08 后续开发路线图
+
+<!-- 2026-04-08 CST: 追加后续开发路线图摘要，原因是需要把证券后续工作拆成可执行阶段并同步给下一位 AI；目的是避免后续接手时只看到零散对话结论、却不知道应该从哪一个正式任务开始推进。 -->
+- 正式计划文件：
+  - `docs/plans/2026-04-08-security-investment-lifecycle-roadmap.md`
+- 路线图分为 4 段：
+  - `Phase 1` 投前闭环收口
+  - `Phase 2` 投中执行层
+  - `Phase 3` 投后复盘层
+  - `Phase 4` ETF / 跨境 ETF 专项补洞
+- 推荐执行顺序：
+  - 先做 Task 1-3，冻结正式对象图、把仓位计划彻底挂入审批链、正式化审批简报与会后结论
+  - 再做 Task 4-6，补执行策略对象、触发监控与重新开会机制、执行日志
+  - 再做 Task 7-9，补复盘记录、结果回填与后验窗口、委员与风险闸门校准
+  - 最后做 Task 10，补 ETF / 跨境 ETF 信息面适配层
+- 继续沿当前 Rust / EXE / CLI-first 证券主链推进，不重开第二套证券决策架构。
+- 下次接手优先阅读文件：
+  - `src/ops/security_decision_evidence_bundle.rs`
+  - `src/ops/security_decision_committee.rs`
+  - `src/ops/security_position_plan.rs`
+  - `src/ops/security_decision_submit_approval.rs`
+  - `src/ops/security_decision_verify_package.rs`
+  - `src/ops/security_decision_package_revision.rs`
+
+## 13. 2026-04-08 Task 3 会后结论最小闭环状态
+
+<!-- 2026-04-08 CST: 这里补充 Task 3 的专项交接摘要，原因是当前证券治理主线已经新增正式会后结论对象与独立 Tool；
+目的：让下一位 AI 能直接接上“会后结论 -> package revision -> verify 扩展”这条链，而不是重新从对话历史里捞上下文。 -->
+
+- 本轮已完成的最小 Green：
+  - 正式对象 `SecurityPostMeetingConclusion`
+  - 独立 Tool `security_record_post_meeting_conclusion`
+  - stock catalog / dispatcher 接线
+  - Task 3 红测转绿
+- 核心新增文件：
+  - `src/ops/security_post_meeting_conclusion.rs`
+  - `src/ops/security_record_post_meeting_conclusion.rs`
+  - `tests/security_post_meeting_conclusion_cli.rs`
+  - `docs/execution-notes-2026-04-08-security-post-meeting-conclusion.md`
+- Tool 当前已确认行为：
+  - 回读已有 `decision_package`
+  - 回读 `approval_brief`
+  - 生成并落盘 `post_meeting_conclusion`
+  - 复用 `security_decision_package_revision` 生成新版本 package
+- 已验证命令：
+  - `cargo test --test security_post_meeting_conclusion_cli -- --nocapture`
+  - `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+  - `cargo test --test security_decision_verify_package_cli -- --nocapture`
+  - `cargo test --test security_decision_package_revision_cli -- --nocapture`
+- 当前还没完成的部分：
+  - `post_meeting_conclusion` 还没挂入 `decision_package.object_graph`
+  - `post_meeting_conclusion` 还没挂入 `artifact_manifest`
+  - `security_decision_verify_package` 还没补会后结论绑定 / 配对 / 完整性校验
+  - `approval_brief` 还没补轻量 `post_meeting_pairing`
+- 因此当前对外口径应是：
+  - Task 3 最小闭环已通
+  - Task 3 正式收口尚未完成
+- 下次接手推荐顺序：
+  - 先读 `docs/plans/2026-04-08-security-post-meeting-conclusion-design.md`
+  - 再读 `docs/plans/2026-04-08-security-post-meeting-conclusion-plan.md`
+  - 再读 `docs/execution-notes-2026-04-08-security-post-meeting-conclusion.md`
+  - 然后从 `tests/security_post_meeting_conclusion_cli.rs` 开始补下一轮红测

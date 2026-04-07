@@ -2895,3 +2895,139 @@
 - 已完成 `retrieval_engine` 的红绿闭环。
 - 已完成 Task 7 对 foundation Tasks 2-6 的最小回归验证。
 - 已完成这轮 GitHub 上传前需要的 execution notes 与 AI handoff 补充。
+## 2026-04-08
+### 修改内容
+- 重写 `D:\Rust\Excel_Skill\README.md`，把 GitHub 首页入口从旧的 `TradingAgents` 叙事收口为当前真实主线：`SheetMind / Excel_Skill`、Rust / EXE / CLI-first、foundation-first，并补上明确的阅读顺序与仓库结构说明。
+- 重写 `D:\Rust\Excel_Skill\AI_START_HERE.md`，修复入口文档的历史内容与可读性问题，明确新的 AI / 工程师进入仓库时应该先读什么、当前主线是什么、哪些架构规则已经冻结。
+- 新增 `D:\Rust\Excel_Skill\docs\architecture\repo-and-branch-governance.md`，集中说明当前仓库对外身份、目录职责、活跃主线以及分支命名与清理规则；同时新增 `D:\Rust\Excel_Skill\docs\plans\2026-04-08-github-repo-cleanup-design.md` 与 `D:\Rust\Excel_Skill\docs\plans\2026-04-08-github-repo-cleanup-plan.md`，记录这轮 GitHub 整理的设计与执行计划。
+- 清理本地失效分支：删除 `codex/cli-mod-review` 与 `codex/p0-preflight-chain`，保留当前仍有业务承接意义的远端分支不动。
+### 修改原因
+- 用户明确要求先做保守版 GitHub 整理，让仓库首页、入口文档和分支列表至少先达到“方向清楚、分支清楚、不会误导外部查看者”的状态。
+- 当前最主要的问题不是代码功能，而是 GitHub 首页仍然在讲旧项目、入口文档带有历史噪声、部分本地分支已经失效却还留在列表中，影响后续 AI 和人工接手判断。
+### 方案还差什么?
+- [ ] 这轮只做了本地失效分支清理，还没有进入远端分支的正式收口；如果后续要进一步清远端，需要单独确认哪些 `codex/*` 分支已经完成历史使命。
+- [ ] 当前仓库里仍保留部分历史 Python / TradingAgents 来源目录，这轮只做了 GitHub-facing 说明收口，还没有做结构级归档或拆分。
+### 潜在问题
+- [ ] `README.md` 和 `AI_START_HERE.md` 虽然已经改成当前项目定位，但仓库中仍存在历史目录与文件名，外部查看者继续深翻时仍可能看到旧阶段痕迹。
+- [ ] 本轮没有运行 Rust 代码测试，因为没有修改业务代码；如果后续把文档入口继续绑定到新文件名或目录结构，需要增加链接检查或文档渲染检查。
+- [ ] 当前工作区仍混有并行 security 线脏改动，本轮没有触碰这些文件；后续提交时仍必须坚持按主题分开 stage。
+### 关闭项
+- 已完成 GitHub 首页入口收口。
+- 已完成 AI 入口文档收口。
+- 已完成本地失效分支清理。
+## 2026-04-08
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\docs\plans\2026-04-08-security-investment-lifecycle-roadmap.md`，把当前证券主线后续开发工作拆成正式路线图，按 `Phase 1 投前闭环收口 / Phase 2 投中执行层 / Phase 3 投后复盘层 / Phase 4 ETF 专项补洞` 四段组织，并细化为 10 个连续任务。
+- 更新 `D:\Rust\Excel_Skill\docs\交接摘要_证券分析_给后续AI.md`，追加“2026-04-08 后续开发路线图”节，同步正式计划文件路径、四阶段结构、推荐执行顺序以及下次接手优先阅读文件。
+- 本轮未触碰证券 Rust 业务代码，只做文档级路线收口，目的是先把后续开发方向固化下来，方便下一轮直接进入执行。
+### 修改原因
+- 用户要求“开始拆开发任务清单，并保存开发任务清单，同步给 AI 交接手册”，需要把前面多轮对话中已经确认过的投前、投中、投后目标收敛成统一文档。
+- 当前证券主线虽然已有投前治理雏形，但后续工作如果继续只依赖对话推进，容易出现顺序混乱、对象边界反复变化、下一位 AI 不知道先做什么的问题。
+### 方案还差什么?
+- [ ] 这轮只完成了开发路线与交接同步，还没有开始执行 Task 1“冻结正式决策对象图”。
+- [ ] 后续真正进入实现时，需要再把每个 Task 进一步拆成 TDD 级别的红绿步骤与测试命令。
+### 潜在问题
+- [ ] 交接手册历史内容较长，且仓库当前仍存在大量并行脏改动；后续提交时仍需要严格按主题分开 stage，避免混入无关文件。
+- [ ] 本轮没有运行 Rust 自动化测试，因为没有修改业务代码；若后续把路线图再细化为命令入口或链接跳转，建议补充文档链接检查。
+### 关闭项
+- 已完成证券后续开发任务清单落盘。
+- 已完成 AI 交接手册同步。
+## 2026-04-08
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\docs\plans\2026-04-08-security-decision-object-graph-design.md` 与 `D:\Rust\Excel_Skill\docs\plans\2026-04-08-security-decision-object-graph-plan.md`，把 Task 1“冻结正式决策对象图”的方案 B 设计和 TDD 执行步骤正式落盘。
+- 修改 `D:\Rust\Excel_Skill\src\ops\security_decision_package.rs`、`D:\Rust\Excel_Skill\src\ops\security_decision_submit_approval.rs`、`D:\Rust\Excel_Skill\src\ops\security_decision_package_revision.rs`、`D:\Rust\Excel_Skill\src\ops\security_decision_verify_package.rs`，为审批包新增显式 `object_graph` 对象图绑定块，并把 `position_plan_ref / approval_brief_ref` 及对应路径纳入正式合同与校验逻辑。
+- 修改 `D:\Rust\Excel_Skill\tests\security_decision_submit_approval_cli.rs`、`D:\Rust\Excel_Skill\tests\security_decision_verify_package_cli.rs`、`D:\Rust\Excel_Skill\tests\security_decision_package_revision_cli.rs`，先用红测锁定 object graph 合同，再补充“对象图篡改失败”和“revision 不丢对象图”的回归断言。
+- 已执行 `cargo test --test security_decision_submit_approval_cli -- --nocapture`、`cargo test --test security_decision_verify_package_cli -- --nocapture`、`cargo test --test security_decision_package_revision_cli -- --nocapture`，确认 Task 1 涉及的三条主链回归全部通过。
+### 修改原因
+- 用户批准按方案 B 开始 Task 1，目标是把当前 package 中依赖 artifact role 间接表达的对象关系，升级成显式、可校验、可扩展的正式对象图合同。
+- 如果不先冻结 `decision_ref / approval_ref / position_plan_ref / approval_brief_ref` 这一层，后续 Task 2 的仓位计划审批链、Task 3 的审批简报对象化以及更后面的执行层、复盘层都会继续建立在隐式关系上，后续返工成本会更高。
+### 方案还差什么?
+- [ ] 当前 `object_graph` 仍只覆盖 Task 1 范围内的核心对象，后续 Task 3/4/6/7 还需要把 `brief_revision / execution_strategy / execution_log / review_record` 逐步挂进来。
+- [ ] 当前对旧 package 的兼容策略仍偏向“新生成 package 必须完整、旧 package 暂不主动回填”；若后续要批量回读历史包，需要单独补兼容测试。
+### 潜在问题
+- [ ] `cargo test` 期间仍会打印既有 `dispatcher` 未使用 warning，这不是本轮引入的问题，但后续提交时仍需要按主题严格分开 stage，避免把无关文件混入。
+- [ ] 当前工作区本来就存在多条并行 security 线和文档脏改动；本轮虽然只补了 Task 1 所需文件，但正式提交前仍应再次核对 stage 范围。
+### 关闭项
+- 已完成 Task 1 的方案设计与实现计划落盘。
+- 已完成审批包显式对象图 `object_graph` 落地。
+- 已完成对象图一致性校验与篡改失败回归。
+## 2026-04-08
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\tests\evidence_assembler_unit.rs`，先用 TDD 固定 Task 8 的最小契约：assembler 需要原样保留 `route / roaming_path / hits`，同时从 hit 级 `evidence_refs` 汇总出 citations，并生成最小 summary。
+- 将 `D:\Rust\Excel_Skill\src\ops\foundation\evidence_assembler.rs` 从占位结构升级为最小可用实现，新增 `NavigationEvidence`、`EvidenceAssembler::new` 与 `assemble`，并补上 citations 去重收集与零依赖摘要拼装。
+- 新增 `D:\Rust\Excel_Skill\docs\execution-notes-2026-04-08-evidence-assembler.md`，同步这轮 Task 8 的执行记录与验证命令；同时更新 `D:\Rust\Excel_Skill\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，把 foundation 状态从 Tasks 1-7 推进到 Tasks 1-8，并把下一步目标改为 Task 9 `navigation_pipeline_integration`。
+- 已执行 `cargo test --test evidence_assembler_unit -- --nocapture` 与 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit -- --nocapture`，确认 Task 8 新增测试与当前 foundation 单测集全部通过。
+### 修改原因
+- foundation 主链已经完成 `ontology-lite -> roaming -> retrieval`，如果没有统一的 evidence assembly，当前链路仍停留在中间对象阶段，无法给后续最小集成闭环提供稳定输出。
+- 用户已要求直接开始 Task 8，因此本轮目标是只补最小可用的结构化装配，不顺手扩成 metadata filter、pipeline 编排或应用层展示逻辑。
+### 方案还差什么?
+- [ ] Task 9 `navigation_pipeline_integration` 还未开始，foundation 主线仍缺“从问题文本一路跑到 NavigationEvidence”的最小集成闭环。
+- [ ] Task 10 的完整回归与最终文档同步还未完成；当前虽然已经补了 Task 8 执行记录和 handoff，但正式最小全集还缺 `navigation_pipeline_integration` 测试。
+### 潜在问题
+- [ ] 当前 summary 仍是规则化最小字符串，只说明命中数、概念和漫游步数；后续如果上层需要更丰富解释，需要先补红灯测试再扩展。
+- [ ] 当前 citations 去重只按 `source_ref + locator` 进行，后续如果同一出处需要保留多种 reason 或 score，需要先定义契约测试。
+- [ ] `cargo test` 期间仍会打印既有 `dispatcher` 未使用 warning，这不是 Task 8 引入的问题，但后续提交时仍要坚持按主题严格分开 stage。
+### 关闭项
+- 已完成 `evidence_assembler` 的红绿闭环。
+- 已完成 Task 8 对 foundation Tasks 2-7 的最小回归验证。
+- 已完成这轮 Task 8 的 execution notes 与 AI handoff 同步。
+## 2026-04-08
+### 修改内容
+- 修改 `D:\Rust\Excel_Skill\tests\security_decision_verify_package_cli.rs`，新增 `security_decision_verify_package_fails_after_position_plan_binding_is_tampered()` 与 `security_decision_verify_package_fails_after_position_plan_direction_is_tampered()` 两条回归测试。原因是 Task 2 第二阶段需要把“审批请求绑定漂移”和“仓位计划方向漂移”正式纳入治理失效场景；目的：确保 `approval_request.position_plan_binding` 与 `position_plan.plan_direction` 一旦被篡改，`verify` 会稳定返回 `package_valid = false`，并明确打出 `position_plan_binding_consistent = false` 或 `position_plan_direction_aligned = false`。
+- 修改 `D:\Rust\Excel_Skill\tests\security_decision_package_revision_cli.rs`，补充 revision 后对 `approval_request.position_plan_binding` 与 `decision_package.object_graph.position_plan_ref / position_plan_path` 的续绑断言。原因是 Task 2 不只要求提交时挂上正式 binding，还要求后续审批动作触发版本化后这条绑定不丢失；目的：锁定 v2 package 仍绑定同一份正式 `position_plan`，避免 revision 期间退回隐式关系。
+### 修改原因
+- 用户已批准按方案 B 继续推进 Task 2，本轮按 TDD 先补失败场景与 revision 续绑断言，再用定向回归和整包回归验证现有实现是否已经覆盖治理约束。
+- 这轮形成一个新的记忆点：证券审批链里的 `position_plan` 不能只看文件存在或 manifest 哈希，还必须同时验证“审批请求显式绑定”“投决方向一致”“revision 后绑定延续”这三层正式约束，否则会对后续投决会和复盘造成误导。
+### 方案还差什么?
+- [ ] Task 2 如果继续往下延伸，可以补一条“`position_plan_binding.position_plan_path` 被篡改但 `ref` 不变”的失败测试，把 path 漂移也单独钉死。
+- [ ] 可以继续补一条 revision 后再次调用 `security_decision_verify_package` 并显式断言三项 `position_plan_*` governance checks 全绿的集成测试，进一步收紧 v2 package 的正式合约。
+### 潜在问题
+- [ ] 当前新增的两个篡改测试都会同时触发 manifest/hash 失配与治理失配；这对防线是好事，但如果后续想更细粒度地区分“内容被篡改”和“治理绑定漂移”，可能还需要再补更窄的断言或专门夹具。
+- [ ] 现有回归仍保留仓库里既有的 `dispatcher` 未使用 warning；本轮已确认它们不是 Task 2 引入的问题，但后续若做 CI 收口，仍需要单独处理 warning 噪声。
+### 关闭项
+- 已完成 `cargo test --test security_decision_verify_package_cli security_decision_verify_package_fails_after_position_plan_binding_is_tampered -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test security_decision_verify_package_cli security_decision_verify_package_fails_after_position_plan_direction_is_tampered -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test security_decision_package_revision_cli security_decision_package_revision_builds_v2_package_after_approval_update -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test security_decision_submit_approval_cli -- --nocapture`，结果为 `4 passed`。
+- 已完成 `cargo test --test security_decision_verify_package_cli -- --nocapture`，结果为 `6 passed`。
+- 已完成 `cargo test --test security_decision_package_revision_cli -- --nocapture`，结果为 `2 passed`。
+## 2026-04-08
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\src\ops\security_post_meeting_conclusion.rs`，冻结 Task 3 的最小正式会后结论对象合同，其中包含 `governance_binding` 与 `brief_pairing` 两块基础治理元数据。
+- 新增 `D:\Rust\Excel_Skill\src\ops\security_record_post_meeting_conclusion.rs`，提供 `security_record_post_meeting_conclusion` 的最小主链实现：回读 package 与 approval_brief，生成并落盘会后结论，再复用现有 `security_decision_package_revision` 生成新版本 package。
+- 修改 `D:\Rust\Excel_Skill\src\ops\stock.rs`、`D:\Rust\Excel_Skill\src\ops\mod.rs`、`D:\Rust\Excel_Skill\src\tools\catalog.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher\stock_ops.rs`，把新 Tool 挂入 stock 模块、CLI catalog 与 dispatcher 主链。
+- 清理 `D:\Rust\Excel_Skill\tests\security_post_meeting_conclusion_cli.rs` 的无用导入，避免这轮新增测试引入额外 warning。
+- 已执行 `cargo test --test security_post_meeting_conclusion_cli -- --nocapture`、`cargo test --test security_decision_submit_approval_cli -- --nocapture`、`cargo test --test security_decision_verify_package_cli -- --nocapture`、`cargo test --test security_decision_package_revision_cli -- --nocapture`，确认 Task 3 最小实现与现有审批主链回归全部通过。
+### 修改原因
+- 用户已批准按 Task 3 方案 C 继续推进，但当前这轮目标是先把红测转绿，因此采用“正式会后结论对象 + 独立 Tool + 复用现有 revision 主链”的最小封装实现。
+- 如果这一步不先把会后结论从 `approval_request.status / trigger_event_summary` 这类隐含状态中拆出来，后续 package object graph、verify 校验与 Skill 展示翻译都会继续建立在脆弱关系上。
+### 方案还差什么
+- [ ] 当前新版本 package 还没有把 `post_meeting_conclusion` 正式挂入 `artifact_manifest` 与 `object_graph`，这是 Task 3 下一轮要继续推进的绿灯目标。
+- [ ] `security_decision_verify_package` 还没有补上 post-meeting conclusion 的绑定、配对和完整性校验，后续需要先再写失败测试，再进入下一轮 TDD。
+- [ ] `approval_brief` 本身还没有轻量 `post_meeting_pairing` 字段，当前只是在新的会后结论对象里留下了对接入口。
+### 潜在问题
+- [ ] 当前最小实现已经覆盖红测约束，但 revision 后的新 package 暂时还没有携带刚落盘的 `post_meeting_conclusion` 引用，因此在后续扩展前不应对外声称它已经具备完整 package 支点能力。
+- [ ] `cargo test` 仍会打印仓库既有的 `dispatcher` 未使用 warning，这些并不是本轮 Task 3 引入的新问题，但如果后续要收 CI 噪声，需要单独立项处理。
+### 关闭项
+- 已完成 `cargo test --test security_post_meeting_conclusion_cli -- --nocapture`，结果为 `2 passed`。
+- 已完成 `cargo test --test security_decision_submit_approval_cli -- --nocapture`，结果为 `4 passed`。
+- 已完成 `cargo test --test security_decision_verify_package_cli -- --nocapture`，结果为 `6 passed`。
+- 已完成 `cargo test --test security_decision_package_revision_cli -- --nocapture`，结果为 `2 passed`。
+## 2026-04-08
+### 修改内容
+- 更新 `D:\Rust\Excel_Skill\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，补充并行证券治理线在 `codex/foundation-navigation-kernel` 分支上的最新状态，明确 Task 3 会后结论最小闭环已通、已验证命令、当前限制与下次接手阅读顺序。
+- 更新 `D:\Rust\Excel_Skill\docs\交接摘要_证券分析_给后续AI.md`，把 Task 3 的正式对象、独立 Tool、已验证范围与未完成边界补进证券专项交接手册。
+- 新增 `D:\Rust\Excel_Skill\docs\execution-notes-2026-04-08-security-post-meeting-conclusion.md`，集中记录本轮会后结论主线的修改范围、验证命令、限制与下一步。
+- 准备按方案 B 只暂存 Task 3 与交接相关文件，并推送到当前分支 `codex/foundation-navigation-kernel`。
+### 修改原因
+- 用户要求把这轮 Task 3 成果正式写进 AI 交接手册后再推送 GitHub，因此需要先把“做了什么、验证了什么、还差什么”从聊天上下文沉淀成可复读文档。
+- 当前工作区存在大量并行改动，上传前必须把证券 Task 3 的 handoff 与 execution context 固化下来，避免后续 AI 误把最小 Green 当成完整收口。
+### 方案还差什么
+- [ ] 推送前仍需核对 staged 文件范围，确保不把测试临时产物和无关脏改动混入提交。
+- [ ] 推送后 Task 3 的后续开发仍要继续补 `object_graph / artifact_manifest / verify_package / approval_brief pairing` 四块正式收口工作。
+### 潜在问题
+- [ ] `AI_HANDOFF_MANUAL.md` 与 `交接摘要_证券分析_给后续AI.md` 在当前工作区本来就带有之前轮次的更新，提交前如果不核对 stage 范围，容易把不想一起推的内容带上去。
+- [ ] `.trae/CHANGELOG_TASK.md` 当前历史内容在终端里有混合编码显示噪声，但本次追加内容已按 UTF-8 继续写入；后续若要清理历史显示，需要单独立项，不应在这次上传里顺手重写旧内容。
+### 关闭项
+- 已完成本轮 Task 3 上传前的 handoff 文档补齐。
+- 已完成本轮 Task 3 上传前的 execution note 补齐。
