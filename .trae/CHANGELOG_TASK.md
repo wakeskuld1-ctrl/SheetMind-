@@ -2732,3 +2732,20 @@
 - 已完成两份交接摘要的 2026-04-02 更新，明确写出证券投前治理链、159866 正式投研会留档和 ETF 信息面缺口。
 - 已完成 `docs/execution-notes-2026-04-02-security-governance.md` 落盘，为本轮 push 准备了独立执行记录。
 - 已完成本轮交接准备的任务日志追加，可以进入选择性 stage / commit / push。
+## 2026-04-07
+### 修改内容
+- 先对当前仓库做了全面清理：把 `.worktrees`、`.excel_skill_runtime`、`.playwright-cli` 等大体量混入内容移到仓库外备份目录 `D:\Rust\Excel_Skill_cleanup_backup_20260407_211836`，并保存了 Git 状态与差异补丁。
+- 在清理后新建干净分支 `codex/foundation-navigation-kernel`，只恢复并提交了 foundation 相关的 AI 基线文档与实现计划，确保后续开发从干净工作区继续。
+- 按 TDD 完成 foundation 导航内核 Task 1：新增 `tests/ontology_schema_unit.rs` 失败测试，随后在 `src/ops/foundation.rs` 挂接 `ontology_schema`、`ontology_store`、`knowledge_record`、`knowledge_graph_store`、`capability_router`、`roaming_engine`、`retrieval_engine`、`evidence_assembler` 八个新子模块入口，并创建对应占位文件。
+### 修改原因
+- 用户明确要求先全面检查并清理所有脏改动，因为当前仓库混入了业务层代码，不能在脏工作区里继续 foundation 开发。
+- foundation 实现已进入执行阶段，必须先把导航内核模块边界稳定挂上，再逐步进入 schema、store、roaming 和 retrieval 的细化实现。
+### 方案还差什么
+- [ ] 目前只完成了导航内核的模块入口挂接，还没有开始 `ontology_schema` 的正式数据结构与索引实现。
+- [ ] `ontology_store`、`knowledge_graph_store`、`capability_router`、`roaming_engine`、`retrieval_engine`、`evidence_assembler` 仍是占位结构，后续需按计划逐项转入 TDD 实现。
+### 潜在问题
+- [ ] 备份目录保存了被清理出的混合业务代码和运行时产物，后续如果需要追溯旧改动，必须从备份目录或补丁恢复，而不能假定仍在主仓库中。
+- [ ] 当前新子模块只是最小编译骨架，如果后续直接往占位文件里堆业务语义，会再次偏离 foundation 的业务无关约束。
+### 关闭项
+- 已完成脏工作区全面清理并恢复到干净 foundation 分支。
+- 已完成 foundation 导航内核 Task 1 的红绿闭环。

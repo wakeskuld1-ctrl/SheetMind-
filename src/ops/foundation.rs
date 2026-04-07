@@ -96,3 +96,38 @@ pub mod top_n;
 pub mod trend_analysis;
 #[path = "window.rs"]
 pub mod window;
+
+// 2026-04-07 CST: 这里新增 foundation 导航内核子模块入口，原因是当前项目已经明确要在 foundation 内建立
+// “ontology-lite -> roaming -> retrieval -> evidence” 的业务无关底座，而不是继续把语义能力混进现有业务模块。
+// 目的：先用显式路径把新内核稳定挂到 `foundation.rs + src/ops/foundation/` 结构上，避免与现有 `foundation.rs`
+// 单文件模块入口冲突，同时为后续 TDD 分阶段落地留出清晰边界。
+#[path = "foundation/ontology_schema.rs"]
+pub mod ontology_schema;
+// 2026-04-07 CST: 这里挂接 ontology store，原因是 schema 定义和查询存取职责需要分离。
+// 目的：让后续概念索引、别名索引和关系读取先有独立落点，不把查询逻辑塞回 schema 本身。
+#[path = "foundation/ontology_store.rs"]
+pub mod ontology_store;
+// 2026-04-07 CST: 这里挂接 knowledge record，原因是知识节点、知识边、证据引用属于独立数据模型层。
+// 目的：让知识图谱数据模型先有稳定命名空间，后续不会污染现有 Excel/分析能力模块。
+#[path = "foundation/knowledge_record.rs"]
+pub mod knowledge_record;
+// 2026-04-07 CST: 这里挂接 knowledge graph store，原因是图谱存储查询与 record 定义不是同一职责。
+// 目的：后续可以先做纯内存查询，再无痛替换为其他存储实现。
+#[path = "foundation/knowledge_graph_store.rs"]
+pub mod knowledge_graph_store;
+// 2026-04-07 CST: 这里挂接 capability router，原因是“问题 -> 种子概念/能力”需要单独收口。
+// 目的：把导航入口从一开始就固定为独立模块，不让 retrieval 反客为主。
+#[path = "foundation/capability_router.rs"]
+pub mod capability_router;
+// 2026-04-07 CST: 这里挂接 roaming engine，原因是知识漫游是当前 foundation 主链的中间核心。
+// 目的：后续深度限制、关系限制和候选域收敛都在这里演进，而不是分散到 store 或 retrieval。
+#[path = "foundation/roaming_engine.rs"]
+pub mod roaming_engine;
+// 2026-04-07 CST: 这里挂接 retrieval engine，原因是检索在当前设计里只是候选域内执行器。
+// 目的：先从模块边界上强调 retrieval 不是系统入口，后续实现也更不容易跑偏。
+#[path = "foundation/retrieval_engine.rs"]
+pub mod retrieval_engine;
+// 2026-04-07 CST: 这里挂接 evidence assembler，原因是最终证据装配需要和检索、漫游解耦。
+// 目的：为后续统一输出导航路径、命中结果和证据引用提供单独落点。
+#[path = "foundation/evidence_assembler.rs"]
+pub mod evidence_assembler;
