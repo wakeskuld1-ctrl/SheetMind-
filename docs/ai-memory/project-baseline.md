@@ -33,12 +33,12 @@
 
 ## 5. Current Priorities
 
-1. Retrieval accuracy.
-2. Retrieval execution efficiency.
-3. Vectorization efficiency.
-4. Ontology-lite design.
-5. Knowledge roaming design.
-6. Provider-based model enhancement interfaces.
+1. Metadata-aware filtering inside the existing navigation flow.
+2. Retrieval accuracy.
+3. Retrieval execution efficiency.
+4. Vectorization efficiency.
+5. Provider-based model enhancement interfaces.
+6. Preserve the delivered ontology -> roaming -> retrieval -> evidence baseline.
 
 ## 6. Read This First
 

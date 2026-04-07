@@ -2895,3 +2895,23 @@
 - 已完成 `retrieval_engine` 的红绿闭环。
 - 已完成 Task 7 对 foundation Tasks 2-6 的最小回归验证。
 - 已完成这轮 GitHub 上传前需要的 execution notes 与 AI handoff 补充。
+## 2026-04-08
+### 修改内容
+- 补齐 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\src\ops\foundation\evidence_assembler.rs` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\tests\evidence_assembler_unit.rs`，把 Task 8 的结构化证据装配与单测闭环正式带回 foundation 分支系。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\src\ops\foundation\navigation_pipeline.rs` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\tests\navigation_pipeline_integration.rs`，把 Task 9 的最小集成入口 `question -> route -> roam -> retrieve -> assemble` 正式补齐。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\docs\execution-notes-2026-04-08-navigation-pipeline.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-kernel-closeout\docs\execution-notes-2026-04-08-foundation-delivery-closeout.md`，并更新 `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`，将 foundation 当前状态收口到“Tasks 1-10 的最小导航基线已闭环”。
+- 已执行 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture` 与 `cargo test --test navigation_pipeline_integration -- --nocapture`，确认 foundation 当前最小全集与核心集成测试全部通过。
+### 修改原因
+- 用户要求按“先整理提交，再安全带回当前分支”的顺序继续推进，而原工作区存在并行 security 脏改动与编译阻塞，不能直接在原工作区硬合并 foundation 改动。
+- 这轮的目的就是把 clean worktree 里已经验证通过的 Task 8-10 基线安全回带到 foundation 分支系，同时继续保持 foundation 与并行业务线隔离。
+### 方案还差什么?
+- [ ] foundation 当前最小计划已经闭环，但 metadata-aware filtering 还没有正式进入设计与实现。
+- [ ] provider-based enhancement 仍停留在方向层，还没有形成独立接口契约和测试集。
+### 潜在问题
+- [ ] 当前回带的是一条安全派生分支 `codex/foundation-navigation-kernel-closeout`，不是直接改写原工作区上已脏的 `codex/foundation-navigation-kernel` 工作树状态。
+- [ ] 当前 pipeline 仍是纯内存最小实现，后续若接入持久化、向量索引或 provider，必须先补红灯测试。
+- [ ] `cargo test` 期间仍会打印既有 `dispatcher` 未使用 warning，这不是本轮引入的问题，但后续提交时仍要按主题严格分开 stage。
+### 关闭项
+- 已完成 Task 8-10 的安全回带提交准备。
+- 已完成 foundation 最小导航基线在 clean branch 上的闭环交付。
+- 已完成当前基础骨架阶段到增强阶段的 handoff 切换。

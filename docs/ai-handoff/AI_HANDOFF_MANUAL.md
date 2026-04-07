@@ -214,13 +214,14 @@ These rules must be followed whenever the project is prepared for GitHub upload 
 
 ## 14. Recommended Next Steps
 
-The current recommended next steps remain:
+The current minimal foundation path is now delivered.
 
-1. Define ontology-lite structures and constraints.
-2. Define business-agnostic knowledge node and edge structures.
-3. Define roaming plans and controlled navigation behavior.
-4. Add retrieval only as the evidence execution stage.
-5. Add provider-based model enhancement only after the foundation path is stable.
+The next recommended steps are enhancement-oriented:
+
+1. Add metadata-aware filtering inside the constrained navigation flow.
+2. Add provider-based model enhancement interfaces without making providers hard dependencies.
+3. Improve retrieval ranking or evidence summary quality only after adding tests for the new behavior.
+4. Keep GUI and dispatcher orchestration outside the foundation line.
 
 ## 15. Mandatory Read Order for Future AI Sessions
 
@@ -232,9 +233,9 @@ Any future AI session should follow this read order before doing architecture wo
 
 If a future session conflicts with these documents, it should stop and re-align before continuing.
 
-## 16. Current Foundation Delivery Status (2026-04-07)
+## 16. Current Foundation Delivery Status (2026-04-08)
 
-The foundation navigation kernel has completed Tasks 1 through 7 in the current implementation sequence:
+The foundation navigation kernel has completed Tasks 1 through 9 in the current implementation sequence:
 
 1. foundation module entry wiring
 2. ontology schema
@@ -243,6 +244,8 @@ The foundation navigation kernel has completed Tasks 1 through 7 in the current 
 5. capability router
 6. roaming engine
 7. retrieval engine
+8. evidence assembler
+9. navigation pipeline integration
 
 The current confirmed implementation order remains:
 
@@ -250,7 +253,7 @@ The current confirmed implementation order remains:
 
 This ordering is now a maintenance rule, not a temporary suggestion.
 
-Do not re-open completed Tasks 1-7 for speculative restructuring when a future AI session starts.
+Do not re-open completed Tasks 1-9 for speculative restructuring when a future AI session starts.
 
 ## 17. Module Scope Guardrails For This Line
 
@@ -263,6 +266,8 @@ It currently includes:
 - question-to-concept routing
 - candidate-scope roaming
 - scoped retrieval inside candidate concepts
+- structured evidence assembly
+- minimal end-to-end navigation pipeline execution
 
 It must not absorb:
 
@@ -273,18 +278,21 @@ It must not absorb:
 
 If the repo is dirty, stage and commit only the files belonging to this foundation line.
 
-## 18. Next Step After Task 7
+## 18. Status After Task 10
 
-The next implementation target is Task 8: `evidence_assembler`.
+The current foundation plan is closed through Task 10.
+
+The next work is no longer baseline construction. The next work is selective enhancement.
 
 The expected direction is:
 
-- consume route / roaming path / retrieval hits
-- preserve evidence references and path context
-- keep the result structured for CLI-first and later upper-layer consumers
+- preserve the current order and boundaries
+- add metadata-aware filtering as an enhancement stage inside the existing flow
+- add optional provider-based enhancement without breaking disabled-mode execution
+- avoid reopening finished Tasks 1-10 for speculative redesign
 
 Before moving on, re-read:
 
-1. [execution-notes-2026-04-07-foundation-navigation-kernel.md](/D:/Rust/Excel_Skill/docs/execution-notes-2026-04-07-foundation-navigation-kernel.md)
-2. [retrieval_engine.rs](/D:/Rust/Excel_Skill/src/ops/foundation/retrieval_engine.rs)
-3. [retrieval_engine_unit.rs](/D:/Rust/Excel_Skill/tests/retrieval_engine_unit.rs)
+1. [execution-notes-2026-04-08-foundation-delivery-closeout.md](/D:/Rust/Excel_Skill/docs/execution-notes-2026-04-08-foundation-delivery-closeout.md)
+2. [navigation_pipeline.rs](/D:/Rust/Excel_Skill/src/ops/foundation/navigation_pipeline.rs)
+3. [navigation_pipeline_integration.rs](/D:/Rust/Excel_Skill/tests/navigation_pipeline_integration.rs)

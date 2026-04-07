@@ -131,3 +131,8 @@ pub mod retrieval_engine;
 // 目的：为后续统一输出导航路径、命中结果和证据引用提供单独落点。
 #[path = "foundation/evidence_assembler.rs"]
 pub mod evidence_assembler;
+// 2026-04-08 CST: 这里挂接 navigation pipeline，原因是 foundation 当前已经完成 route、roam、retrieve、assemble，
+// 需要一个轻量统一入口把它们按固定顺序串起来。
+// 目的：为最小集成闭环和后续 CLI-first 消费方提供正式的 foundation 侧运行入口。
+#[path = "foundation/navigation_pipeline.rs"]
+pub mod navigation_pipeline;
