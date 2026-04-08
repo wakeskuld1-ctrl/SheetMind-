@@ -5,7 +5,8 @@ use excel_skill::ops::stock::security_committee_vote::{
 };
 use excel_skill::ops::stock::security_decision_briefing::{
     CommitteeEvidenceChecks, CommitteeExecutionDigest, CommitteeHistoricalDigest, CommitteePayload,
-    CommitteeRecommendationDigest, CommitteeResonanceDigest, ExecutionPlan,
+    CommitteeRecommendationDigest, CommitteeResonanceDigest, CommitteeRiskBreakdown,
+    CommitteeRiskItem, CommitteeSubjectProfile, ExecutionPlan, OddsBrief, PositionPlan,
 };
 use serde_json::json;
 use std::collections::HashSet;
@@ -20,9 +21,44 @@ fn build_committee_payload() -> CommitteePayload {
         analysis_date: "2025-08-08".to_string(),
         recommended_action: "add_on_strength".to_string(),
         confidence: "medium".to_string(),
+        // 2026-04-08 CST: 这里默认补齐个股 subject_profile，原因是 CommitteePayload 已升级为统一承载 ETF/个股主链解释。
+        // 目的：让测试夹具和正式合同保持一致，并为后续 ETF 夹具复用留下稳定入口。
+        subject_profile: CommitteeSubjectProfile::default(),
+        // 2026-04-08 CST: 这里补齐结构化风险合同，原因是 CommitteePayload 已升级为 risk_breakdown 主合同；
+        // 目的：让 committee_vote 测试夹具与 briefing 正式输出保持同一风险边界，并让 key_risks 退化为兼容摘要。
+        risk_breakdown: CommitteeRiskBreakdown {
+            technical: vec![CommitteeRiskItem {
+                category: "technical".to_string(),
+                severity: "medium".to_string(),
+                headline: "阻力突破后仍需量能确认".to_string(),
+                rationale: "当前趋势转强，但若量比不足，突破有效性仍需二次确认。".to_string(),
+            }],
+            fundamental: vec![CommitteeRiskItem {
+                category: "fundamental".to_string(),
+                severity: "medium".to_string(),
+                headline: "财报关键同比指标不完整".to_string(),
+                rationale: "基本面席位仍需补齐核心财务口径，避免在信息缺口下放大仓位。".to_string(),
+            }],
+            resonance: vec![CommitteeRiskItem {
+                category: "resonance".to_string(),
+                severity: "medium".to_string(),
+                headline: "油价共振存在短线回撤扰动".to_string(),
+                rationale: "共振驱动虽偏多，但上游商品扰动仍可能带来短线波动。".to_string(),
+            }],
+            execution: vec![CommitteeRiskItem {
+                category: "execution".to_string(),
+                severity: "low".to_string(),
+                headline: "量比不足时不追价".to_string(),
+                rationale: "执行层需要严格遵守加仓与减仓阈值，避免信号失真时扩仓。".to_string(),
+            }],
+        },
+        // 2026-04-08 CST: 这里同步 key_risks 到 risk_breakdown 的固定派生口径，原因是方案 B 已要求旧摘要字段必须与主合同严格一致；
+        // 目的：让“合法 payload”夹具本身成为新门禁的正样本，避免测试继续依赖过时的手工摘要顺序。
         key_risks: vec![
-            "财报关键同比指标不完整".to_string(),
             "阻力突破后仍需量能确认".to_string(),
+            "财报关键同比指标不完整".to_string(),
+            "油价共振存在短线回撤扰动".to_string(),
+            "量比不足时不追价".to_string(),
         ],
         minority_objection_points: vec!["油价共振存在短线回撤扰动".to_string()],
         evidence_version: "security-decision-briefing:601857.SH:2025-08-08:v1".to_string(),
@@ -68,11 +104,88 @@ fn build_committee_payload() -> CommitteePayload {
             historical_confidence: "unknown".to_string(),
             analog_sample_count: 0,
             analog_win_rate_10d: None,
+            analog_loss_rate_10d: None,
+            analog_flat_rate_10d: None,
+            analog_avg_return_10d: None,
+            analog_median_return_10d: None,
+            analog_avg_win_return_10d: None,
+            analog_avg_loss_return_10d: None,
+            analog_payoff_ratio_10d: None,
+            analog_expectancy_10d: None,
             expected_return_window: None,
             expected_drawdown_window: None,
             research_limitations: vec!["历史研究层尚未接入 committee payload".to_string()],
         },
+        // 2026-04-08 CST: 这里补齐赔率摘要夹具，原因是 committee_payload 已开始承载 briefing 同源的赔率层；
+        // 目的：让 vote Tool 的输入夹具与新 briefing 合同保持一致，同时保留历史研究 unavailable 时的最小默认边界。
+        odds_digest: OddsBrief {
+            status: "unavailable".to_string(),
+            historical_confidence: "unknown".to_string(),
+            sample_count: 0,
+            win_rate_10d: None,
+            loss_rate_10d: None,
+            flat_rate_10d: None,
+            avg_return_10d: None,
+            median_return_10d: None,
+            avg_win_return_10d: None,
+            avg_loss_return_10d: None,
+            payoff_ratio_10d: None,
+            expectancy_10d: None,
+            expected_return_window: None,
+            expected_drawdown_window: None,
+            odds_grade: "pending_research".to_string(),
+            confidence_grade: "unknown".to_string(),
+            rationale: vec!["历史研究未就绪时，赔率层仅允许输出等待或观察仓语义。".to_string()],
+            research_limitations: vec!["历史研究层尚未接入 committee payload".to_string()],
+        },
+        // 2026-04-08 CST: 这里补齐仓位摘要夹具，原因是 committee_payload 已开始承载 briefing 同源的仓位层；
+        // 目的：让 vote Tool 在不改投票规则的前提下，也能消费完整的新合同事实包。
+        position_digest: PositionPlan {
+            position_action: "pilot_only".to_string(),
+            entry_mode: "breakout_confirmation".to_string(),
+            starter_position_pct: 0.04,
+            max_position_pct: 0.08,
+            add_on_trigger: "站上 12.36 且量比达到 1.24 后再追加。".to_string(),
+            reduce_on_trigger: "跌破 11.42 后先减仓观察。".to_string(),
+            hard_stop_trigger: "跌破 10.98 或 10.55 时结束当前交易假设。".to_string(),
+            liquidity_cap: "单次执行不超过计划仓位的 50%".to_string(),
+            position_risk_grade: "high".to_string(),
+            regime_adjustment: "历史研究 unavailable 时，默认按观察仓执行。".to_string(),
+            execution_notes: vec!["执行上仍需等待放量确认，不宜一次性打满。".to_string()],
+            rationale: vec!["仓位层在历史研究缺失时应主动降档，不放大主观判断。".to_string()],
+        },
     }
+}
+
+fn build_etf_committee_payload() -> CommitteePayload {
+    let mut payload = build_committee_payload();
+    // 2026-04-08 CST: 这里构造 ETF 夹具，原因是本轮要锁住“ETF 不再因缺个股财报而直接 defer”的回归边界。
+    // 目的：用最小测试覆盖新的 ETF 基本面席位语义，避免后续主链回退到旧个股规则。
+    payload.symbol = "159866.SZ".to_string();
+    payload.subject_profile = CommitteeSubjectProfile {
+        asset_class: "etf".to_string(),
+        market_scope: "china".to_string(),
+        committee_focus: "fund_review".to_string(),
+    };
+    payload.evidence_checks.fundamental_ready = false;
+    // 2026-04-08 CST: 这里同步 ETF 夹具的兼容摘要，原因是 fundamental 风险 headline 已被 ETF 专用语义覆盖；
+    // 目的：确保 ETF 合法夹具也满足“key_risks 严格来自 risk_breakdown 派生”的新合同。
+    payload.key_risks = vec![
+        "阻力突破后仍需量能确认".to_string(),
+        "ETF 当前缺少跟踪误差、底层指数与申赎结构的专用研究。".to_string(),
+        "油价共振存在短线回撤扰动".to_string(),
+        "量比不足时不追价".to_string(),
+    ];
+    payload.risk_breakdown.fundamental = vec![CommitteeRiskItem {
+        category: "fundamental".to_string(),
+        severity: "medium".to_string(),
+        headline: "ETF 当前缺少跟踪误差、底层指数与申赎结构的专用研究。".to_string(),
+        rationale: "ETF 投决重点不在单一公司财报，而在跟踪质量、指数结构、流动性与申赎机制；当前主链先把这类缺口显式暴露为专项研究待补。"
+            .to_string(),
+    }];
+    payload.recommendation_digest.summary =
+        "日经 ETF 仍在区间内震荡，倾向先观察跟踪质量与量价确认。".to_string();
+    payload
 }
 
 // 2026-04-02 CST: 这里专门保留 execution plan 构造器，原因是 committee payload 目前同时保留旧字段与新子层，
@@ -133,6 +246,44 @@ fn security_committee_vote_rejects_invalid_payload() {
     assert!(
         error.to_string().contains("evidence_version"),
         "error should mention evidence_version, got: {error}"
+    );
+}
+
+#[test]
+fn security_committee_vote_rejects_risk_breakdown_category_mismatch() {
+    let mut payload = build_committee_payload();
+    // 2026-04-08 CST: 这里故意制造分类错桶样例，原因是方案 B 要把 risk_breakdown 提升为强一致性门禁主源。
+    // 目的：锁住“technical 桶里不能塞 fundamental 分类”这类结构化风险合同错误，避免脏 payload 混进投决会。
+    payload.risk_breakdown.technical[0].category = "fundamental".to_string();
+
+    let error = security_committee_vote(&SecurityCommitteeVoteRequest {
+        committee_payload: payload,
+        committee_mode: "standard".to_string(),
+        meeting_id: None,
+    })
+    .expect_err("category mismatch should be rejected");
+    assert!(
+        error.to_string().contains("risk_breakdown"),
+        "error should mention risk_breakdown, got: {error}"
+    );
+}
+
+#[test]
+fn security_committee_vote_rejects_key_risks_not_matching_risk_breakdown() {
+    let mut payload = build_committee_payload();
+    // 2026-04-08 CST: 这里故意制造 key_risks 与 risk_breakdown 不一致，原因是方案 B 要求旧摘要字段必须严格来自主合同派生。
+    // 目的：防止外部调用方继续手工维护第二套风险事实，导致摘要与结构化风险并行漂移。
+    payload.key_risks = vec!["外部手工拼接的风险摘要".to_string()];
+
+    let error = security_committee_vote(&SecurityCommitteeVoteRequest {
+        committee_payload: payload,
+        committee_mode: "standard".to_string(),
+        meeting_id: None,
+    })
+    .expect_err("key_risks mismatch should be rejected");
+    assert!(
+        error.to_string().contains("key_risks"),
+        "error should mention key_risks, got: {error}"
     );
 }
 
@@ -323,4 +474,27 @@ fn security_committee_vote_exposes_seven_seat_independent_execution() {
     assert_eq!(evidence_versions.len(), 1);
     assert_eq!(execution_instance_ids.len(), 7);
     assert_eq!(process_ids.len(), 7);
+}
+
+#[test]
+fn security_committee_vote_etf_fundamental_reviewer_uses_fund_review_semantics() {
+    let result = security_committee_vote(&SecurityCommitteeVoteRequest {
+        committee_payload: build_etf_committee_payload(),
+        committee_mode: "standard".to_string(),
+        meeting_id: Some("meeting-etf-001".to_string()),
+    })
+    .expect("ETF payload should vote successfully");
+
+    let vote = result
+        .votes
+        .iter()
+        .find(|item| item.role == "fundamental_reviewer")
+        .expect("fundamental_reviewer should exist");
+
+    assert_ne!(vote.vote, "defer");
+    assert!(
+        vote.rationale.contains("ETF"),
+        "ETF rationale should use fund-review semantics, got: {}",
+        vote.rationale
+    );
 }

@@ -122,6 +122,14 @@ pub struct SignalOutcomeResearchSummaryResult {
     pub historical_confidence: String,
     pub analog_sample_count: usize,
     pub analog_win_rate_10d: Option<f64>,
+    pub analog_loss_rate_10d: Option<f64>,
+    pub analog_flat_rate_10d: Option<f64>,
+    pub analog_avg_return_10d: Option<f64>,
+    pub analog_median_return_10d: Option<f64>,
+    pub analog_avg_win_return_10d: Option<f64>,
+    pub analog_avg_loss_return_10d: Option<f64>,
+    pub analog_payoff_ratio_10d: Option<f64>,
+    pub analog_expectancy_10d: Option<f64>,
     pub expected_return_window: Option<String>,
     pub expected_drawdown_window: Option<String>,
     pub research_limitations: Vec<String>,
@@ -463,6 +471,14 @@ pub fn signal_outcome_research_summary(
             historical_confidence: "unknown".to_string(),
             analog_sample_count: 0,
             analog_win_rate_10d: None,
+            analog_loss_rate_10d: None,
+            analog_flat_rate_10d: None,
+            analog_avg_return_10d: None,
+            analog_median_return_10d: None,
+            analog_avg_win_return_10d: None,
+            analog_avg_loss_return_10d: None,
+            analog_payoff_ratio_10d: None,
+            analog_expectancy_10d: None,
             expected_return_window: None,
             expected_drawdown_window: None,
             research_limitations: vec!["历史相似研究尚未生成或样本不足。".to_string()],
@@ -472,6 +488,45 @@ pub fn signal_outcome_research_summary(
     let summary_payload: AnalogStudySummaryPayload =
         serde_json::from_str(&study_row.summary_payload)
             .map_err(|error| SignalOutcomeResearchError::SerializeSnapshot(error.to_string()))?;
+    // 2026-04-08 CST: 这里从 matched_analogs 回推赔率层数值，原因是本轮赔率系统要求直接复用正式研究摘要入口，
+    // 目的：让 briefing/committee 都通过同一份 summary 获得 win/loss/flat、payoff 与 expectancy，而不是各层自己再扫库重算。
+    let forward_returns = summary_payload
+        .matched_analogs
+        .iter()
+        .map(|item| item.forward_return_10d)
+        .collect::<Vec<_>>();
+    let sample_count = study_row.sample_count.max(0) as usize;
+    let win_returns = forward_returns
+        .iter()
+        .copied()
+        .filter(|value| *value > 0.0)
+        .collect::<Vec<_>>();
+    let loss_returns = forward_returns
+        .iter()
+        .copied()
+        .filter(|value| *value < 0.0)
+        .collect::<Vec<_>>();
+    let flat_count = forward_returns
+        .iter()
+        .filter(|value| value.abs() <= f64::EPSILON)
+        .count();
+    let analog_loss_rate_10d = ratio_option(loss_returns.len(), sample_count);
+    let analog_flat_rate_10d = ratio_option(flat_count, sample_count);
+    let analog_avg_win_return_10d = average_option(&win_returns);
+    let analog_avg_loss_return_10d = average_option(&loss_returns);
+    let analog_payoff_ratio_10d = match (analog_avg_win_return_10d, analog_avg_loss_return_10d) {
+        (Some(avg_win), Some(avg_loss)) if avg_loss < 0.0 => Some(avg_win / avg_loss.abs()),
+        _ => None,
+    };
+    let analog_expectancy_10d = match (study_row.win_rate, analog_avg_win_return_10d) {
+        // 2026-04-08 CST: 这里把平盘收益视为 0，原因是 V1 赔率系统先按 win/loss 两端估算期望值；
+        // 目的：在不引入更复杂收益分布模型的前提下，先给上层一个稳定、可解释的期望回报数值。
+        (win_rate, Some(avg_win)) => Some(
+            win_rate * avg_win
+                + analog_loss_rate_10d.unwrap_or(0.0) * analog_avg_loss_return_10d.unwrap_or(0.0),
+        ),
+        _ => None,
+    };
     Ok(SignalOutcomeResearchSummaryResult {
         symbol: study_row.symbol,
         snapshot_date: study_row.snapshot_date,
@@ -482,8 +537,16 @@ pub fn signal_outcome_research_summary(
             "unavailable".to_string()
         },
         historical_confidence: classify_historical_confidence(study_row.sample_count as usize),
-        analog_sample_count: study_row.sample_count as usize,
+        analog_sample_count: sample_count,
         analog_win_rate_10d: Some(study_row.win_rate),
+        analog_loss_rate_10d,
+        analog_flat_rate_10d,
+        analog_avg_return_10d: Some(study_row.avg_return_pct),
+        analog_median_return_10d: Some(study_row.median_return_pct),
+        analog_avg_win_return_10d,
+        analog_avg_loss_return_10d,
+        analog_payoff_ratio_10d,
+        analog_expectancy_10d,
         expected_return_window: Some(summary_payload.expected_return_window),
         expected_drawdown_window: Some(summary_payload.expected_drawdown_window),
         research_limitations: if study_row.sample_count > 0 {
@@ -833,6 +896,26 @@ fn average(values: &[f64]) -> f64 {
         0.0
     } else {
         values.iter().sum::<f64>() / values.len() as f64
+    }
+}
+
+// 2026-04-08 CST: 这里补一个可选平均值助手，原因是赔率层要明确区分“没有样本”和“平均值为 0”；
+// 目的：让 summary 层在 win/loss 两端样本缺失时返回 None，而不是误把 0 当成真实统计结果。
+fn average_option(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(average(values))
+    }
+}
+
+// 2026-04-08 CST: 这里补一个可选比例助手，原因是赔率层需要在 sample_count 为 0 时显式返回缺失而不是 0；
+// 目的：避免 unavailable 状态下把“没有研究”误说成“有 0% 的胜率/败率/平率”。
+fn ratio_option(numerator: usize, denominator: usize) -> Option<f64> {
+    if denominator == 0 {
+        None
+    } else {
+        Some(numerator as f64 / denominator as f64)
     }
 }
 

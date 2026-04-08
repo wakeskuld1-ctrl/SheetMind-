@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod common;
 
 use chrono::{Duration, NaiveDate};
@@ -288,6 +290,21 @@ fn technical_consultation_basic_contract_exposes_bullish_continuation_conclusion
     // 2026-04-01 CST: 这里先锁外层工具合同里的多头延续输出，原因是 CLI 专项回归虽然已覆盖内部矩阵，
     // 目的：但 `integration_tool_contract` 还没有证明调用方在工具层拿到的确实是完整 `consultation_conclusion` 合同。
     assert_eq!(output["status"], "ok");
+    // 2026-04-08 CST: 这里先补顶层日期与证据版本红测，原因是方案 C 第一批要把证券分析链公共合同收口到统一字段；
+    // 目的：锁定 technical_consultation_basic 不再只暴露 as_of_date，而是对外也提供统一 analysis_date / evidence_version。
+    assert_eq!(
+        output["data"]["analysis_date"],
+        output["data"]["as_of_date"]
+    );
+    assert_eq!(
+        output["data"]["evidence_version"],
+        format!(
+            "technical-consultation-basic:688169.SH:{}:v1",
+            output["data"]["analysis_date"]
+                .as_str()
+                .expect("analysis_date should exist")
+        )
+    );
     assert_eq!(
         output["data"]["consultation_conclusion"]["bias"],
         "bullish_continuation"
@@ -464,15 +481,146 @@ fn security_decision_briefing_contract_exposes_required_top_level_fields() {
             "watch_points": ["量价共振是否延续"],
             "explanation": ["execution_plan 样例仅用于锁定合同字段"]
         },
+        "odds_brief": {
+            "status": "available",
+            "historical_confidence": "medium",
+            "sample_count": 12,
+            "win_rate_10d": 0.58,
+            "loss_rate_10d": 0.33,
+            "flat_rate_10d": 0.09,
+            "avg_return_10d": 0.041,
+            "median_return_10d": 0.036,
+            "avg_win_return_10d": 0.086,
+            "avg_loss_return_10d": -0.041,
+            "payoff_ratio_10d": 2.10,
+            "expectancy_10d": 0.036,
+            "expected_return_window": "10日收益均值 4.10%，中位数 3.60%",
+            "expected_drawdown_window": "10日回撤均值 -2.30%，中位数 -2.10%",
+            "odds_grade": "B",
+            "confidence_grade": "medium",
+            "rationale": ["赔率层合同样例仅用于锁定字段"],
+            "research_limitations": []
+        },
+        "position_plan": {
+            "position_action": "starter_then_confirm",
+            "entry_mode": "breakout_confirmation",
+            "starter_position_pct": 0.10,
+            "max_position_pct": 0.22,
+            "add_on_trigger": "站上关键位且放量后再追加",
+            "reduce_on_trigger": "跌破短承接位先减仓",
+            "hard_stop_trigger": "跌破失效位退出",
+            "liquidity_cap": "单次执行不超过计划仓位的 50%",
+            "position_risk_grade": "medium",
+            "regime_adjustment": "若市场共振转弱则整体降一级仓位",
+            "execution_notes": ["position_plan 样例仅用于锁定合同字段"],
+            "rationale": ["仓位层合同样例仅用于锁定字段"]
+        },
         "committee_payload": {
             "symbol": "600519.SH",
             "analysis_date": "2026-04-02",
             "recommended_action": "hold_and_confirm",
             "confidence": "medium",
             "key_risks": ["高位放量回撤"],
+            "risk_breakdown": {
+                "technical": [
+                    {
+                        "category": "technical",
+                        "severity": "medium",
+                        "headline": "高位放量回撤",
+                        "rationale": "价格仍处于高位震荡，若量价背离扩大则需要重新评估突破有效性。"
+                    }
+                ],
+                "fundamental": [],
+                "resonance": [],
+                "execution": []
+            },
             "minority_objection_points": ["尚未突破关键阻力"],
             "evidence_version": "briefing-contract-v1",
-            "briefing_digest": "结构化简报摘要样例"
+            "briefing_digest": "结构化简报摘要样例",
+            "committee_schema_version": "committee-payload:v1",
+            "recommendation_digest": {
+                "final_stance": "watchful_positive",
+                "action_bias": "hold_and_confirm",
+                "summary": "结构化简报摘要样例",
+                "confidence": "medium"
+            },
+            "execution_digest": {
+                "add_trigger_price": 1510.0,
+                "add_trigger_volume_ratio": 1.35,
+                "add_position_pct": 0.12,
+                "reduce_trigger_price": 1460.0,
+                "reduce_position_pct": 0.08,
+                "stop_loss_price": 1420.0,
+                "invalidation_price": 1398.0,
+                "rejection_zone": "1495-1510",
+                "watch_points": ["量价共振是否延续"],
+                "explanation": ["execution_plan 样例仅用于锁定合同字段"]
+            },
+            "resonance_digest": {
+                "resonance_score": 0.72,
+                "action_bias": "hold_and_confirm",
+                "top_positive_driver_names": ["行业景气"],
+                "top_negative_driver_names": ["高位回撤"],
+                "event_override_titles": ["政策观察"]
+            },
+            "evidence_checks": {
+                "fundamental_ready": true,
+                "technical_ready": true,
+                "resonance_ready": true,
+                "execution_ready": true,
+                "briefing_ready": true
+            },
+            "historical_digest": {
+                "status": "available",
+                "historical_confidence": "medium",
+                "analog_sample_count": 12,
+                "analog_win_rate_10d": 0.58,
+                "analog_loss_rate_10d": 0.33,
+                "analog_flat_rate_10d": 0.09,
+                "analog_avg_return_10d": 0.041,
+                "analog_median_return_10d": 0.036,
+                "analog_avg_win_return_10d": 0.086,
+                "analog_avg_loss_return_10d": -0.041,
+                "analog_payoff_ratio_10d": 2.10,
+                "analog_expectancy_10d": 0.036,
+                "expected_return_window": "10日收益均值 4.10%，中位数 3.60%",
+                "expected_drawdown_window": "10日回撤均值 -2.30%，中位数 -2.10%",
+                "research_limitations": []
+            },
+            "odds_digest": {
+                "status": "available",
+                "historical_confidence": "medium",
+                "sample_count": 12,
+                "win_rate_10d": 0.58,
+                "loss_rate_10d": 0.33,
+                "flat_rate_10d": 0.09,
+                "avg_return_10d": 0.041,
+                "median_return_10d": 0.036,
+                "avg_win_return_10d": 0.086,
+                "avg_loss_return_10d": -0.041,
+                "payoff_ratio_10d": 2.10,
+                "expectancy_10d": 0.036,
+                "expected_return_window": "10日收益均值 4.10%，中位数 3.60%",
+                "expected_drawdown_window": "10日回撤均值 -2.30%，中位数 -2.10%",
+                "odds_grade": "B",
+                "confidence_grade": "medium",
+                "rationale": ["赔率层合同样例仅用于锁定字段"],
+                "research_limitations": []
+            },
+            "position_digest": {
+                "position_action": "starter_then_confirm",
+                "entry_mode": "breakout_confirmation",
+                "starter_position_pct": 0.10,
+                "max_position_pct": 0.22,
+                "add_on_trigger": "站上关键位且放量后再追加",
+                "reduce_on_trigger": "跌破短承接位先减仓",
+                "hard_stop_trigger": "跌破失效位退出",
+                "liquidity_cap": "单次执行不超过计划仓位的 50%",
+                "position_risk_grade": "medium",
+                "regime_adjustment": "若市场共振转弱则整体降一级仓位",
+                "execution_notes": ["position_plan 样例仅用于锁定合同字段"],
+                "rationale": ["仓位层合同样例仅用于锁定字段"]
+            }
         }
     });
 
@@ -482,6 +630,8 @@ fn security_decision_briefing_contract_exposes_required_top_level_fields() {
         "technical_brief",
         "resonance_brief",
         "execution_plan",
+        "odds_brief",
+        "position_plan",
         "committee_payload",
     ] {
         assert!(
@@ -494,7 +644,10 @@ fn security_decision_briefing_contract_exposes_required_top_level_fields() {
         "recommended_action",
         "confidence",
         "key_risks",
+        "risk_breakdown",
         "evidence_version",
+        "odds_digest",
+        "position_digest",
     ] {
         assert!(
             serialized["committee_payload"].get(field_name).is_some(),

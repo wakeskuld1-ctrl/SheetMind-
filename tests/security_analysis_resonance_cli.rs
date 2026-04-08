@@ -88,6 +88,105 @@ fn run_security_decision_briefing_direct(
     serde_json::to_value(output).expect("security_decision_briefing result should serialize")
 }
 
+#[test]
+fn security_analysis_resonance_exposes_unified_analysis_date_and_evidence_version() {
+    let runtime_db_path = create_test_runtime_db("security_analysis_resonance_contract_fields");
+    let stock_csv = create_stock_history_csv(
+        "security_analysis_resonance_contract_fields",
+        "stock.csv",
+        &build_oil_stock_rows(220, 10.5),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_analysis_resonance_contract_fields",
+        "market.csv",
+        &build_supportive_market_rows(220, 4.2),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_analysis_resonance_contract_fields",
+        "sector.csv",
+        &build_oil_sector_rows(220, 1.8),
+    );
+    import_history_csv(&runtime_db_path, &stock_csv, "601857.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "516530.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 200 OK",
+            r#"[
+                {
+                    "REPORT_DATE":"2025-12-31",
+                    "NOTICE_DATE":"2026-03-28",
+                    "TOTAL_OPERATE_INCOME":300000000000.0,
+                    "YSTZ":6.20,
+                    "PARENT_NETPROFIT":15000000000.0,
+                    "SJLTZ":4.80,
+                    "ROEJQ":10.5
+                }
+            ]"#,
+            "application/json",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "list":[
+                        {"notice_date":"2026-03-28","title":"2025年年度报告","art_code":"AN202603281111111111","columns":[{"column_name":"定期报告"}]}
+                    ]
+                }
+            }"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_analysis_resonance",
+        "args": {
+            "symbol": "601857.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "516530.SH",
+            "market_regime": "a_share",
+            "sector_template": "oil",
+            "lookback_days": 120,
+            "factor_lookback_days": 60
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-08 CST: 这里先补 resonance 顶层公共合同红测，原因是方案 C 第一批要把 analysis_date / evidence_version 收到共振层；
+    // 目的：确保 briefing 之下的直接调用方也能从 resonance 顶层拿到统一事实版本，而不是继续回捞 nested fullstack 字段。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["analysis_date"],
+        output["data"]["base_analysis"]["analysis_date"]
+    );
+    assert_eq!(
+        output["data"]["evidence_version"],
+        format!(
+            "security-analysis-resonance:601857.SH:{}:v1",
+            output["data"]["analysis_date"]
+                .as_str()
+                .expect("analysis_date should exist")
+        )
+    );
+}
+
 // 2026-04-02 CST：这里新增共振平台 CLI 测试夹具目录助手，原因是方案 3 已经确定先做“平台底层 + Tool 主链”；
 // 目的：先把共振平台的真实 `CSV -> SQLite -> register/append -> resonance analysis` 主链固定下来，避免后续只测内部函数而漏掉外层合同。
 fn create_stock_history_csv(prefix: &str, file_name: &str, rows: &[String]) -> PathBuf {
@@ -1742,6 +1841,7 @@ fn security_decision_briefing_exposes_committee_payload() {
         "recommended_action",
         "confidence",
         "key_risks",
+        "risk_breakdown",
         "minority_objection_points",
         "evidence_version",
         "briefing_digest",
@@ -1767,6 +1867,23 @@ fn security_decision_briefing_exposes_committee_payload() {
         output["committee_payload"]["briefing_digest"],
         output["summary"]
     );
+    // 2026-04-08 CST: 这里补结构化风险合同红测，原因是标准收口版不能再只靠扁平 `key_risks` 传递风险事实；
+    // 目的：确保 committee_payload 同时暴露按类别拆分的 risk_breakdown，并让旧摘要字段从这份结构化合同派生出来。
+    for field_name in ["technical", "fundamental", "resonance", "execution"] {
+        assert!(
+            output["committee_payload"]["risk_breakdown"]
+                .get(field_name)
+                .is_some(),
+            "risk_breakdown should expose `{field_name}`"
+        );
+    }
+    assert!(
+        output["committee_payload"]["key_risks"]
+            .as_array()
+            .expect("key_risks should be an array")
+            .len()
+            > 0
+    );
 }
 
 #[test]
@@ -1783,6 +1900,8 @@ fn security_decision_briefing_exposes_vote_ready_committee_payload() {
         "resonance_digest",
         "evidence_checks",
         "historical_digest",
+        "odds_digest",
+        "position_digest",
     ] {
         assert!(
             output["committee_payload"].get(field_name).is_some(),
@@ -1837,6 +1956,29 @@ fn security_decision_briefing_exposes_vote_ready_committee_payload() {
                 .get(field_name)
                 .is_some(),
             "historical_digest should expose `{field_name}`"
+        );
+    }
+
+    for field_name in ["odds_grade", "payoff_ratio_10d", "expectancy_10d"] {
+        assert!(
+            output["committee_payload"]["odds_digest"]
+                .get(field_name)
+                .is_some(),
+            "odds_digest should expose `{field_name}`"
+        );
+    }
+
+    for field_name in [
+        "position_action",
+        "starter_position_pct",
+        "max_position_pct",
+        "hard_stop_trigger",
+    ] {
+        assert!(
+            output["committee_payload"]["position_digest"]
+                .get(field_name)
+                .is_some(),
+            "position_digest should expose `{field_name}`"
         );
     }
 }
@@ -2369,6 +2511,134 @@ fn security_decision_briefing_exposes_available_historical_digest_after_analog_s
 }
 
 #[test]
+fn security_decision_briefing_exposes_odds_and_position_layers_after_analog_study() {
+    let (runtime_db_path, server) =
+        build_bank_signal_outcome_fixture("security_decision_briefing_odds_position_layers");
+
+    let study_request = json!({
+        "tool": "study_security_signal_analogs",
+        "args": {
+            "symbol": "601998.SH",
+            "snapshot_date": "2025-12-12",
+            "comparison_symbols": ["601998.SH", "600000.SH", "601398.SH"],
+            "study_key": "bank_resonance_core_technical_v1",
+            "min_similarity_score": 0.58,
+            "sample_limit": 12
+        }
+    });
+    let study_output =
+        run_cli_with_json_runtime_and_envs(&study_request.to_string(), &runtime_db_path, &[]);
+    assert_eq!(study_output["status"], "ok", "{study_output:#?}");
+
+    let request = SecurityDecisionBriefingRequest {
+        symbol: "601998.SH".to_string(),
+        market_symbol: Some("510300.SH".to_string()),
+        sector_symbol: Some("512800.SH".to_string()),
+        market_regime: "a_share".to_string(),
+        sector_template: "bank".to_string(),
+        as_of_date: Some("2025-12-12".to_string()),
+        lookback_days: 180,
+        factor_lookback_days: 120,
+        disclosure_limit: 3,
+    };
+    let output = run_security_decision_briefing_direct(
+        &runtime_db_path,
+        &request,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+            (
+                "EXCEL_SKILL_OFFICIAL_FINANCIAL_URL_BASE",
+                format!("{server}/official-financials"),
+            ),
+            (
+                "EXCEL_SKILL_OFFICIAL_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/official-announcements"),
+            ),
+            (
+                "EXCEL_SKILL_SINA_FINANCIAL_URL_BASE",
+                format!("{server}/sina-financials"),
+            ),
+            (
+                "EXCEL_SKILL_SINA_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/sina-announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-08 CST: 这里补 briefing 顶层赔率层与仓位层红测，原因是本轮要把既有历史研究装配成正式决策输出，
+    // 目的：确保平台不再只停留在 historical_digest，而是正式暴露 odds_brief / position_plan 供上层直接消费。
+    for field_name in [
+        "status",
+        "win_rate_10d",
+        "loss_rate_10d",
+        "payoff_ratio_10d",
+        "expectancy_10d",
+        "odds_grade",
+        "confidence_grade",
+    ] {
+        assert!(
+            output["odds_brief"].get(field_name).is_some(),
+            "odds_brief should expose `{field_name}`"
+        );
+    }
+    assert_eq!(output["odds_brief"]["status"], "available");
+    assert!(
+        output["odds_brief"]["sample_count"]
+            .as_u64()
+            .expect("sample_count should be numeric")
+            > 0
+    );
+    assert!(
+        output["odds_brief"]["odds_grade"]
+            .as_str()
+            .expect("odds_grade should be a string")
+            .len()
+            > 0
+    );
+
+    for field_name in [
+        "position_action",
+        "entry_mode",
+        "starter_position_pct",
+        "max_position_pct",
+        "add_on_trigger",
+        "hard_stop_trigger",
+        "position_risk_grade",
+    ] {
+        assert!(
+            output["position_plan"].get(field_name).is_some(),
+            "position_plan should expose `{field_name}`"
+        );
+    }
+    assert!(
+        output["position_plan"]["max_position_pct"]
+            .as_f64()
+            .expect("max_position_pct should be numeric")
+            >= output["position_plan"]["starter_position_pct"]
+                .as_f64()
+                .expect("starter_position_pct should be numeric")
+    );
+
+    // 2026-04-08 CST: 这里锁顶层与 committee_payload 的同源关系，原因是方案 B 不允许再出现 briefing 与投决会各自维护第二套赔率/仓位事实；
+    // 目的：确保 committee_payload.odds_digest / position_digest 与顶层 briefing 字段完全同源。
+    assert_eq!(
+        output["committee_payload"]["odds_digest"],
+        output["odds_brief"]
+    );
+    assert_eq!(
+        output["committee_payload"]["position_digest"],
+        output["position_plan"]
+    );
+}
+
+#[test]
 fn security_committee_vote_consumes_briefing_payload_with_historical_digest() {
     let (runtime_db_path, server) =
         build_bank_signal_outcome_fixture("security_committee_vote_end_to_end");
@@ -2453,8 +2723,9 @@ fn security_committee_vote_consumes_briefing_payload_with_historical_digest() {
         run_cli_with_json_runtime_and_envs(&vote_request.to_string(), &runtime_db_path, &[]);
     assert_eq!(vote_output["status"], "ok", "{vote_output:#?}");
 
-    let vote_result: SecurityCommitteeVoteResult = serde_json::from_value(vote_output["data"].clone())
-        .expect("security_committee_vote should return structured result");
+    let vote_result: SecurityCommitteeVoteResult =
+        serde_json::from_value(vote_output["data"].clone())
+            .expect("security_committee_vote should return structured result");
     assert_eq!(vote_result.symbol, "601998.SH");
     assert_eq!(vote_result.analysis_date, "2025-12-12");
     assert_eq!(
@@ -2551,9 +2822,18 @@ fn security_decision_briefing_includes_default_committee_recommendations_for_all
     let recommendations = &briefing_output["data"]["committee_recommendations"];
     assert_eq!(recommendations["default_mode"], "standard");
     assert_eq!(recommendations["report_focus"], "stock_analysis_report");
-    assert_eq!(recommendations["standard"]["scenario"], "个股分析报告默认投决会建议");
-    assert_eq!(recommendations["strict"]["scenario"], "涉及金额与买卖动作的严格交易建议");
-    assert_eq!(recommendations["advisory"]["scenario"], "已有持仓判断与持仓处置建议");
+    assert_eq!(
+        recommendations["standard"]["scenario"],
+        "个股分析报告默认投决会建议"
+    );
+    assert_eq!(
+        recommendations["strict"]["scenario"],
+        "涉及金额与买卖动作的严格交易建议"
+    );
+    assert_eq!(
+        recommendations["advisory"]["scenario"],
+        "已有持仓判断与持仓处置建议"
+    );
 
     let committee_payload: CommitteePayload =
         serde_json::from_value(briefing_output["data"]["committee_payload"].clone())
@@ -2571,8 +2851,14 @@ fn security_decision_briefing_includes_default_committee_recommendations_for_all
                 .expect("embedded committee recommendation should deserialize");
         assert_eq!(embedded_vote.symbol, expected_vote.symbol);
         assert_eq!(embedded_vote.analysis_date, expected_vote.analysis_date);
-        assert_eq!(embedded_vote.evidence_version, expected_vote.evidence_version);
-        assert_eq!(embedded_vote.committee_engine, expected_vote.committee_engine);
+        assert_eq!(
+            embedded_vote.evidence_version,
+            expected_vote.evidence_version
+        );
+        assert_eq!(
+            embedded_vote.committee_engine,
+            expected_vote.committee_engine
+        );
         assert_eq!(embedded_vote.committee_mode, expected_vote.committee_mode);
         assert_eq!(
             embedded_vote.deliberation_seat_count,
@@ -2583,13 +2869,19 @@ fn security_decision_briefing_includes_default_committee_recommendations_for_all
         assert_eq!(embedded_vote.majority_count, expected_vote.majority_count);
         assert_eq!(embedded_vote.final_decision, expected_vote.final_decision);
         assert_eq!(embedded_vote.final_action, expected_vote.final_action);
-        assert_eq!(embedded_vote.final_confidence, expected_vote.final_confidence);
+        assert_eq!(
+            embedded_vote.final_confidence,
+            expected_vote.final_confidence
+        );
         assert_eq!(embedded_vote.approval_ratio, expected_vote.approval_ratio);
         assert_eq!(embedded_vote.quorum_met, expected_vote.quorum_met);
         assert_eq!(embedded_vote.veto_triggered, expected_vote.veto_triggered);
         assert_eq!(embedded_vote.veto_role, expected_vote.veto_role);
         assert_eq!(embedded_vote.conditions, expected_vote.conditions);
-        assert_eq!(embedded_vote.key_disagreements, expected_vote.key_disagreements);
+        assert_eq!(
+            embedded_vote.key_disagreements,
+            expected_vote.key_disagreements
+        );
         assert_eq!(embedded_vote.warnings, expected_vote.warnings);
 
         let embedded_votes_by_role = embedded_vote
@@ -2608,19 +2900,46 @@ fn security_decision_briefing_includes_default_committee_recommendations_for_all
             let embedded_member_vote = embedded_votes_by_role
                 .get(role)
                 .expect("embedded vote should contain the same committee role");
-            assert_eq!(embedded_member_vote.member_id, expected_member_vote.member_id);
-            assert_eq!(embedded_member_vote.seat_kind, expected_member_vote.seat_kind);
-            assert_eq!(embedded_member_vote.evidence_version, expected_member_vote.evidence_version);
+            assert_eq!(
+                embedded_member_vote.member_id,
+                expected_member_vote.member_id
+            );
+            assert_eq!(
+                embedded_member_vote.seat_kind,
+                expected_member_vote.seat_kind
+            );
+            assert_eq!(
+                embedded_member_vote.evidence_version,
+                expected_member_vote.evidence_version
+            );
             assert_eq!(embedded_member_vote.vote, expected_member_vote.vote);
-            assert_eq!(embedded_member_vote.confidence, expected_member_vote.confidence);
-            assert_eq!(embedded_member_vote.rationale, expected_member_vote.rationale);
-            assert_eq!(embedded_member_vote.focus_points, expected_member_vote.focus_points);
+            assert_eq!(
+                embedded_member_vote.confidence,
+                expected_member_vote.confidence
+            );
+            assert_eq!(
+                embedded_member_vote.rationale,
+                expected_member_vote.rationale
+            );
+            assert_eq!(
+                embedded_member_vote.focus_points,
+                expected_member_vote.focus_points
+            );
             assert_eq!(embedded_member_vote.blockers, expected_member_vote.blockers);
-            assert_eq!(embedded_member_vote.conditions, expected_member_vote.conditions);
+            assert_eq!(
+                embedded_member_vote.conditions,
+                expected_member_vote.conditions
+            );
             assert_eq!(embedded_member_vote.execution_mode, "child_process");
             assert_eq!(expected_member_vote.execution_mode, "child_process");
-            assert_ne!(embedded_member_vote.execution_instance_id, expected_member_vote.execution_instance_id);
-            assert_ne!(embedded_member_vote.process_id, expected_member_vote.process_id);
+            assert_ne!(
+                embedded_member_vote.execution_instance_id,
+                expected_member_vote.execution_instance_id
+            );
+            assert_ne!(
+                embedded_member_vote.process_id,
+                expected_member_vote.process_id
+            );
         }
     }
 }
