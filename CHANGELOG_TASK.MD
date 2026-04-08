@@ -1210,3 +1210,25 @@
 
 ### 记忆点（可选）
 - 用户再次明确要求：推送前不仅要整理当前实现，还要把“下一步做什么”的方案正式写进仓库文档，不能只停留在对话里。
+## 2026-04-08
+### 修改内容
+- `src/ops/signal_outcome_research.rs`：先新增 `signal_outcome_research_summary_exposes_extended_analog_metrics` 回归测试，再补齐 `SignalOutcomeResearchSummaryResult` 的扩展字段与最小汇总计算逻辑。目的：修复独立 foundation 分支从混合股票分支剥离后出现的编译断点。 <!-- 2026-04-08 CST: 本次先红测后修复。原因：独立分支暴露出摘要结构体字段缺失。 -->
+- `docs/AI_HANDOFF.md`：补充分支边界说明，明确 `codex/merge-cli-mod-batches` 为混合股票分支，`codex/foundation-metadata-governance` 为 foundation 独立分支。目的：避免后续继续把 foundation 改动叠到股票分支。 <!-- 2026-04-08 CST: 本次补充分支交接说明。原因：用户要求把混合分支信息补进去。 -->
+
+### 修改原因
+- 用户要求把 `bf595e6` 从股票混合分支中拆出来，优先保证 foundation 代码没有冲突、能独立成立。
+- 实际验证发现：`bf595e6` 单独切出后无法编译，根因是 `security_decision_briefing` 已消费扩展版 research summary 字段，但该分支内 `signal_outcome_research` 仍停留在旧结构。
+
+### 方案还差什么?
+- [ ] 还没有开始实现方案 A 的 `Metadata Validator` 联动，本次只完成 foundation 独立分支的最小编译修复与分支边界说明。
+- [ ] 还需要把当前独立分支提交并推送到远端对应的新 foundation 分支。
+
+### 潜在问题
+- [ ] 当前修复只保证 research summary 摘要字段与 briefing 消费侧契约对齐，没有继续扩展赔率/仓位系统其它行为；后续若再扩大消费字段，需要继续按 TDD 增量补齐。
+- [ ] `docs/AI_HANDOFF.md` 等文件在 PowerShell 输出里仍有编码显示噪声，但本次编辑按 UTF-8 维护；后续若用错误编码保存，仍可能造成真正乱码。
+
+### 关闭项
+- 已通过 `cargo test signal_outcome_research_summary_exposes_extended_analog_metrics --lib -- --nocapture`
+
+### 记忆点（可选）
+- 用户明确要求：先把 foundation 从股票混合分支里拆干净，再继续推进后续方案；当前重点是“代码没冲突、分支边界清楚”，不是顺手继续扩股票业务能力。

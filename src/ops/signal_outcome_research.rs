@@ -122,6 +122,14 @@ pub struct SignalOutcomeResearchSummaryResult {
     pub historical_confidence: String,
     pub analog_sample_count: usize,
     pub analog_win_rate_10d: Option<f64>,
+    pub analog_loss_rate_10d: Option<f64>,
+    pub analog_flat_rate_10d: Option<f64>,
+    pub analog_avg_return_10d: Option<f64>,
+    pub analog_median_return_10d: Option<f64>,
+    pub analog_avg_win_return_10d: Option<f64>,
+    pub analog_avg_loss_return_10d: Option<f64>,
+    pub analog_payoff_ratio_10d: Option<f64>,
+    pub analog_expectancy_10d: Option<f64>,
     pub expected_return_window: Option<String>,
     pub expected_drawdown_window: Option<String>,
     pub research_limitations: Vec<String>,
@@ -463,6 +471,14 @@ pub fn signal_outcome_research_summary(
             historical_confidence: "unknown".to_string(),
             analog_sample_count: 0,
             analog_win_rate_10d: None,
+            analog_loss_rate_10d: None,
+            analog_flat_rate_10d: None,
+            analog_avg_return_10d: None,
+            analog_median_return_10d: None,
+            analog_avg_win_return_10d: None,
+            analog_avg_loss_return_10d: None,
+            analog_payoff_ratio_10d: None,
+            analog_expectancy_10d: None,
             expected_return_window: None,
             expected_drawdown_window: None,
             research_limitations: vec!["历史相似研究尚未生成或样本不足。".to_string()],
@@ -472,6 +488,47 @@ pub fn signal_outcome_research_summary(
     let summary_payload: AnalogStudySummaryPayload =
         serde_json::from_str(&study_row.summary_payload)
             .map_err(|error| SignalOutcomeResearchError::SerializeSnapshot(error.to_string()))?;
+    // 2026-04-08 CST: 这里从 matched_analogs 回推扩展版 analog 指标，原因是独立 foundation 分支
+    // 需要在不引入股票主线额外行为的前提下，自洽地补齐 briefing 已经消费的字段契约。
+    // 目的：让该分支脱离混合股票分支后依然可以独立编译和独立回归。
+    let forward_returns = summary_payload
+        .matched_analogs
+        .iter()
+        .map(|item| item.forward_return_10d)
+        .collect::<Vec<_>>();
+    let sample_count = study_row.sample_count.max(0) as usize;
+    let win_returns = forward_returns
+        .iter()
+        .copied()
+        .filter(|value| *value > 0.0)
+        .collect::<Vec<_>>();
+    let loss_returns = forward_returns
+        .iter()
+        .copied()
+        .filter(|value| *value < 0.0)
+        .collect::<Vec<_>>();
+    let flat_count = forward_returns
+        .iter()
+        .filter(|value| value.abs() <= f64::EPSILON)
+        .count();
+    let analog_loss_rate_10d = ratio_option(loss_returns.len(), sample_count);
+    let analog_flat_rate_10d = ratio_option(flat_count, sample_count);
+    let analog_avg_win_return_10d = average_option(&win_returns);
+    let analog_avg_loss_return_10d = average_option(&loss_returns);
+    let analog_payoff_ratio_10d = match (analog_avg_win_return_10d, analog_avg_loss_return_10d) {
+        (Some(avg_win), Some(avg_loss)) if avg_loss < 0.0 => Some(avg_win / avg_loss.abs()),
+        _ => None,
+    };
+    let analog_expectancy_10d = match (study_row.win_rate, analog_avg_win_return_10d) {
+        // 2026-04-08 CST: 这里把平盘收益继续视作 0，原因是当前只补最小摘要契约，
+        // 不在 foundation 分支提前引入更复杂的收益分布模型。
+        // 目的：保持实现最小，同时满足 briefing 侧字段消费。
+        (win_rate, Some(avg_win)) => Some(
+            win_rate * avg_win
+                + analog_loss_rate_10d.unwrap_or(0.0) * analog_avg_loss_return_10d.unwrap_or(0.0),
+        ),
+        _ => None,
+    };
     Ok(SignalOutcomeResearchSummaryResult {
         symbol: study_row.symbol,
         snapshot_date: study_row.snapshot_date,
@@ -482,8 +539,16 @@ pub fn signal_outcome_research_summary(
             "unavailable".to_string()
         },
         historical_confidence: classify_historical_confidence(study_row.sample_count as usize),
-        analog_sample_count: study_row.sample_count as usize,
+        analog_sample_count: sample_count,
         analog_win_rate_10d: Some(study_row.win_rate),
+        analog_loss_rate_10d,
+        analog_flat_rate_10d,
+        analog_avg_return_10d: Some(study_row.avg_return_pct),
+        analog_median_return_10d: Some(study_row.median_return_pct),
+        analog_avg_win_return_10d,
+        analog_avg_loss_return_10d,
+        analog_payoff_ratio_10d,
+        analog_expectancy_10d,
         expected_return_window: Some(summary_payload.expected_return_window),
         expected_drawdown_window: Some(summary_payload.expected_drawdown_window),
         research_limitations: if study_row.sample_count > 0 {
@@ -836,6 +901,26 @@ fn average(values: &[f64]) -> f64 {
     }
 }
 
+// 2026-04-08 CST: 这里补一个可选平均值助手，原因是 analog 扩展摘要需要区分“没有样本”和“均值为 0”。
+// 目的：让 summary 层在样本缺失时显式返回 None，而不是误把 0 当成真实统计结果。
+fn average_option(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        None
+    } else {
+        Some(average(values))
+    }
+}
+
+// 2026-04-08 CST: 这里补一个可选比例助手，原因是样本数为 0 时不应把缺失研究误表示成 0%。
+// 目的：让 unavailable 摘要和真实 0 比例保持语义分离。
+fn ratio_option(numerator: usize, denominator: usize) -> Option<f64> {
+    if denominator == 0 {
+        None
+    } else {
+        Some(numerator as f64 / denominator as f64)
+    }
+}
+
 fn median(values: &[f64]) -> f64 {
     if values.is_empty() {
         return 0.0;
@@ -872,4 +957,139 @@ fn classify_historical_confidence(sample_count: usize) -> String {
 
 fn round_ratio(value: f64) -> f64 {
     (value * 1000.0).round() / 1000.0
+}
+
+// 2026-04-08 CST: 这里补独立 foundation 分支的回归测试，原因是 `security_decision_briefing`
+// 已经开始消费扩展版 analog 摘要字段，而当前分支里的 `signal_outcome_research_summary`
+// 还停留在旧结构，导致独立切分支后无法编译。
+// 目的：先用测试钉住“研究摘要必须暴露完整 analog 指标”，再做最小修复。
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::signal_outcome_store::{SecuritySignalAnalogStudyRow, SignalOutcomeStore};
+    use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn signal_outcome_research_summary_exposes_extended_analog_metrics() {
+        let _guard = env_lock().lock().expect("env lock should be available");
+        let db_path = unique_temp_db_path("signal-outcome-summary");
+        let _env_guard = ScopedEnvVar::set("EXCEL_SKILL_SIGNAL_OUTCOME_DB", db_path.as_os_str());
+
+        let store = SignalOutcomeStore::new(db_path.clone());
+        store
+            .upsert_analog_study(&SecuritySignalAnalogStudyRow {
+                symbol: "600000.SH".to_string(),
+                snapshot_date: "2026-04-07".to_string(),
+                study_key: "bank_resonance_core_technical_v1".to_string(),
+                sample_count: 3,
+                win_rate: 1.0 / 3.0,
+                avg_return_pct: (0.08 - 0.04) / 3.0,
+                median_return_pct: 0.0,
+                summary_payload: serde_json::json!({
+                    "expected_return_window": "10日均值 1.33%，中位数 0.00%",
+                    "expected_drawdown_window": "10日最大回撤中位数 -4.00%",
+                    "matched_analogs": [
+                        {
+                            "symbol": "600001.SH",
+                            "snapshot_date": "2025-01-10",
+                            "similarity_score": 0.81,
+                            "matched_tag_count": 4,
+                            "matched_tags": ["trend=up", "bias=follow"],
+                            "forward_return_10d": 0.08,
+                            "max_drawdown_10d": -0.03
+                        },
+                        {
+                            "symbol": "600002.SH",
+                            "snapshot_date": "2025-02-14",
+                            "similarity_score": 0.79,
+                            "matched_tag_count": 4,
+                            "matched_tags": ["trend=mixed", "bias=wait"],
+                            "forward_return_10d": -0.04,
+                            "max_drawdown_10d": -0.06
+                        },
+                        {
+                            "symbol": "600003.SH",
+                            "snapshot_date": "2025-03-21",
+                            "similarity_score": 0.76,
+                            "matched_tag_count": 3,
+                            "matched_tags": ["trend=flat"],
+                            "forward_return_10d": 0.0,
+                            "max_drawdown_10d": -0.01
+                        }
+                    ]
+                })
+                .to_string(),
+            })
+            .expect("analog study should be stored");
+
+        let summary = signal_outcome_research_summary(&SignalOutcomeResearchSummaryRequest {
+            symbol: "600000.SH".to_string(),
+            snapshot_date: Some("2026-04-07".to_string()),
+            study_key: "bank_resonance_core_technical_v1".to_string(),
+        })
+        .expect("summary should load");
+
+        assert_eq!(summary.analog_sample_count, 3);
+        assert_close(summary.analog_win_rate_10d, Some(1.0 / 3.0));
+        assert_close(summary.analog_loss_rate_10d, Some(1.0 / 3.0));
+        assert_close(summary.analog_flat_rate_10d, Some(1.0 / 3.0));
+        assert_close(summary.analog_avg_return_10d, Some((0.08 - 0.04) / 3.0));
+        assert_close(summary.analog_median_return_10d, Some(0.0));
+        assert_close(summary.analog_avg_win_return_10d, Some(0.08));
+        assert_close(summary.analog_avg_loss_return_10d, Some(-0.04));
+        assert_close(summary.analog_payoff_ratio_10d, Some(2.0));
+        assert_close(summary.analog_expectancy_10d, Some((0.08 - 0.04) / 3.0));
+    }
+
+    fn assert_close(actual: Option<f64>, expected: Option<f64>) {
+        match (actual, expected) {
+            (Some(actual), Some(expected)) => {
+                assert!(
+                    (actual - expected).abs() <= 1e-9,
+                    "expected {expected}, got {actual}"
+                );
+            }
+            (None, None) => {}
+            (actual, expected) => panic!("expected {:?}, got {:?}", expected, actual),
+        }
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        ENV_LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn unique_temp_db_path(prefix: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{prefix}-{nonce}.db"))
+    }
+
+    struct ScopedEnvVar {
+        key: &'static str,
+    }
+
+    impl ScopedEnvVar {
+        fn set(key: &'static str, value: &std::ffi::OsStr) -> Self {
+            // 2026-04-08 CST: 这里显式串行化测试里的环境变量写入，原因是 edition 2024 下
+            // `set_var/remove_var` 已转为 `unsafe`，并且并发测试会造成全局环境竞争。
+            // 目的：把这类全局副作用限制在单测作用域内，避免影响其它回归。
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key }
+        }
+    }
+
+    impl Drop for ScopedEnvVar {
+        fn drop(&mut self) {
+            unsafe {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 }

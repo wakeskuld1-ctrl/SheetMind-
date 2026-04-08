@@ -238,3 +238,12 @@
   - 先方案 A
   - 再视需要进入方案 B
   - 最后才考虑方案 C
+### 9.3 2026-04-08 CST Branch Boundary 补充
+<!-- 2026-04-08 CST: 追加 foundation 分支边界说明。原因：`codex/merge-cli-mod-batches` 实际已经是股票主线与 foundation 进展叠加的混合分支，不适合继续承载独立 foundation 工作。目的：给后续 AI 和开发者明确分支边界，避免再次混堆。 -->
+
+- `codex/merge-cli-mod-batches`
+  - 当前应视为“混合股票分支”，其上已经叠加 `committee / odds / position / signal_outcome_research` 等证券主线改动
+  - 后续不要再继续往这条分支堆 `foundation` 专用功能
+- `codex/foundation-metadata-governance`
+  - 当前应视为 foundation 元数据管理独立分支
+  - 后续 `Metadata Validator` 联动、`repository audit` 等 foundation 通用能力，默认应从这条分支或其后续独立分支继续推进
