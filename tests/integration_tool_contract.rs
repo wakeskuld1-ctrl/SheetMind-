@@ -3,6 +3,14 @@
 mod common;
 
 use chrono::{Duration, NaiveDate};
+use excel_skill::ops::stock::security_decision_briefing::PositionPlan;
+use excel_skill::tools::contracts::PositionAdjustmentEventType;
+use excel_skill::tools::contracts::PositionPlanAlignment;
+use excel_skill::tools::contracts::PostTradeReviewDimension;
+use excel_skill::tools::contracts::PostTradeReviewOutcome;
+use excel_skill::tools::contracts::SecurityPositionPlanRecordResult;
+use excel_skill::tools::contracts::SecurityPostTradeReviewResult;
+use excel_skill::tools::contracts::SecurityRecordPositionAdjustmentResult;
 use excel_skill::tools::contracts::ToolResponse;
 use serde_json::json;
 use std::fs;
@@ -294,7 +302,11 @@ fn technical_consultation_basic_contract_exposes_bullish_continuation_conclusion
     // 目的：锁定 technical_consultation_basic 不再只暴露 as_of_date，而是对外也提供统一 analysis_date / evidence_version。
     assert_eq!(
         output["data"]["analysis_date"],
-        output["data"]["as_of_date"]
+        output["data"]["data_window_summary"]["end_date"]
+    );
+    assert!(
+        output["data"].get("as_of_date").is_none(),
+        "technical_consultation_basic should no longer expose legacy as_of_date"
     );
     assert_eq!(
         output["data"]["evidence_version"],
@@ -682,6 +694,156 @@ fn security_decision_briefing_is_cataloged() {
         stock_catalog.contains(&"security_decision_briefing"),
         "stock tool group should include security_decision_briefing"
     );
+}
+
+#[test]
+fn security_position_plan_record_contract_exposes_required_fields() {
+    // 2026-04-08 CST: 这里先补仓位计划记录正式合同红测，原因是投后复盘闭环的第一步必须先把 position_plan
+    // 从 briefing 子层建议升级成正式可引用对象；目的：锁定后续 position_plan_record 至少要暴露引用字段与核心仓位边界，避免实现时字段漂移。
+    let result = SecurityPositionPlanRecordResult {
+        position_plan_ref: "position-plan:600519.SH:2026-04-08:v1".to_string(),
+        decision_ref: "decision:600519.SH:2026-04-08:v1".to_string(),
+        approval_ref: "approval:600519.SH:2026-04-08:v1".to_string(),
+        evidence_version: "briefing:600519.SH:2026-04-08:v1".to_string(),
+        symbol: "600519.SH".to_string(),
+        analysis_date: "2026-04-08".to_string(),
+        position_action: "starter_then_confirm".to_string(),
+        starter_position_pct: 0.10,
+        max_position_pct: 0.22,
+        position_plan: PositionPlan {
+            position_action: "starter_then_confirm".to_string(),
+            entry_mode: "breakout_confirmation".to_string(),
+            starter_position_pct: 0.10,
+            max_position_pct: 0.22,
+            add_on_trigger: "站上关键位且放量后再追加".to_string(),
+            reduce_on_trigger: "跌破短承接位先减仓".to_string(),
+            hard_stop_trigger: "跌破失效位退出".to_string(),
+            liquidity_cap: "单次执行不超过计划仓位的 50%".to_string(),
+            position_risk_grade: "medium".to_string(),
+            regime_adjustment: "若市场共振转弱则整体降一级仓位".to_string(),
+            execution_notes: vec!["position_plan_record 样例仅用于锁定合同字段".to_string()],
+            rationale: vec!["position_plan_record 合同样例仅用于锁定字段".to_string()],
+        },
+    };
+
+    let serialized =
+        serde_json::to_value(&result).expect("position plan record contract should serialize");
+
+    for field_name in [
+        "position_plan_ref",
+        "decision_ref",
+        "approval_ref",
+        "evidence_version",
+        "symbol",
+        "analysis_date",
+        "position_action",
+        "starter_position_pct",
+        "max_position_pct",
+    ] {
+        assert!(
+            serialized.get(field_name).is_some(),
+            "security_position_plan_record should expose field `{field_name}`"
+        );
+    }
+}
+
+#[test]
+fn security_record_position_adjustment_contract_exposes_required_fields() {
+    // 2026-04-08 CST: 这里先补调仓事件正式合同红测，原因是 Task 3 要先把“多次调仓记录”的最小对象边界锁死，
+    // 目的：确保后续 security_record_position_adjustment Tool 实装时，事件引用、仓位变化和计划偏离口径不会在实现阶段漂移。
+    let result = SecurityRecordPositionAdjustmentResult {
+        adjustment_event_ref: "position-adjustment:600519.SH:2026-04-09:reduce:v1".to_string(),
+        decision_ref: "decision:600519.SH:2026-04-08:v1".to_string(),
+        approval_ref: "approval:600519.SH:2026-04-08:v1".to_string(),
+        evidence_version: "briefing:600519.SH:2026-04-08:v1".to_string(),
+        position_plan_ref: "position-plan:600519.SH:2026-04-08:v1".to_string(),
+        symbol: "600519.SH".to_string(),
+        event_type: PositionAdjustmentEventType::Reduce,
+        event_date: "2026-04-09".to_string(),
+        before_position_pct: 0.22,
+        after_position_pct: 0.14,
+        trigger_reason: "跌破减仓线，按计划先降回试错仓位".to_string(),
+        plan_alignment: PositionPlanAlignment::JustifiedDeviation,
+    };
+
+    let serialized = serde_json::to_value(&result)
+        .expect("position adjustment event contract should serialize");
+
+    for field_name in [
+        "adjustment_event_ref",
+        "position_plan_ref",
+        "event_type",
+        "event_date",
+        "before_position_pct",
+        "after_position_pct",
+        "trigger_reason",
+        "plan_alignment",
+    ] {
+        assert!(
+            serialized.get(field_name).is_some(),
+            "security_record_position_adjustment should expose field `{field_name}`"
+        );
+    }
+
+    assert_eq!(serialized["event_type"], "reduce");
+    assert_eq!(serialized["plan_alignment"], "justified_deviation");
+}
+
+#[test]
+fn security_post_trade_review_contract_exposes_required_fields() {
+    // 2026-04-08 CST: 这里先补投后复盘正式合同红测，原因是 Task 5 需要先把复盘对象的最小字段边界钉住；
+    // 目的：保证后续 security_post_trade_review Tool 落地时，能够稳定回指 plan / decision / approval，并输出统一复盘维度。
+    let result = SecurityPostTradeReviewResult {
+        post_trade_review_ref: "post-trade-review:600519.SH:2026-04-15:v1".to_string(),
+        position_plan_ref: "position-plan:600519.SH:2026-04-08:v1".to_string(),
+        decision_ref: "decision:600519.SH:2026-04-08:v1".to_string(),
+        approval_ref: "approval:600519.SH:2026-04-08:v1".to_string(),
+        evidence_version: "briefing:600519.SH:2026-04-08:v1".to_string(),
+        symbol: "600519.SH".to_string(),
+        analysis_date: "2026-04-15".to_string(),
+        adjustment_event_refs: vec![
+            "position-adjustment:600519.SH:2026-04-09:build:v1".to_string(),
+            "position-adjustment:600519.SH:2026-04-11:reduce:v1".to_string(),
+        ],
+        review_outcome: PostTradeReviewOutcome::Mixed,
+        decision_accuracy: PostTradeReviewDimension::Acceptable,
+        execution_quality: PostTradeReviewDimension::Strong,
+        risk_control_quality: PostTradeReviewDimension::Weak,
+        correction_actions: vec![
+            "缩小首次建仓比例，避免确认前过早打满计划仓位".to_string(),
+            "若再次放量冲高回落，优先执行计划内减仓".to_string(),
+        ],
+        next_cycle_guidance: vec![
+            "下一轮只在量价共振重建后恢复加仓".to_string(),
+            "继续对照 position_plan_ref 记录偏离原因".to_string(),
+        ],
+    };
+
+    let serialized =
+        serde_json::to_value(&result).expect("post trade review contract should serialize");
+
+    for field_name in [
+        "post_trade_review_ref",
+        "position_plan_ref",
+        "decision_ref",
+        "approval_ref",
+        "review_outcome",
+        "decision_accuracy",
+        "execution_quality",
+        "risk_control_quality",
+        "correction_actions",
+        "next_cycle_guidance",
+    ] {
+        assert!(
+            serialized.get(field_name).is_some(),
+            "security_post_trade_review should expose field `{field_name}`"
+        );
+    }
+
+    assert_eq!(serialized["review_outcome"], "mixed");
+    assert_eq!(serialized["decision_accuracy"], "acceptable");
+    assert_eq!(serialized["execution_quality"], "strong");
+    assert_eq!(serialized["risk_control_quality"], "weak");
 }
 
 #[test]

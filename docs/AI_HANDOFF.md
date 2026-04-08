@@ -30,6 +30,23 @@
   - 正式投决会入口。
   - 只消费 briefing 产出的同一份 `committee_payload`。
 
+### 2.2.1 执行与复盘层
+
+<!-- 2026-04-08 CST: 追加证券执行与复盘层交接。原因：Task 6 已把仓位计划、调仓事件和投后复盘打通成正式 Tool 链，如果手册仍只写 briefing/vote，后续 AI 会把执行链误判成未建设或继续留在对话层。目的：明确证券主链已经具备单标的最小执行闭环。 -->
+
+- `security_position_plan_record`
+  - 把 `security_decision_briefing.position_plan` 落成正式计划对象。
+  - 生成 `position_plan_ref`，并与 `decision_ref / approval_ref / evidence_version` 对齐。
+- `security_record_position_adjustment`
+  - 记录围绕同一 `position_plan_ref` 的实际调仓事件。
+  - 输出 `adjustment_event_ref / before_position_pct / after_position_pct / trigger_reason / plan_alignment`。
+- `security_post_trade_review`
+  - 只消费 `position_plan_ref + adjustment_event_refs`。
+  - 会回读正式计划与事件对象，做引用一致性、日期顺序和仓位衔接校验，并输出结构化复盘结论。
+- `src/runtime/security_execution_store.rs`
+  - 当前执行层正式事实存储。
+  - 负责 `position_plan` 与 `adjustment_event` 的落盘和按 ref 回读。
+
 ### 2.3 默认投决语义
 
 - `standard`
@@ -116,6 +133,7 @@
 - 不要绕过正式 Tool 主链回退成自由拼装分析。
 - 不要直接手工构造 `committee_payload`。
 - 不要让报告使用一套事实、投决会再使用另一套事实。
+- 不要再把正式仓位计划、调仓记录和投后复盘只留在对话文本里，而不落成可回读对象。
 - 不要只把能力做成内部函数而不接 `catalog`、`dispatcher`、Skill 和回归测试。
 - 不要把旧的 Excel/GUI 文档误当成当前项目主线。
 - 不要把历史切片测试通过误写成“整仓全绿”。
@@ -127,9 +145,13 @@
 - `src/ops/security_analysis_contextual.rs`
 - `src/ops/security_analysis_fullstack.rs`
 - `src/ops/signal_outcome_research.rs`
+- `src/ops/security_position_plan_record.rs`
+- `src/ops/security_record_position_adjustment.rs`
+- `src/ops/security_post_trade_review.rs`
 - `src/tools/catalog.rs`
 - `src/tools/dispatcher.rs`
 - `src/tools/dispatcher/stock_ops.rs`
+- `src/runtime/security_execution_store.rs`
 - `skills/security-analysis-v1/SKILL.md`
 - `skills/security-decision-briefing-v1/SKILL.md`
 - `skills/security-committee-v1/SKILL.md`
@@ -185,6 +207,38 @@
   - 不做组合级相关性管理。
   - 不做 ETF/海外资产专用赔率模板。
 
+### 7.2.2 仓位计划、调仓记录与投后复盘闭环
+
+<!-- 2026-04-08 CST: 追加 Task 6 状态收口。原因：证券主链已经从“只给仓位建议”推进到“正式计划对象 -> 多次调仓事件 -> 投后复盘聚合”的单标的闭环。目的：让后续 AI 从当前闭环上继续接审批、审计和收益结果，而不是回退到临时文本记录。 -->
+
+- `security_position_plan_record` 已正式落地：
+  - 可把 briefing 中的 `position_plan` 落成正式对象
+  - 会返回 `position_plan_ref`
+  - 会绑定 `decision_ref / approval_ref / evidence_version`
+- `security_record_position_adjustment` 已正式落地：
+  - 可围绕同一 `position_plan_ref` 连续记录多次事件
+  - 会返回 `adjustment_event_ref`
+  - 会保留 `before_position_pct / after_position_pct / trigger_reason / plan_alignment`
+- `security_post_trade_review` 已正式落地：
+  - 可只凭 `position_plan_ref + adjustment_event_refs` 执行复盘
+  - 不要求调用方重复提交完整计划和完整事件对象
+  - 当前会做：
+    - `position_plan_ref` 一致性校验
+    - `symbol / decision_ref / approval_ref / evidence_version` 一致性校验
+    - `event_date` 顺序校验
+    - 相邻事件 `after_position_pct -> before_position_pct` 仓位衔接校验
+    - 轻规则复盘维度聚合
+- 当前闭环边界已明确为：
+  - 单标的
+  - 多次调仓
+  - 正式 ref 回读
+  - 最小一致性校验
+  - 结构化投后复盘
+- 当前还没完成的下一层资产化能力：
+  - 复盘结果尚未正式装订进审批简报对象或 decision package
+  - 尚未接入收益表现、赔率表现、信号结果研究层
+  - 尚未覆盖更细粒度盘中执行日志、滑点或多版本计划并存
+
 ### 7.3 Foundation Phase 2 第一阶段状态
 
 - `src/ops/foundation/` 已完成 ontology、route、roam、retrieve、assemble、pipeline 七段最小实现，并补齐 `knowledge_bundle`、`knowledge_repository` 两个标准能力模块。
@@ -203,12 +257,16 @@
 - 当前 Skill 门禁主要是流程文档级约束，若有人绕过 Skill 直接拼 Tool，仍需要测试和 review 兜底。
 - foundation 当前虽然已具备标准包、标准仓储、标准布局目录、metadata 多字段 AND / concept scope 过滤、标准 JSON/JSONL 导入和 metadata schema registry，但仍缺 validator、versioning / migration、原始业务数据入库流水线、更完整的持久化索引/目录布局与向量检索，不能把它误读成“完整知识库”。
 - Windows 下 `cargo test` 偶发会受残留 `excel_skill.exe` / `cargo` 进程占用影响，出现 `os error 5`；长跑测试前应先清残留进程。
+- `security_execution_store` 当前使用独立 SQLite 文件 `security_execution.db`；如果未来要求统一进单一 runtime.db，需要单独迁移方案。
+- 当前同日同类型调仓事件仍可能发生 ref 冲突；若进入“同一日多次 reduce/add”场景，需要补版本号或序号策略。
+- 当前 `security_post_trade_review` 仍是轻规则复盘，尚未纳入真实收益、赔率兑现和更细的执行质量指标。
 
 ## 9. 后续优先级建议
 
 - 优先阅读 [2026-04-08-closed-loop-investment-research-roadmap.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-closed-loop-investment-research-roadmap.md)，后续证券主链默认按“闭环优先”推进，而不是继续深挖投决会制度层。
 - 继续推进赔率/仓位时，先看 [2026-04-08-odds-position-system-design.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-odds-position-system-design.md)，不要脱离 `signal_outcome_research` 另起平行研究模块。
-- 证券主链下一阶段的正式优先级应为：`赔率系统 -> 仓位管理 -> 投后复盘 -> 市场结构层 -> 技术面平衡计分卡 -> 深层信息面增强`。
+- 继续推进执行闭环时，先看 [2026-04-08-security-post-trade-review-position-management.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-security-post-trade-review-position-management.md)，不要把正式计划/调仓/复盘重新退回对话层。
+- 证券主链下一阶段的正式优先级应为：`复盘结果资产化/审批绑定 -> 信号结果研究层接入复盘 -> 更细粒度执行日志 -> 组合层仓位管理 -> 市场结构层 -> 技术面平衡计分卡 -> 深层信息面增强`。
 - `security_committee_vote` 当前可视为“最小可用收口版”已完成，后续只做必要收口，不再默认吞噬主线资源。
 - `signal_outcome_research` 应被视为后续最重要的正式扩展点，因为赔率、胜率、最大回撤和投后复盘都应从这条线长出来。
 - 先补更强的 `strict / advisory` 端到端回归。

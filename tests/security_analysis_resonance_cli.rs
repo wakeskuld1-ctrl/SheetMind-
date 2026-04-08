@@ -7,6 +7,11 @@ use excel_skill::ops::stock::security_committee_vote::{
 use excel_skill::ops::stock::security_decision_briefing::{
     CommitteePayload, SecurityDecisionBriefingRequest,
 };
+use excel_skill::tools::contracts::PostTradeReviewDimension;
+use excel_skill::tools::contracts::PostTradeReviewOutcome;
+use excel_skill::tools::contracts::SecurityPositionPlanRecordResult;
+use excel_skill::tools::contracts::SecurityPostTradeReviewResult;
+use excel_skill::tools::contracts::SecurityRecordPositionAdjustmentResult;
 use rusqlite::Connection;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -19,7 +24,8 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::{
-    create_test_runtime_db, run_cli_with_json, run_cli_with_json_runtime_and_envs,
+    create_test_runtime_db, run_cli_with_json, run_cli_with_json_and_runtime,
+    run_cli_with_json_runtime_and_envs,
 };
 
 // 2026-04-02 CST: 这里为直接调用 Rust 层证券分析函数补一个进程级环境锁，原因是这类函数会直接读取 `EXCEL_SKILL_RUNTIME_DB`
@@ -2942,4 +2948,268 @@ fn security_decision_briefing_includes_default_committee_recommendations_for_all
             );
         }
     }
+}
+
+#[test]
+fn security_position_plan_record_persists_briefing_plan() {
+    let briefing_output =
+        build_security_decision_briefing_fixture_output("security_position_plan_record_cli");
+
+    let request = json!({
+        "tool": "security_position_plan_record",
+        "args": {
+            "decision_ref": "decision:601857.SH:fixture:v1",
+            "approval_ref": "approval:601857.SH:fixture:v1",
+            "evidence_version": briefing_output["evidence_version"].clone(),
+            "symbol": briefing_output["symbol"].clone(),
+            "analysis_date": briefing_output["analysis_date"].clone(),
+            "position_plan": briefing_output["position_plan"].clone()
+        }
+    });
+
+    let output = run_cli_with_json(&request.to_string());
+
+    // 2026-04-08 CST: 这里先补仓位计划记录 Tool 的 CLI 红测，原因是 Task 2 要把 Task 1 的合同类型推进成正式主链入口；
+    // 目的：证明系统能把 briefing 派生出来的 `position_plan` 升级为可引用对象，而不是继续只停留在 briefing 顶层 JSON 子段。
+    assert_eq!(output["status"], "ok", "{output:#?}");
+
+    let result: SecurityPositionPlanRecordResult =
+        serde_json::from_value(output["data"].clone())
+            .expect("security_position_plan_record should return structured result");
+
+    assert!(
+        result.position_plan_ref.starts_with("position-plan:601857.SH:"),
+        "position_plan_ref should expose stable stock-plan prefix"
+    );
+    assert_eq!(result.decision_ref, "decision:601857.SH:fixture:v1");
+    assert_eq!(result.approval_ref, "approval:601857.SH:fixture:v1");
+    assert_eq!(result.evidence_version, briefing_output["evidence_version"]);
+    assert_eq!(result.symbol, "601857.SH");
+    assert_eq!(result.analysis_date, briefing_output["analysis_date"]);
+    assert_eq!(
+        serde_json::to_value(&result.position_plan).expect("position plan should serialize"),
+        briefing_output["position_plan"]
+    );
+}
+
+#[test]
+fn security_post_trade_review_aggregates_multiple_adjustments() {
+    let briefing_output =
+        build_security_decision_briefing_fixture_output("security_post_trade_review_cli");
+    let runtime_db_path = create_test_runtime_db("security_post_trade_review_cli");
+
+    let plan_request = json!({
+        "tool": "security_position_plan_record",
+        "args": {
+            "decision_ref": "decision:601857.SH:fixture:v1",
+            "approval_ref": "approval:601857.SH:fixture:v1",
+            "evidence_version": briefing_output["evidence_version"].clone(),
+            "symbol": briefing_output["symbol"].clone(),
+            "analysis_date": briefing_output["analysis_date"].clone(),
+            "position_plan": briefing_output["position_plan"].clone()
+        }
+    });
+    let plan_output = run_cli_with_json_and_runtime(&plan_request.to_string(), &runtime_db_path);
+    assert_eq!(plan_output["status"], "ok", "{plan_output:#?}");
+    let plan_result: SecurityPositionPlanRecordResult =
+        serde_json::from_value(plan_output["data"].clone())
+            .expect("security_position_plan_record should return structured result");
+
+    let build_adjustment_request = json!({
+        "tool": "security_record_position_adjustment",
+        "args": {
+            "decision_ref": plan_result.decision_ref,
+            "approval_ref": plan_result.approval_ref,
+            "evidence_version": plan_result.evidence_version,
+            "position_plan_ref": plan_result.position_plan_ref,
+            "symbol": plan_result.symbol,
+            "event_type": "build",
+            "event_date": "2026-04-09",
+            "before_position_pct": 0.0,
+            "after_position_pct": 0.10,
+            "trigger_reason": "按计划先建基础仓位",
+            "plan_alignment": "on_plan"
+        }
+    });
+    let build_adjustment_output =
+        run_cli_with_json_and_runtime(&build_adjustment_request.to_string(), &runtime_db_path);
+    assert_eq!(build_adjustment_output["status"], "ok", "{build_adjustment_output:#?}");
+    let build_adjustment: SecurityRecordPositionAdjustmentResult =
+        serde_json::from_value(build_adjustment_output["data"].clone())
+            .expect("first adjustment should return structured result");
+
+    let reduce_adjustment_request = json!({
+        "tool": "security_record_position_adjustment",
+        "args": {
+            "decision_ref": plan_result.decision_ref,
+            "approval_ref": plan_result.approval_ref,
+            "evidence_version": plan_result.evidence_version,
+            "position_plan_ref": plan_result.position_plan_ref,
+            "symbol": plan_result.symbol,
+            "event_type": "reduce",
+            "event_date": "2026-04-11",
+            "before_position_pct": 0.10,
+            "after_position_pct": 0.06,
+            "trigger_reason": "量价没有延续，按风控先降一档仓位",
+            "plan_alignment": "justified_deviation"
+        }
+    });
+    let reduce_adjustment_output =
+        run_cli_with_json_and_runtime(&reduce_adjustment_request.to_string(), &runtime_db_path);
+    assert_eq!(reduce_adjustment_output["status"], "ok", "{reduce_adjustment_output:#?}");
+    let reduce_adjustment: SecurityRecordPositionAdjustmentResult =
+        serde_json::from_value(reduce_adjustment_output["data"].clone())
+            .expect("second adjustment should return structured result");
+
+    let review_request = json!({
+        "tool": "security_post_trade_review",
+        "args": {
+            "decision_ref": plan_result.decision_ref,
+            "approval_ref": plan_result.approval_ref,
+            "evidence_version": plan_result.evidence_version,
+            "position_plan_ref": plan_result.position_plan_ref,
+            "symbol": plan_result.symbol,
+            "analysis_date": "2026-04-15",
+            "adjustment_event_refs": [
+                build_adjustment.adjustment_event_ref,
+                reduce_adjustment.adjustment_event_ref
+            ]
+        }
+    });
+
+    let review_output = run_cli_with_json_and_runtime(&review_request.to_string(), &runtime_db_path);
+
+    // 2026-04-08 CST: 这里先补投后复盘 CLI 红测，原因是 Task 6 需要证明系统能基于同一 position_plan_ref 聚合多次调仓事件；
+    // 目的：锁定 security_post_trade_review 不只是回声式工具，而是能沿正式 ref 链回读计划与事件并产出结构化复盘。
+    assert_eq!(review_output["status"], "ok", "{review_output:#?}");
+    let review_result: SecurityPostTradeReviewResult =
+        serde_json::from_value(review_output["data"].clone())
+            .expect("security_post_trade_review should return structured result");
+
+    assert!(
+        review_result
+            .post_trade_review_ref
+            .starts_with("post-trade-review:601857.SH:2026-04-15:"),
+        "post_trade_review_ref should expose stable review prefix"
+    );
+    assert_eq!(review_result.position_plan_ref, plan_result.position_plan_ref);
+    assert_eq!(review_result.decision_ref, plan_result.decision_ref);
+    assert_eq!(review_result.approval_ref, plan_result.approval_ref);
+    assert_eq!(review_result.evidence_version, plan_result.evidence_version);
+    assert_eq!(review_result.review_outcome, PostTradeReviewOutcome::Mixed);
+    assert_eq!(
+        review_result.decision_accuracy,
+        PostTradeReviewDimension::Acceptable
+    );
+    assert_eq!(
+        review_result.execution_quality,
+        PostTradeReviewDimension::Acceptable
+    );
+    assert_eq!(
+        review_result.risk_control_quality,
+        PostTradeReviewDimension::Strong
+    );
+    assert_eq!(review_result.adjustment_event_refs.len(), 2);
+    assert!(
+        review_result
+            .correction_actions
+            .iter()
+            .any(|text| text.contains("justified_deviation") || text.contains("偏离"))
+    );
+    assert!(
+        review_result
+            .next_cycle_guidance
+            .iter()
+            .any(|text| text.contains("量价") || text.contains("仓位"))
+    );
+}
+
+#[test]
+fn security_post_trade_review_rejects_broken_position_continuity() {
+    let briefing_output =
+        build_security_decision_briefing_fixture_output("security_post_trade_review_drift");
+    let runtime_db_path = create_test_runtime_db("security_post_trade_review_drift");
+
+    let plan_request = json!({
+        "tool": "security_position_plan_record",
+        "args": {
+            "decision_ref": "decision:601857.SH:fixture:v1",
+            "approval_ref": "approval:601857.SH:fixture:v1",
+            "evidence_version": briefing_output["evidence_version"].clone(),
+            "symbol": briefing_output["symbol"].clone(),
+            "analysis_date": briefing_output["analysis_date"].clone(),
+            "position_plan": briefing_output["position_plan"].clone()
+        }
+    });
+    let plan_output = run_cli_with_json_and_runtime(&plan_request.to_string(), &runtime_db_path);
+    assert_eq!(plan_output["status"], "ok", "{plan_output:#?}");
+    let plan_result: SecurityPositionPlanRecordResult =
+        serde_json::from_value(plan_output["data"].clone())
+            .expect("security_position_plan_record should return structured result");
+
+    for adjustment_request in [
+        json!({
+            "tool": "security_record_position_adjustment",
+            "args": {
+                "decision_ref": plan_result.decision_ref,
+                "approval_ref": plan_result.approval_ref,
+                "evidence_version": plan_result.evidence_version,
+                "position_plan_ref": plan_result.position_plan_ref,
+                "symbol": plan_result.symbol,
+                "event_type": "build",
+                "event_date": "2026-04-09",
+                "before_position_pct": 0.0,
+                "after_position_pct": 0.10,
+                "trigger_reason": "先建基础仓位",
+                "plan_alignment": "on_plan"
+            }
+        }),
+        json!({
+            "tool": "security_record_position_adjustment",
+            "args": {
+                "decision_ref": plan_result.decision_ref,
+                "approval_ref": plan_result.approval_ref,
+                "evidence_version": plan_result.evidence_version,
+                "position_plan_ref": plan_result.position_plan_ref,
+                "symbol": plan_result.symbol,
+                "event_type": "reduce",
+                "event_date": "2026-04-11",
+                "before_position_pct": 0.08,
+                "after_position_pct": 0.05,
+                "trigger_reason": "仓位衔接故意做坏，用来锁定一致性校验",
+                "plan_alignment": "off_plan"
+            }
+        }),
+    ] {
+        let output = run_cli_with_json_and_runtime(&adjustment_request.to_string(), &runtime_db_path);
+        assert_eq!(output["status"], "ok", "{output:#?}");
+    }
+
+    let review_request = json!({
+        "tool": "security_post_trade_review",
+        "args": {
+            "decision_ref": plan_result.decision_ref,
+            "approval_ref": plan_result.approval_ref,
+            "evidence_version": plan_result.evidence_version,
+            "position_plan_ref": plan_result.position_plan_ref,
+            "symbol": plan_result.symbol,
+            "analysis_date": "2026-04-15",
+            "adjustment_event_refs": [
+                "position-adjustment:601857.SH:2026-04-09:build:v1",
+                "position-adjustment:601857.SH:2026-04-11:reduce:v1"
+            ]
+        }
+    });
+    let review_output = run_cli_with_json_and_runtime(&review_request.to_string(), &runtime_db_path);
+
+    // 2026-04-08 CST: 这里补一致性负向红测，原因是方案 C 不能只做 happy path 聚合，还必须拦截事件链中的仓位漂移；
+    // 目的：锁住后一条事件的 before_position_pct 如果接不上前一条 after_position_pct，security_post_trade_review 必须直接报错。
+    assert_eq!(review_output["status"], "error", "{review_output:#?}");
+    assert!(
+        review_output["error"]
+            .as_str()
+            .expect("error message should exist")
+            .contains("仓位衔接"),
+        "review should reject broken position continuity"
+    );
 }

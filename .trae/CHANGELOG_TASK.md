@@ -548,3 +548,238 @@
 - 回归验证已通过：`cargo test --test security_committee_vote_cli -- --nocapture`
 - 联动验证已通过：`cargo test --test security_analysis_resonance_cli security_committee_vote_consumes_briefing_payload_with_historical_digest -- --nocapture`
 - 联动验证已通过：`cargo test --test security_analysis_resonance_cli security_decision_briefing_includes_default_committee_recommendations_for_all_modes -- --nocapture`
+
+## 2026-04-08
+### 修改内容
+- 新增 `docs/plans/2026-04-08-security-post-trade-review-position-management-design.md`，正式收口证券主链“单标的 + 多次调仓复盘”的对象模型、主链挂接方式与边界。
+- 新增 `docs/plans/2026-04-08-security-post-trade-review-position-management.md`，把后续实现拆成仓位计划记录、调仓事件、投后复盘三个正式 Tool 的开发计划。
+- 明确本轮聚焦证券主链，不继续扩展 foundation，优先把“投前决策 -> 投中执行 -> 投后纠偏”闭环写清楚。
+
+### 修改原因
+- 用户已明确批准按方案 B 推进“投后复盘 + 仓位管理”，并要求直接覆盖到“单标的 + 多次调仓复盘”。
+- 在动代码前，必须先把对象边界、数据流和实施顺序文档化，避免后续再次出现平行链路或范围漂移。
+
+### 方案还差什么
+- [ ] 设计与计划已落盘，但正式 Tool 合同、dispatcher 接线和测试红绿还没有开始实现。
+- [ ] `decision_ref / approval_ref / evidence_version` 在新对象里的具体存取方式，还需要在实现阶段结合现有 runtime 结构收口。
+- [ ] 复盘的阶段性结果字段与实际持久化格式仍需在 P0-3 开发时最终钉死。
+
+### 潜在问题
+- [ ] 如果实现时把仓位计划记录、调仓事件和复盘对象拆成彼此独立但不共享引用，容易重新走回“多套事实源”的老问题。
+- [ ] 当前整仓测试基线仍有 1 条既有失败，后续开发验收时要区分“新能力回归”与“仓库既有失败”。
+- [ ] Windows 下长跑 `cargo test` 仍可能受磁盘空间与残留进程影响，后续执行计划时要继续用 `D:` 盘目标目录并留意 `os error 5`。
+
+### 关闭项
+- 已完成：证券主链“投后复盘 + 仓位管理”设计收口并落盘。
+- 已完成：对应实现计划拆解并保存到 `docs/plans/2026-04-08-security-post-trade-review-position-management.md`。
+
+## 2026-04-08
+### 修改内容
+- 在 `tests/integration_tool_contract.rs` 新增 `security_position_plan_record_contract_exposes_required_fields` 红测，锁定仓位计划记录正式合同至少要暴露 `position_plan_ref / decision_ref / approval_ref / evidence_version / symbol / analysis_date / position_action / starter_position_pct / max_position_pct`。
+- 在 `src/tools/contracts.rs` 新增 `SecurityPositionPlanRecordRequest` 与 `SecurityPositionPlanRecordResult`，并补最小 `from_position_plan(...)` 构造辅助函数。
+- 在 `src/ops/security_decision_briefing.rs` 为 `PositionPlan` 新增 `record_projection()`，统一提取 record 合同所需的动作和仓位边界字段。
+
+### 修改原因
+- 用户已批准进入投后复盘与仓位管理开发，Task 1 的目标是先把“仓位计划记录”这层正式合同锁定下来，再进入 Tool 落地。
+- 需要先证明仓位计划对象能从 briefing 的 `position_plan` 稳定投影出来，避免后续 record Tool 与测试夹具各自手工拼字段。
+
+### 方案还差什么
+- [ ] Task 2 的正式 `security_position_plan_record` Tool 还没有开始实现，当前只有合同层。
+- [ ] `position_plan_ref` 的正式生成规则与 runtime 落盘位置还未确定，要在 Task 2 收口。
+- [ ] `decision_ref / approval_ref` 当前只在合同里固定，实际来源校验仍待后续 Tool 实装。
+
+### 潜在问题
+- [ ] 当前 `from_position_plan(...)` 只是最小构造辅助函数，后续如果 record 对象新增更多派生字段，必须继续保持由单点辅助函数统一提取，避免字段漂移。
+- [ ] 仓库整体现有的既有失败测试仍未处理，后续验收要区分“Task 1 已绿”和“整仓全绿”。
+- [ ] Windows 下长跑测试仍建议继续使用 `D:\\cargo-targets\\excel-skill-cli-mod-review`，否则可能再次被系统盘空间影响。
+
+### 关闭项
+- 红测已按预期失败：`cargo test --test integration_tool_contract security_position_plan_record_contract -- --nocapture`
+- 转绿验证已通过：`cargo test --test integration_tool_contract security_position_plan_record_contract -- --nocapture`
+
+## 2026-04-08
+### 修改内容
+- 在 `tests/security_analysis_resonance_cli.rs` 新增 `security_position_plan_record_persists_briefing_plan` 红测，要求正式 CLI Tool 能消费 briefing 派生的 `position_plan` 并返回结构化 `position_plan_ref`。
+- 新增 `src/ops/security_position_plan_record.rs`，补最小 `security_position_plan_record` Tool 与请求边界校验。
+- 更新 `src/ops/stock.rs`、`src/ops/mod.rs`，把 `security_position_plan_record` 纳入证券主链模块导出。
+- 更新 `src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`，完成 Tool 注册与 stock dispatcher 接线。
+
+### 修改原因
+- 用户已批准进入 Task 2，这一步的目标是把 Task 1 的合同类型推进成正式 Tool 主链入口，而不是继续停留在类型定义层。
+- 需要先打通“briefing 派生仓位计划 -> position_plan_ref”的最小闭环，给后续调仓事件和投后复盘提供正式计划锚点。
+
+### 方案还差什么
+- [ ] 当前 `security_position_plan_record` 还是最小回声式 Tool，尚未引入真实 runtime 持久化。
+- [ ] `position_plan_ref` 当前使用确定性规则生成，后续若引入多计划版本或重复日期计划，需要再扩展版本/去重策略。
+- [ ] `decision_ref / approval_ref` 当前只做非空校验，尚未与真实审批记录交叉验证。
+
+### 潜在问题
+- [ ] 由于当前还没落真实存储，后续 `position_adjustment_event` 若需要通过 `position_plan_ref` 回查完整计划对象，还需要在 Task 4 前补持久化或对象回读机制。
+- [ ] Tool 已加入 catalog 与 dispatcher，但当前没有单独补 catalog 可见性回归，若后续目录测试变动，需要在集成回归里顺带覆盖。
+- [ ] 仓库整体仍存在既有测试失败与较多 `dead_code` warning，本轮转绿只说明 Task 2 目标达成，不代表整仓基线已收口。
+
+### 关闭项
+- 红测已按预期失败：`cargo test --test security_analysis_resonance_cli security_position_plan_record_persists_briefing_plan -- --nocapture`
+- 转绿验证已通过：`cargo test --test security_analysis_resonance_cli security_position_plan_record_persists_briefing_plan -- --nocapture`
+
+## 2026-04-08
+### 修改内容
+- 在 `tests/integration_tool_contract.rs` 新增 `security_record_position_adjustment_contract_exposes_required_fields` 红测，锁定调仓事件正式合同至少要暴露 `adjustment_event_ref / position_plan_ref / event_type / event_date / before_position_pct / after_position_pct / trigger_reason / plan_alignment`，并补充枚举值序列化断言。
+- 在 `src/tools/contracts.rs` 新增 `PositionAdjustmentEventType`、`PositionPlanAlignment`、`SecurityRecordPositionAdjustmentRequest`、`SecurityRecordPositionAdjustmentResult`。
+- 在 `src/tools/contracts.rs` 为 `SecurityRecordPositionAdjustmentResult` 新增最小 `from_request(...)` 构造辅助函数，统一后续 Task 4 的事件记录投影入口。
+
+### 修改原因
+- 用户已明确继续推进 `Task 3`，当前目标是先把“调仓事件”这层正式合同钉死，再进入正式 Tool 落地。
+- 需要先统一 `build / add / reduce / exit / risk_update` 与 `on_plan / justified_deviation / off_plan` 的口径，避免后续调仓记录、审批简报和复盘对象各自使用不同字符串。
+
+### 方案还差什么
+- [ ] `security_record_position_adjustment` 正式 Tool 还没有开始实现，当前完成的是合同层，不包含 dispatcher 接线。
+- [ ] `adjustment_event_ref` 的正式生成规则和多次事件的 runtime 存取方式，还需要在 `Task 4` 收口。
+- [ ] 当前合同已预留 `decision_ref / approval_ref / evidence_version`，但真实来源校验仍待正式 Tool 实装时补齐。
+
+### 潜在问题
+- [ ] 当前 `before_position_pct / after_position_pct` 还是裸 `f64`，后续若要防止负值、超 100% 或精度漂移，需要在 Tool 实装时增加边界校验与归一化测试。
+- [ ] 当前只锁了合同字段与枚举值，尚未验证同一 `position_plan_ref` 下多次调仓事件的顺序性与引用一致性，这会留到 `Task 4` 的 CLI 回归里处理。
+- [ ] 仓库整体既有失败仍未处理，当前转绿只代表 `Task 3` 的定向合同测试通过，不代表整仓全绿。
+
+### 关闭项
+- 红测已按预期失败：`cargo test --test integration_tool_contract security_record_position_adjustment_contract -- --nocapture`
+- 转绿验证已通过：`cargo test --test integration_tool_contract security_record_position_adjustment_contract -- --nocapture`
+- 窄回归验证已通过：`cargo test --test integration_tool_contract security_position_plan_record_contract -- --nocapture`
+
+## 2026-04-08
+### 修改内容
+- 重新执行整仓基线验证：`cargo test -- --nocapture`，确认当前仓库仍非整仓全绿，明确失败仍包含 `tests/integration_tool_contract.rs` 里的 `technical_consultation_basic_contract_exposes_bullish_continuation_conclusion`，失败点是 `analysis_date` 取到 `Null`。
+- 在 `tests/security_committee_vote_cli.rs` 新增 `security_record_position_adjustment_supports_multiple_events` 红测，锁定同一 `position_plan_ref` 下连续两次调仓事件都能返回正式结构化结果，并保留 `decision_ref / approval_ref / evidence_version / plan_alignment`。
+- 新增 `src/ops/security_record_position_adjustment.rs`，补最小 `security_record_position_adjustment` Tool，实现正式请求校验、确定性 `adjustment_event_ref` 生成与结构化事件回包。
+- 更新 `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`，完成调仓事件 Tool 的 stock 主链导出、catalog 注册与 dispatcher 接线。
+
+### 修改原因
+- 用户要求先跑整仓，再直接进入 `Task 4`；因此需要先把当前真实基线重新确认清楚，再在不处理既有失败的前提下继续推进证券主链。
+- `Task 4` 的目标是把“正式仓位计划”进一步推进成“正式调仓事件”，给后续 `Task 6` 的投后复盘提供可引用事件对象，而不是继续依赖对话里的临时文本记录。
+
+### 方案还差什么
+- [ ] 当前 `security_record_position_adjustment` 还是最小回声式 Tool，尚未接入真实 runtime 持久化或事件回查能力。
+- [ ] `adjustment_event_ref` 目前采用确定性拼接规则，后续若同一标的在同一日期出现同类多次动作，需要在持久化阶段补版本/序号策略。
+- [ ] `Task 5 / Task 6` 的正式复盘对象与聚合逻辑还未开始，当前只补齐了“计划 -> 事件”的执行层闭环。
+
+### 潜在问题
+- [ ] 当前没有对 `before_position_pct / after_position_pct` 做数值边界校验；若后续外部调用传入负值、超过 100% 或异常精度，仍可能污染复盘输入。
+- [ ] 当前同一 `position_plan_ref` 的多次事件只是“可连续记录”，还没有落真实存储，因此后续复盘聚合仍需要在 `Task 6` 明确事件回读入口。
+- [ ] 补完 `Task 4` 后，整份 `security_committee_vote_cli` 仍有 3 条非本轮目标失败：`security_committee_vote_rejects_key_risks_not_matching_risk_breakdown`、`security_committee_vote_rejects_risk_breakdown_category_mismatch`、`security_committee_vote_etf_fundamental_reviewer_uses_fund_review_semantics`；这些失败位于投决会逻辑，不是本轮新增调仓事件 Tool 直接引入的问题。
+
+### 关闭项
+- 整仓基线已复核：`cargo test -- --nocapture`
+- 红测已按预期失败：`cargo test --test security_committee_vote_cli security_record_position_adjustment_supports_multiple_events -- --nocapture`
+- 转绿验证已通过：`cargo test --test security_committee_vote_cli security_record_position_adjustment_supports_multiple_events -- --nocapture`
+- 合同回归已通过：`cargo test --test integration_tool_contract security_record_position_adjustment_contract -- --nocapture`
+
+## 2026-04-08
+### 修改内容
+- 在 `tests/integration_tool_contract.rs` 收口 `technical_consultation_basic` 合同红测：不再允许对外暴露 `as_of_date`，统一要求输出 `analysis_date`，并补充 `evidence_version` 断言。
+- 在 `src/ops/technical_consultation_basic.rs` 将 `TechnicalConsultationBasicResult` 正式改为输出 `analysis_date / evidence_version`，删除对外 `as_of_date` 字段，并统一以行情窗口终点生成分析日期与证据版本号。
+- 在 `src/ops/security_decision_briefing.rs` 同步把技术分析日期读取口径切换到 `analysis_date`，避免 briefing 继续依赖旧字段。
+- 在 `tests/integration_tool_contract.rs` 新增 `security_post_trade_review_contract_exposes_required_fields` 红测，锁定投后复盘对象至少要暴露 `post_trade_review_ref / position_plan_ref / decision_ref / approval_ref / review_outcome / decision_accuracy / execution_quality / risk_control_quality / correction_actions / next_cycle_guidance`。
+- 在 `src/tools/contracts.rs` 新增 `PostTradeReviewOutcome`、`PostTradeReviewDimension`、`SecurityPostTradeReviewRequest`、`SecurityPostTradeReviewResult`，并补最小 `from_request(...)` 构造辅助函数。
+
+### 修改原因
+- 用户明确要求按方案 C 处理既有失败，不留尾巴，因此需要把 `technical_consultation_basic` 的对外日期合同一次收口到证券主链统一口径，而不是继续保留 `as_of_date` 兼容尾巴。
+- 用户随后要求直接继续 Task 5，因此需要趁这次合同收口把投后复盘的正式对象也先钉死，确保后续 Tool 开发不会再漂字段。
+
+### 方案还差什么
+- [ ] `security_post_trade_review` 目前完成的是合同层，正式 Tool、dispatcher 接线与聚合逻辑还未开始，需要在 Task 6 落地。
+- [ ] `technical_consultation_basic` 虽已完成对外合同收口，但若仓库里还有外部文档或 Skill 说明引用旧字段 `as_of_date`，后续需要补文档同步。
+- [ ] 当前没有重新跑整仓；本轮验证范围是 `integration_tool_contract` 全文件与相关定向回归，不代表整个仓库已全绿。
+
+### 潜在问题
+- [ ] `security_decision_briefing` 已切到 `analysis_date`，如果仓库中还有其它更深层路径直接读取 `TechnicalConsultationBasicResult.as_of_date`，后续在更大范围回归时才可能暴露，需要继续关注编译/运行面残留引用。
+- [ ] `SecurityPostTradeReviewRequest` 当前把复盘结论维度作为正式输入字段保留下来，后续 Task 6 若改成纯聚合生成，需要确认是否保留手工覆写能力还是进一步拆成输入/输出两层对象。
+- [ ] 当前 `integration_tool_contract` 全绿，但仓库仍存在既有 `dead_code` warning，且其它测试文件曾有非本轮目标失败，后续推进 Task 6 前最好继续做定向回归。
+
+### 关闭项
+- 红测已按预期失败：`cargo test --test integration_tool_contract technical_consultation_basic_contract_exposes_bullish_continuation_conclusion -- --nocapture`
+- 修复后定向验证已通过：`cargo test --test integration_tool_contract technical_consultation_basic_contract_exposes_bullish_continuation_conclusion -- --nocapture`
+- 窄回归已通过：`cargo test --test integration_tool_contract technical_consultation_basic_contract_exposes_bearish_continuation_conclusion -- --nocapture`
+- Task 5 红测已按预期失败：`cargo test --test integration_tool_contract security_post_trade_review_contract -- --nocapture`
+- Task 5 转绿验证已通过：`cargo test --test integration_tool_contract security_post_trade_review_contract -- --nocapture`
+- `integration_tool_contract` 全文件回归已通过：`cargo test --test integration_tool_contract -- --nocapture`
+
+## 2026-04-08
+### 修改内容
+- 在 `tests/security_analysis_resonance_cli.rs` 新增 `security_post_trade_review_aggregates_multiple_adjustments` 红测，锁定 `security_post_trade_review` 必须能围绕同一 `position_plan_ref` 聚合多条调仓事件并输出正式复盘结论。
+- 在 `tests/security_analysis_resonance_cli.rs` 新增 `security_post_trade_review_rejects_broken_position_continuity` 红测，锁定方案 C 下事件链仓位衔接断裂必须直接报错。
+- 在 `src/runtime/security_execution_store.rs` 新增执行层 SQLite store，把 `security_position_plan_record` 与 `security_record_position_adjustment` 的正式对象落盘，并支持按 ref 回读。
+- 在 `src/ops/security_position_plan_record.rs`、`src/ops/security_record_position_adjustment.rs` 接入执行层落盘，使计划对象和调仓事件真正成为可回读的正式事实源。
+- 新增 `src/ops/security_post_trade_review.rs`，实现正式复盘 Tool：请求边界校验、计划/事件回读、一致性检查、仓位衔接校验、复盘维度聚合与结构化输出。
+- 更新 `src/tools/contracts.rs`，把 `SecurityPostTradeReviewRequest` 收口为真正的聚合输入，并新增 `SecurityPostTradeReviewResult::assemble(...)`。
+- 更新 `src/ops/stock.rs`、`src/ops/mod.rs`、`src/runtime/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`，完成 Tool 导出、catalog 注册与 dispatcher 接线。
+
+### 修改原因
+- 用户已确认按方案 C 推进 Task 6，因此不能只做 happy path 聚合，必须同时落实事件链一致性校验与真实 ref 回读能力。
+- 之前 `position_plan_record` 与 `position_adjustment` 虽然已有正式 ref，但仍然缺少真实落盘，导致 `post_trade_review` 无法只凭 ref 完成真正闭环；这轮需要把这个尾巴一起收掉。
+
+### 方案还差什么
+- [ ] 当前 `security_post_trade_review` 已能聚合单一计划下的多次调仓，但还没有把结果再落成正式审批简报或 decision package 资产，若后续要进入更强审计闭环，还需要继续接文档/审批出口。
+- [ ] 当前执行层 store 只覆盖 plan / adjustment 两类对象；若后续要做更细的盘中执行日志、成交滑点或多版本计划并存，还需要扩表。
+- [ ] 这轮没有重跑整仓，只完成了 Task 6 相关定向测试与 `integration_tool_contract` 全文件回归，不代表仓库其它既有失败已收口。
+
+### 潜在问题
+- [ ] `security_post_trade_review` 目前使用的是轻规则聚合，结论维度主要基于 `plan_alignment / event_type / 仓位衔接`，后续如果要纳入收益结果、赔率或复盘表现，需要再把信号结果研究层接进来。
+- [ ] 执行层 store 当前使用独立 SQLite 文件 `security_execution.db`；如果未来用户希望全部统一进单一 runtime.db，需要额外迁移方案。
+- [ ] 当前同日同类型调仓事件仍沿用确定性 ref 规则；若未来出现“同一日多次 reduce”场景，仍需要补版本/序号策略，否则会发生 upsert 覆盖。
+
+### 关闭项
+- 红测已按预期失败：`cargo test --test security_analysis_resonance_cli security_post_trade_review -- --nocapture`
+- Task 6 定向验证已通过：`cargo test --test security_analysis_resonance_cli security_post_trade_review -- --nocapture`
+- 仓位计划回归已通过：`cargo test --test security_analysis_resonance_cli security_position_plan_record_persists_briefing_plan -- --nocapture`
+- 调仓事件回归已通过：`cargo test --test security_committee_vote_cli security_record_position_adjustment_supports_multiple_events -- --nocapture`
+- 复盘合同回归已通过：`cargo test --test integration_tool_contract security_post_trade_review_contract -- --nocapture`
+- `integration_tool_contract` 全文件回归已通过：`cargo test --test integration_tool_contract -- --nocapture`
+
+## 2026-04-08
+### 修改内容
+- 更新 `README.md`，把证券主链当前状态正式收口为“仓位计划正式化 -> 多次调仓记录 -> 投后复盘”的最小闭环，并补充对应定向验证命令。
+- 更新 `docs/AI_HANDOFF.md`，新增执行与复盘层交接说明，明确 `security_position_plan_record / security_record_position_adjustment / security_post_trade_review / security_execution_store` 的职责、闭环边界与未完成项。
+- 在 `docs/AI_HANDOFF.md` 同步补充新的禁区、入口文件、已知风险和下一阶段优先级，避免后续 AI 把正式仓位/调仓/复盘重新退回对话文本层。
+
+### 修改原因
+- 用户已批准按方案 C 执行 Task 7，因此需要回到证券主链真实 worktree，把 Task 6 已落地的执行闭环写成正式文档状态，而不是继续沿用只覆盖 briefing/vote 的旧口径。
+- Task 6 虽然已经完成代码与定向回归，但如果 README 和 AI handoff 不更新，后续接手很容易误判“仓位管理和投后复盘仍未开始”，从而重复开发或走回头路。
+
+### 方案还差什么
+- [ ] 当前只完成了文档收口，尚未把 `security_post_trade_review` 结果继续装订成正式审批简报对象或 decision package 资产。
+- [ ] 当前闭环仍是单标的、多次调仓级别，组合层仓位治理、盘中执行日志、滑点与成交质量还没有进入正式对象。
+- [ ] `security_execution_store` 目前仍是独立 SQLite 文件，若后续要并入统一 runtime 存储，需要单独设计迁移方案。
+
+### 潜在问题
+- [ ] 当前同日同类型调仓事件仍存在 ref 冲突风险；若未来出现“同一天多次 reduce/add”，需要补版本号或序号策略，否则可能覆盖旧事件。
+- [ ] 当前 `security_post_trade_review` 仍是轻规则聚合，没有接入真实收益表现、赔率兑现或更细粒度执行质量指标，结论解释力仍有限。
+- [ ] 本轮是文档任务，不会自动证明整仓全绿；需要靠本轮重新执行的定向回归来支撑“文档与当前实现一致”的结论。
+
+### 关闭项
+- 文档已同步更新：`README.md`
+- 文档已同步更新：`docs/AI_HANDOFF.md`
+- 任务日志已追加：`.trae/CHANGELOG_TASK.md`
+
+## 2026-04-08
+### 修改内容
+- 新增 `docs/execution-notes-2026-04-08-security-post-trade-review-closeout.md`，集中记录本轮证券主链“仓位计划正式化 -> 多次调仓记录 -> 投后复盘”闭环的落地范围、定向验证命令、当前边界和接手建议。
+- 为本次 GitHub 上传准备补齐交接材料，明确这一批待推送文件属于同一条证券主链任务链，而不是零散临时修补。
+
+### 修改原因
+- 用户要求直接把当前 worktree 的脏状态处理后推回 GitHub，因此在提交前需要把“做了什么、验证了什么、还有什么没做”写成可持久化文档，避免上传后只剩代码没有上下文。
+- 这轮变更横跨正式 Tool、执行层存储、合同测试和交接文档，若没有单独 execution note，后续 AI 很容易只看到代码文件而误判完成边界。
+
+### 方案还差什么
+- [ ] 当前仅完成上传前交接材料补齐，尚未实际提交与推送；提交哈希和远端状态需要在 Git 操作完成后再确认。
+- [ ] 本轮 execution note 记录的是定向回归与交接范围，不代表整仓 `cargo test -- --nocapture` 已重新全量转绿。
+- [ ] 后续仍需要继续推进复盘结果资产化、收益结果接入和同日多次调仓版本化。
+
+### 潜在问题
+- [ ] 如果后续继续在当前分支叠加其它无关任务，而不及时拆提交，本轮这批“执行闭环”改动的历史边界会再次变模糊。
+- [ ] 当前 execution note 依赖本轮已执行的定向验证命令；若后续代码继续变化但不补验证，文档结论会过时。
+- [ ] Windows 下 Git 下一次触碰这些文件时仍可能把 LF 正规化为 CRLF，这不是本轮功能问题，但需要留意后续 diff 噪音。
+
+### 关闭项
+- 上传前执行说明已补齐：`docs/execution-notes-2026-04-08-security-post-trade-review-closeout.md`
+- 本次上传准备已补任务日志：`.trae/CHANGELOG_TASK.md`

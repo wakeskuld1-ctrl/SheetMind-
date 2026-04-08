@@ -156,6 +156,19 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "security_decision_briefing" => {
             stock_ops::dispatch_security_decision_briefing(request.args)
         }
+        // 2026-04-08 CST: 这里接入 security_position_plan_record 分发分支，原因是证券主链已进入“仓位计划正式化”阶段；
+        // 目的：让 position_plan 不再只停留在 briefing 顶层，而是能通过正式 Tool 主链升级成后续调仓与复盘可引用对象。
+        "security_position_plan_record" => {
+            stock_ops::dispatch_security_position_plan_record(request.args)
+        }
+        "security_post_trade_review" => {
+            stock_ops::dispatch_security_post_trade_review(request.args)
+        }
+        // 2026-04-08 CST: 这里接入 security_record_position_adjustment 分发分支，原因是证券主链已从计划对象推进到执行事件对象，
+        // 目的：让同一 position_plan_ref 下的实际调仓动作可以沿正式 dispatcher 主链被发现、校验和记录。
+        "security_record_position_adjustment" => {
+            stock_ops::dispatch_security_record_position_adjustment(request.args)
+        }
         // 2026-04-02 CST: 这里接入 security_committee_vote 分发分支，原因是正式投决会已经进入可调用实现阶段，
         // 目的：让 CLI / Skill 可以沿统一 dispatcher 主链直接消费 committee payload 并获得结构化投票结果。
         "security_committee_vote" => stock_ops::dispatch_security_committee_vote(request.args),

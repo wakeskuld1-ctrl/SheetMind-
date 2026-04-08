@@ -13,3 +13,6 @@ pub mod security_resonance_store;
 // 2026-04-02 CST：这里导出信号结果研究平台存储模块，原因是方案C要求把快照、未来收益和 analog study 独立沉到 runtime；
 // 目的：让历史验证层和行情层、共振层解耦，后续 briefing 与投决会都能稳定复用。
 pub mod signal_outcome_store;
+// 2026-04-08 CST: 这里导出证券执行层存储模块，原因是仓位计划、调仓事件和投后复盘已经形成独立执行事实链；
+// 目的：让相关 Tool 共享统一 runtime 落盘与回读入口，而不是各自在 ops 层维护临时文件协议。
+pub mod security_execution_store;

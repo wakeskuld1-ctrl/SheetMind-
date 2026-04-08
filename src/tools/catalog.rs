@@ -69,6 +69,11 @@ pub const STOCK_TOOL_NAMES: &[&str] = &[
     // 2026-04-02 CST: 这里把 security_decision_briefing 接入 stock 工具目录，原因是统一 briefing 已经成为咨询与投决的共同事实入口；
     // 目的：让 CLI、Skill 和后续 GUI 可以先发现 briefing Tool，再围绕它建立统一路由。
     "security_decision_briefing",
+    // 2026-04-08 CST: 这里把 security_position_plan_record 接入 stock 目录，原因是证券主链正在从投前建议推进到投中执行闭环；
+    // 目的：让上层可以在正式 Tool 目录里发现“把仓位建议升级成正式计划对象”的入口。
+    "security_position_plan_record",
+    "security_post_trade_review",
+    "security_record_position_adjustment",
     // 2026-04-02 CST: 这里把 security_committee_vote 加进 stock 目录，原因是正式投决会已经成为 briefing 之后的标准主链，
     // 目的：让 tool_catalog 能显式暴露“briefing -> committee vote”的连续发现路径。
     "security_committee_vote",
@@ -143,6 +148,11 @@ pub const TOOL_NAMES: &[&str] = &[
     // 2026-04-02 CST: 这里把 security_decision_briefing 接入扁平总目录，原因是现有 tool_catalog 契约仍要求返回统一可发现工具列表；
     // 目的：确保 briefing Tool 不仅存在于 stock 分组，也能在顶层目录中被外层调用方稳定发现。
     "security_decision_briefing",
+    // 2026-04-08 CST: 这里把 security_position_plan_record 补进顶层总目录，原因是后续 CLI / Skill 仍依赖统一 catalog 判断可发现性；
+    // 目的：保证仓位计划记录入口既能在 stock 分组中发现，也能在平铺目录里稳定暴露。
+    "security_position_plan_record",
+    "security_post_trade_review",
+    "security_record_position_adjustment",
     // 2026-04-02 CST: 这里把 security_committee_vote 补进顶层总目录，原因是 CLI/Skill 依赖统一 catalog 判断可发现性，
     // 目的：保证新 Tool 同时出现在 stock 分组和全局工具清单里。
     "security_committee_vote",

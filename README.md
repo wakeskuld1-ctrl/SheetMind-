@@ -34,6 +34,31 @@ TradingAgents 当前是一套以 Rust 为主的本地化分析与工具编排工
 
 这些建议不是独立写的摘要，而是 briefing 内部复用正式 `security_committee_vote` 的结果生成，因此默认报告与独立投决会工具保持同口径。
 
+### 2.2.1 仓位计划与投后复盘最小闭环
+
+<!-- 2026-04-08 CST: 追加证券主链执行闭环状态。原因：Task 6 已把“正式仓位计划 -> 多次调仓事件 -> 投后复盘”做成可落盘、可回读、可校验的正式 Tool 链，但 README 仍停留在只写 briefing/vote 的状态。目的：让后续 AI 和开发者明确证券主链已经进入单标的执行与复盘闭环，而不是继续把仓位建议留在对话文本里。 -->
+
+- `security_decision_briefing`
+  - 继续作为仓位计划事实源，正式输出 `position_plan`，并把同源摘要同步进入 `committee_payload.position_digest`。
+- `security_position_plan_record`
+  - 把 briefing 中的正式仓位计划落成可引用对象，生成 `position_plan_ref`，并绑定既有 `decision_ref / approval_ref / evidence_version`。
+- `security_record_position_adjustment`
+  - 允许围绕同一 `position_plan_ref` 连续记录多次调仓事件，沉淀 `adjustment_event_ref`、前后仓位、触发原因与 `plan_alignment`。
+- `security_post_trade_review`
+  - 只消费 `position_plan_ref + adjustment_event_refs`，从执行层回读计划与事件，做一致性校验、仓位衔接校验和轻规则复盘聚合。
+- `security_execution_store`
+  - 当前最小执行层存储，负责正式仓位计划与调仓事件的落盘和按 ref 回读。
+- 当前已完成的闭环边界：
+  - 单标的
+  - 多次调仓
+  - 正式 ref 串联
+  - 最小一致性校验
+  - 结构化投后复盘
+- 当前尚未完成的扩展：
+  - 把复盘结果继续装订进正式审批简报或 decision package
+  - 引入收益结果、赔率结果和更细粒度盘中执行日志
+  - 解决“同一日同类型多次调仓”下的版本/序号冲突
+
 ### 2.3 Foundation 通用知识标准能力（Phase 2 第一阶段）
 
 <!-- 2026-04-08 CST: 更新 foundation 阶段说明。原因：本轮已在 Phase 1 最小导航内核之上补齐标准知识包、标准仓储和 metadata 精确过滤，但 README 仍停留在“只完成 Phase 1”的口径。目的：明确 foundation 当前做的是通用标准能力，而不是业务化知识库或证券分析适配层。 -->
@@ -178,6 +203,14 @@ cargo test --test metadata_schema_registry_unit --test knowledge_repository_unit
 
 ```powershell
 cargo test --test security_analysis_resonance_cli security_decision_briefing_includes_default_committee_recommendations_for_all_modes -- --nocapture
+```
+
+如果要验证当前证券主链的“仓位计划 -> 调仓记录 -> 投后复盘”最小闭环，可优先跑：
+
+```powershell
+cargo test --test security_analysis_resonance_cli security_position_plan_record_persists_briefing_plan -- --nocapture
+cargo test --test security_committee_vote_cli security_record_position_adjustment_supports_multiple_events -- --nocapture
+cargo test --test security_analysis_resonance_cli security_post_trade_review -- --nocapture
 ```
 
 ## 7. 维护约定

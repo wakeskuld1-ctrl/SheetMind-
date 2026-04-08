@@ -181,6 +181,18 @@ impl Default for PositionPlan {
     }
 }
 
+impl PositionPlan {
+    // 2026-04-08 CST: 这里补仓位计划记录投影辅助入口，原因是 Task 1 需要把 briefing 内的 `position_plan`
+    // 最小投影到正式 record 合同；目的：让 record 层只读取稳定的动作与仓位边界字段，而不在多个模块里重复手写同样的字段提取。
+    pub fn record_projection(&self) -> (&str, f64, f64) {
+        (
+            self.position_action.as_str(),
+            self.starter_position_pct,
+            self.max_position_pct,
+        )
+    }
+}
+
 // 2026-04-02 CST: 这里先定义 committee payload 合同，原因是第一阶段虽然不实现投票引擎，但必须先把投决入口的数据口径稳定下来，
 // 目的：让咨询模式和投决模式都消费同一份 factual payload，避免上层 Agent 各自再拼装一套事实。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -372,7 +384,7 @@ fn assemble_security_decision_briefing(
         .base_analysis
         .technical_context
         .stock_analysis
-        .as_of_date
+        .analysis_date
         .clone();
     let evidence_version = build_evidence_version(&analysis.symbol, &analysis_date);
     let summary = build_summary(&analysis, &subject_profile);

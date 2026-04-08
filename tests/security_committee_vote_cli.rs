@@ -8,6 +8,7 @@ use excel_skill::ops::stock::security_decision_briefing::{
     CommitteeRecommendationDigest, CommitteeResonanceDigest, CommitteeRiskBreakdown,
     CommitteeRiskItem, CommitteeSubjectProfile, ExecutionPlan, OddsBrief, PositionPlan,
 };
+use excel_skill::tools::contracts::{PositionAdjustmentEventType, PositionPlanAlignment};
 use serde_json::json;
 use std::collections::HashSet;
 
@@ -496,5 +497,74 @@ fn security_committee_vote_etf_fundamental_reviewer_uses_fund_review_semantics()
         vote.rationale.contains("ETF"),
         "ETF rationale should use fund-review semantics, got: {}",
         vote.rationale
+    );
+}
+
+#[test]
+fn security_record_position_adjustment_supports_multiple_events() {
+    // 2026-04-08 CST: 这里先补调仓事件 Tool 的 CLI 红测，原因是 Task 4 要证明同一 position_plan_ref 可以连续记录多次调仓，
+    // 目的：锁定“计划锚点不变、事件引用递增、审批链与计划一致性字段原样保留”的最小投中执行闭环。
+    let first_request = json!({
+        "tool": "security_record_position_adjustment",
+        "args": {
+            "decision_ref": "decision:601857.SH:2025-08-08:v1",
+            "approval_ref": "approval:601857.SH:2025-08-08:v1",
+            "evidence_version": "security-decision-briefing:601857.SH:2025-08-08:v1",
+            "position_plan_ref": "position-plan:601857.SH:2025-08-08:v1",
+            "symbol": "601857.SH",
+            "event_type": PositionAdjustmentEventType::Add,
+            "event_date": "2025-08-09",
+            "before_position_pct": 0.04,
+            "after_position_pct": 0.08,
+            "trigger_reason": "放量突破加仓线，按计划追加半档仓位",
+            "plan_alignment": PositionPlanAlignment::OnPlan
+        }
+    });
+    let second_request = json!({
+        "tool": "security_record_position_adjustment",
+        "args": {
+            "decision_ref": "decision:601857.SH:2025-08-08:v1",
+            "approval_ref": "approval:601857.SH:2025-08-08:v1",
+            "evidence_version": "security-decision-briefing:601857.SH:2025-08-08:v1",
+            "position_plan_ref": "position-plan:601857.SH:2025-08-08:v1",
+            "symbol": "601857.SH",
+            "event_type": PositionAdjustmentEventType::Reduce,
+            "event_date": "2025-08-11",
+            "before_position_pct": 0.08,
+            "after_position_pct": 0.05,
+            "trigger_reason": "跌回减仓线下方，先回收试错仓位",
+            "plan_alignment": PositionPlanAlignment::JustifiedDeviation
+        }
+    });
+
+    let first_output = run_cli_with_json(&first_request.to_string());
+    let second_output = run_cli_with_json(&second_request.to_string());
+
+    assert_eq!(first_output["status"], "ok");
+    assert_eq!(second_output["status"], "ok");
+    assert_eq!(
+        first_output["data"]["position_plan_ref"],
+        second_output["data"]["position_plan_ref"]
+    );
+    assert_eq!(
+        first_output["data"]["decision_ref"],
+        "decision:601857.SH:2025-08-08:v1"
+    );
+    assert_eq!(
+        second_output["data"]["approval_ref"],
+        "approval:601857.SH:2025-08-08:v1"
+    );
+    assert_eq!(
+        first_output["data"]["evidence_version"],
+        "security-decision-briefing:601857.SH:2025-08-08:v1"
+    );
+    assert_eq!(first_output["data"]["plan_alignment"], "on_plan");
+    assert_eq!(
+        second_output["data"]["plan_alignment"],
+        "justified_deviation"
+    );
+    assert_ne!(
+        first_output["data"]["adjustment_event_ref"],
+        second_output["data"]["adjustment_event_ref"]
     );
 }

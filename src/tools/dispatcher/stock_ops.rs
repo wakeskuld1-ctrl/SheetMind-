@@ -23,6 +23,15 @@ use crate::ops::stock::security_committee_vote::{
 use crate::ops::stock::security_decision_briefing::{
     SecurityDecisionBriefingRequest, security_decision_briefing,
 };
+use crate::ops::stock::security_position_plan_record::{
+    security_position_plan_record,
+};
+use crate::ops::stock::security_post_trade_review::{
+    security_post_trade_review,
+};
+use crate::ops::stock::security_record_position_adjustment::{
+    security_record_position_adjustment,
+};
 use crate::ops::stock::signal_outcome_research::{
     BackfillSecuritySignalOutcomesRequest, RecordSecuritySignalSnapshotRequest,
     SignalOutcomeResearchSummaryRequest, StudySecuritySignalAnalogsRequest,
@@ -38,7 +47,10 @@ use crate::ops::stock::sync_template_resonance_factors::{
 use crate::ops::stock::technical_consultation_basic::{
     TechnicalConsultationBasicRequest, technical_consultation_basic,
 };
-use crate::tools::contracts::ToolResponse;
+use crate::tools::contracts::{
+    SecurityPositionPlanRecordRequest, SecurityPostTradeReviewRequest,
+    SecurityRecordPositionAdjustmentRequest, ToolResponse,
+};
 
 pub(super) fn dispatch_import_stock_price_history(args: Value) -> ToolResponse {
     // 2026-03-31 CST：这里把股票历史导入请求收口到 stock dispatcher，原因是股票导入已不再属于 foundation 分析域；
@@ -133,6 +145,34 @@ pub(super) fn dispatch_security_decision_briefing(args: Value) -> ToolResponse {
     };
 
     match security_decision_briefing(&request) {
+        Ok(result) => ToolResponse::ok_serialized(&result),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+// 2026-04-08 CST: 这里接入 security_position_plan_record 的 stock dispatcher 分支，原因是仓位计划正式化必须沿证券主链标准入口暴露；
+// 目的：让 CLI / Skill 能直接把 briefing 派生仓位计划升级成 record 对象，而不是在外层继续手工维护 position_plan 片段。
+pub(super) fn dispatch_security_position_plan_record(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityPositionPlanRecordRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_position_plan_record(&request) {
+        Ok(result) => ToolResponse::ok_serialized(&result),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+// 2026-04-08 CST: 这里接入 security_post_trade_review 的 stock dispatcher 分支，原因是投后复盘必须沿证券主链正式入口暴露；
+// 目的：让 CLI / Skill 能只传 position_plan_ref 与 adjustment_event_refs 就拿到结构化复盘，而不是在外层手工拼总结文本。
+pub(super) fn dispatch_security_post_trade_review(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityPostTradeReviewRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_post_trade_review(&request) {
         Ok(result) => ToolResponse::ok_serialized(&result),
         Err(error) => ToolResponse::error(error.to_string()),
     }
@@ -302,6 +342,20 @@ pub(super) fn dispatch_signal_outcome_research_summary(args: Value) -> ToolRespo
 
     match signal_outcome_research_summary(&request) {
         Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+// 2026-04-08 CST: 这里接入 security_record_position_adjustment 的 stock dispatcher 分支，原因是正式调仓事件需要沿证券主链标准入口暴露，
+// 目的：让 CLI / Skill 能直接把同一 position_plan_ref 下的执行动作升级成正式事件对象，而不是在外层手工维护交易日志片段。
+pub(super) fn dispatch_security_record_position_adjustment(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityRecordPositionAdjustmentRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_record_position_adjustment(&request) {
+        Ok(result) => ToolResponse::ok_serialized(&result),
         Err(error) => ToolResponse::error(error.to_string()),
     }
 }

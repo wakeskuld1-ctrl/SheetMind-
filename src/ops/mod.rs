@@ -57,6 +57,9 @@ pub use stock::security_analysis_contextual;
 pub use stock::security_analysis_fullstack;
 pub use stock::security_analysis_resonance;
 pub use stock::security_decision_briefing;
+pub use stock::security_position_plan_record;
+pub use stock::security_post_trade_review;
+pub use stock::security_record_position_adjustment;
 // 2026-04-02 CST: 这里补顶层投决会导出，原因是现有测试和上层调用大量通过 crate::ops::... 访问 stock 能力，
 // 目的：保持旧引用习惯不变，同时把 security_committee_vote 纳入统一导出面。
 pub use stock::security_committee_vote;
