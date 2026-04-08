@@ -3068,3 +3068,288 @@
 ### 关闭项
 - 已完成 Task 11 相关 handoff 文档的口径统一。
 - 已完成本轮文档收尾的任务日志追加。
+## 2026-04-08
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\evidence_assembler.rs`，把原来的占位壳扩成正式 `EvidenceAssembler`、`NavigationEvidence`、`NavigationCitation`。原因是 foundation 当前已经有 route / roam / retrieve，但没有统一结果装配层；目的是先把底座最小闭环的输出合同固定下来，避免后续继续在测试或上层临时拼结构。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\navigation_pipeline.rs`，并更新 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation.rs` 导出模块。原因是 Task 9 需要正式承接 route、roam、retrieve、assemble 四段；目的是让 foundation 内部拥有一个业务无关、纯内存、可测试的最小 pipeline 入口，而不是只在测试里手工串模块。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\evidence_assembler_unit.rs` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\navigation_pipeline_integration.rs`，先跑红灯再做 Green，覆盖 assembler 保真、pipeline happy path、route 阶段失败和 retrieve 阶段失败。原因是用户明确要求 TDD；目的是把 Task 8 和 Task 9 的承接断层一次补平。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`，并更新 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`。原因是这轮需要把“默认优先底座主线、业务线需显式点名”固化成 durable memory；目的是避免后续 AI 因当前分支上下文再次滑回证券业务层。
+### 修改原因
+- 用户纠正了“默认继续治理线”的偏移，明确要求 A+B 一起做：切回底座主线，同时把该规则写进交接手册，因此这轮必须先补 foundation 的正式 pipeline，再修正 durable handoff。
+- 当前 handoff 中仍停留在“Task 8 后下一步是 Task 9”的状态，和真实代码进度不一致，所以需要把 foundation 当前完成度同步到交接文档。
+### 方案还差什么?
+- [ ] 后续若继续 foundation，应优先考虑 pipeline 配置外提、更多 relation 策略或上层适配，但仍不要默认接入业务治理线。
+- [ ] 如未来要把 foundation 暴露到 CLI/Tool，必须单独立任务，不要把当前纯内存 pipeline 直接混进 dispatcher。
+### 潜在问题
+- [ ] 当前 `navigation_pipeline` 的 relation whitelist、`max_depth`、`max_concepts` 仍是固定值；如果后续样本扩展过快，可能需要显式配置对象，但不应在这轮顺手做大。
+- [ ] 当前 summary 仍是确定性字符串摘要；如果后续上层想展示更复杂解释，应在上层或后续 foundation 任务中扩展，不要把这轮最小装配器直接改成文案生成器。
+### 关闭项
+- 已完成 `cargo test --test evidence_assembler_unit -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test navigation_pipeline_integration -- --nocapture`，结果为 `3 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集全部通过。
+## 2026-04-08
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\navigation_pipeline.rs`，新增 `NavigationPipelineConfig`、`new_with_config()` 和三个最小 builder，正式把 `allowed_relation_types / max_depth / max_concepts` 从写死值提升为显式配置合同。原因是当前 pipeline 虽然已形成最小闭环，但仍停留在固定策略样机；目的是把它继续推进成“默认值 + 可覆盖”的可调底座入口。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\navigation_pipeline_integration.rs`，先补红灯再做 Green，新增 custom config 限制漫游范围的集成测试。原因是用户同意走 A1 最小配置对象方案；目的是确保配置对象不只是摆设，而是真的能改变 roaming scope。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-08-foundation-navigation-pipeline-config-design.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-08-foundation-navigation-pipeline-config-plan.md`，并更新 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`。原因是这轮配置化是底座下一节正式起点；目的是把“最小可调闭环”的状态写进 durable handoff，而不是只留在聊天上下文。
+### 修改原因
+- 用户已经明确选择方案 A1，因此本轮只做最小配置对象，不拆 retrieval config，不引入 profile，不接 CLI/Tool。
+- 当前 foundation 已完成 Task 9，下一步最值的工作就是把 pipeline 从写死策略推进到最小可调合同，因此这轮配置化是顺着既定底座路线继续前进，不是开新方向。
+### 方案还差什么?
+- [ ] 后续若继续 Task 10，可考虑补更多 custom config 场景，例如 `max_depth = 0`、`max_concepts = 1` 的集成覆盖。
+- [ ] 后续若进入 Task 11，再考虑 retrieval 侧配置化与排序增强，但不应在当前这轮提前拆 `RetrievalConfig`。
+### 潜在问题
+- [ ] 当前 `NavigationPipelineConfig` 仍只覆盖漫游侧参数；如果后续直接把更多策略都塞进同一对象，可能会逐步变重，需要在下一阶段谨慎控制边界。
+- [ ] 当前 custom config 测试主要验证 relation whitelist；如果未来 depth 和 concept budget 出现行为调整，还应补更细分的回归测试，避免默认值与自定义值混淆。
+### 关闭项
+- 已完成 `cargo test --test navigation_pipeline_integration -- --nocapture`，结果为 `4 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集继续全部通过。
+## 2026-04-08
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\evidence_assembler.rs`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\navigation_pipeline.rs`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation.rs`，保留既有 Task 8/9/10 A1 行为不变，只把本轮新增中文注释修复为可读 UTF-8，并保留时间、原因、目的标记。原因是上一轮新增说明文本出现乱码，已经影响交接与后续 AI 理解；目的是保证 foundation 底座代码在不改行为的前提下具备稳定可读性。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\evidence_assembler_unit.rs`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\navigation_pipeline_integration.rs`，保留原有断言与样本结构，只修复测试注释乱码。原因是当前这一轮强调 TDD 与可交接测试合同，乱码会让测试意图失真；目的是让后续 AI 能直接根据测试理解 foundation 主线边界。
+- 重写 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-08-foundation-navigation-pipeline-design.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-08-foundation-navigation-pipeline-plan.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-08-foundation-navigation-pipeline-config-design.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-08-foundation-navigation-pipeline-config-plan.md`，将本轮 foundation 闭环与 A1 配置化设计恢复为可读中文。原因是计划文档和执行记录本身就是 AI 交接入口；目的是避免下一次接手时再次误判方向或重复重构。
+### 修改原因
+- 用户本轮已批准 `A1`，而且明确要求 foundation 主线继续推进，不要把底座和业务层串台，也不要每次接手就重构。
+- 本轮发现 `A1` 的主体代码已经完成且测试通过，但新增中文说明文本存在乱码。如果不先修复交接与注释，后续 AI 很容易误读设计意图，造成重复劳动。
+### 方案还差什么
+- [ ] 下一步优先补 `navigation_pipeline` 的两个配置边界测试：`max_depth = 0` 与 `max_concepts = 1`，继续沿 Task 10 后半段小步推进。
+- [ ] 完成上述边界测试后，再进入 Task 11 的 retrieval 增强第一层，但仍不要过早拆 `RetrievalConfig`。
+### 潜在问题
+- [ ] 当前只修复了“本轮新增范围”的乱码，没有清洗历史旧日志；如果后续要做仓库级文档治理，需要另开任务，不应混入底座能力开发。
+- [ ] foundation 最小回归集依旧会带出仓库既有 `dead_code` warnings；这些不是本轮新增问题，但如果后续做严格无警告门禁，需要单独安排治理。
+### 关闭项
+- 已完成 `cargo test --test navigation_pipeline_integration -- --nocapture`，结果为 `4 passed`。
+- 已完成 foundation 最小回归集复验，确认 Task 8/9/10 A1 相关测试保持通过。
+## 2026-04-08
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\navigation_pipeline_integration.rs`，新增 `max_depth = 0` 与 `max_concepts = 1` 两条 `NavigationPipelineConfig` 集成边界测试，并在测试样本旁补充本轮修改原因、目的、时间说明。原因是 A1 只验证了“关系白名单限制漫游范围”，但还没有把深度预算与候选预算的保守边界合同钉进测试；目的是把 `NavigationPipelineConfig` 从“可配置”推进到“边界可回归”。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，补记本轮边界验证已完成、`navigation_pipeline_integration` 已达到 `6 passed`，并把 foundation 默认下一步从“继续补配置边界”更新为“进入 Task 11 retrieval 增强第一层”。原因是这一步已经验证完毕，交接材料不能继续停留在旧建议；目的是避免后续 AI 重复补同一组边界测试。
+### 修改原因
+- 用户已批准继续沿 foundation 主线推进，当前最合适的小步就是收口 `NavigationPipelineConfig` 的两个保守边界。
+- 本轮严格先写测试再跑，结果两条测试都直接通过，说明生产代码无需补丁，但测试合同和交接说明仍必须补齐。
+### 方案还差什么
+- [ ] 下一步直接进入 Task 11 的 retrieval 增强第一层，优先考虑在保持当前 `NavigationPipelineConfig` 简洁的前提下增强候选域内检索表达力。
+- [ ] 进入 Task 11 时仍不提前拆 `RetrievalConfig`，继续遵守当前的 KISS / YAGNI 边界。
+### 潜在问题
+- [ ] 这两条边界测试直接绿灯，说明本轮没有新增生产代码；如果后续有人只看变更体量，可能误判为“没推进功能”，需要结合执行记录理解这一步的价值是补回归合同。
+- [ ] 仓库依旧存在既有 `dead_code` warnings；当前验证已确认这不是本轮问题，但若后续要做零 warning 门禁，需要单开治理任务。
+### 关闭项
+- 已完成 `cargo test --test navigation_pipeline_integration -- --nocapture`，结果为 `6 passed`。
+- 已确认 `max_depth = 0` 与 `max_concepts = 1` 两个边界在当前 A1 实现下都已被满足。
+## 2026-04-08
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs`，为 foundation retrieval engine 增加第一层排序增强：标题命中权重大于正文命中、完整短语命中 bonus、seed concept 节点 bonus，并补充统一文本归一化、seed concept 推导与评分聚合辅助函数。原因是当前 retrieval 还停留在纯 token 交集计数，排序稳定性不足；目的是在不拆 `RetrievalConfig` 的前提下，把检索从“能跑”推进到“更稳排序”。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，新增三条红灯后转绿灯的排序增强回归测试：标题优先、短语优先、seed concept 优先，并保留原有 scoped retrieval、排序与无命中错误合同。原因是 Task 11 需要先用测试锁住新增排序语义；目的是确保后续继续增强 retrieval 时不会把这三类信号做丢。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-08-foundation-retrieval-enhancement-design.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-08-foundation-retrieval-enhancement-plan.md`，并更新 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`。原因是 Task 11 已经进入 retrieval 增强主线；目的是让后续 AI 明确当前只做 engine 内部小步增强，仍不拆配置层。
+### 修改原因
+- 用户已批准按方案 A 进入 Task 11，要求继续沿 foundation 主线推进，不要把底座增强混成新配置体系或业务层接入。
+- 本轮严格按 TDD 执行：先补三条失败测试，再最小实现，再修复 `seed bonus` 误把零文本命中抬成 hit 的回归点，最终拉绿全部相关测试。
+### 方案还差什么
+- [ ] 下一步可继续做 retrieval 第二层小步增强，优先考虑 source/locator 相关排序信号，或者 evidence 引用密度信号，但仍不引入 `RetrievalConfig`。
+- [ ] 如果后续出现第二个真正不同的 retrieval 调用方，再评估是否需要拆 `RetrievalConfig` 或补 explainability 字段。
+### 潜在问题
+- [ ] 当前 phrase bonus 是固定权重实现，适合作为第一层增强，但还不适合直接当成长期可调策略。
+- [ ] 当前 seed concept 推导依赖 `CandidateScope.path` 的 `to_concept_id` 反推根概念；这在当前 foundation 主线足够，但未来若引入更复杂漫游策略，需要重新评估推导规则。
+- [ ] 仓库仍有既有 `dead_code` warnings；本轮已确认不是 Task 11 新增问题。
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `6 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `25 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs，按 TDD 补充 source_ref 次级排序的 3 条回归测试，覆盖 primary > derived > planning 的同分排序，以及“来源优先级不能反压更高文本分数”的保护边界。原因是 Task 11 第二层已经确认采用方案 C；目的是把来源优先级明确限制在 retrieval 内部的 tie-break 阶段。
+- 修改 C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs，新增 evidence_source_priority()、source_ref_priority() 与来源关键词辅助判断，正式把排序顺序固定为“文本分数 -> 来源优先级 -> node_id”。原因是当前实现同分时仍会退回字典序；目的是在不改 RetrievalHit、不引入 RetrievalConfig、不接 CLI/Tool/GUI 的前提下完成第二层 retrieval 增强。
+- 修改 C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md 与 C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md，补记 Task 11 第二层的合同、验证命令与后续边界，并将执行记录整理为可读的 UTF-8 版本。原因是这轮需要把 foundation 主线的最新状态写入 durable memory；目的是避免后续 AI 再把 retrieval 改成主分数来源偏好或提前拆配置层。
+### 修改原因
+- 用户已批准按 Task 11 第二层方案 C 继续推进，明确要求 foundation 与业务线隔离，并要求这轮继续沿既定架构小步增强，不要回头重构已完成的 Task 8 到 Task 11 第一层内容。
+- 这轮继续形成一个记忆点：source_ref 在 foundation retrieval 里只能做次级 tie-break，不能参与“是否命中”的判定，也不能反压文本相关性；除非未来出现明确冲突的第二调用方，否则不要提前拆出 RetrievalConfig。
+### 方案还差什么?
+- [ ] 下一步如继续沿 foundation 主线推进，优先考虑继续在 etrieval_engine.rs 内做小步、可解释的排序增强，例如更细的证据侧信号，而不是扩散到应用层接线。
+- [ ] 只有在未来出现第二个真实且需求冲突的 retrieval 调用方时，才重新评估是否需要 RetrievalConfig 或更外层的检索策略对象。
+### 潜在问题
+- [ ] 当前 source_ref 分层仍是基于关键词的启发式规则；如果后续数据源命名风格变复杂，可能需要先补新红灯测试，再微调关键词或聚合口径。
+- [ ] 仓库当前仍保留既有 dead_code warnings，这不是本轮引入的问题；后续若要做零 warning 收口，应单开治理任务，不要混入 foundation retrieval 主线。
+### 关闭项
+- 已完成 cargo test --test retrieval_engine_unit -- --nocapture，结果为 9 passed。
+- 已完成 cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture，结果为 foundation 最小回归集 28 passed。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，按 TDD 补充 evidence-side tie-break 的 3 条回归测试，覆盖“同文本分数且同 source_ref 时优先 evidence_refs 更多”“同文本分数、同 source_ref、同 evidence_refs 时优先 locator 更精确”以及“更好 source_ref 不能被更多 evidence_refs 反压”的保护边界。原因是 Task 11 第三层已经确认走方案 C；目的是把证据侧排序信号严格限制在 source_ref 之后的 explainable tie-break。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs`，新增 `evidence_ref_count_priority()`、`best_locator_precision_priority()`、`locator_precision_priority()` 及最小 `A1` / `A1:B3` 解析辅助函数，把排序顺序正式固定为“文本分数 -> 来源优先级 -> evidence_refs 数量 -> locator 精度 -> node_id”。原因是当前 Layer 2 只覆盖了 source_ref，同分节点仍缺少更稳定的证据侧排序语义；目的是在不改 `RetrievalHit`、不引入 `RetrievalConfig`、不碰 CLI/Tool/GUI 的前提下继续小步增强 foundation retrieval。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md` 与新增方案文档 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-evidence-tiebreak-design.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-evidence-tiebreak-plan.md`，补记 Task 11 第三层合同、验证命令与交接边界。原因是 foundation retrieval 的 durable memory 需要同步到最新层级；目的是避免后续 AI 把 evidence-side signal 提前抬成主分数或扩散到业务层。
+### 修改原因
+- 用户已批准按方案 C 继续沿 foundation 主线推进，并明确要求底座与业务线隔离、不要每次接手就重构已完成架构。
+- 这轮继续形成一个记忆点：`evidence_refs` 与 `locator` 只能做 `source_ref` 之后的 tie-break，不能参与命中判定，不能反压文本相关性，也不能反压 `source_ref` 层级；除非未来出现明确冲突的第二调用方，否则不要提前拆出 `RetrievalConfig`。
+### 方案还差什么?
+- [ ] 下一步如继续沿 foundation 主线推进，优先考虑继续在 `retrieval_engine.rs` 内做可解释的诊断型增强，例如稳定排序说明或证据诊断输出，但仍不要扩散到应用层接线。
+- [ ] 只有在未来出现第二个真实且需求冲突的 retrieval 调用方时，才重新评估是否需要 `RetrievalConfig` 或更外层的检索策略对象。
+### 潜在问题
+- [ ] 当前 locator 精度仍是最小启发式规则，只覆盖 Excel/WPS 风格的 `A1` 与 `A1:B3`；如果后续出现 sheet 前缀、命名区域或更复杂 locator，需要先补红灯测试再扩展解析范围。
+- [ ] 当前 evidence_refs 数量默认按“可识别引用个数”计分；如果后续数据源出现重复引用、空引用或弱格式引用，可能需要再补去重或清洗规则，但不应在没有红灯测试前提前重写。
+- [ ] 仓库当前仍保留既有 `dead_code` warnings，这不是本轮引入的问题；后续若要做零 warning 收口，应单开治理任务，不要混入 foundation retrieval 主线。
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `12 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `31 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，按 TDD 新增 diagnostics 能力的 2 条回归测试，覆盖“diagnostics 顺序必须和最终 hits 对齐”以及“diagnostics 必须完整暴露 title/body/phrase/seed/source/evidence/locator 信号”。原因是方案 A 已确认本轮要做 retrieval 可解释化；目的是把“为什么命中、为什么排在这里”的最小合同先用红灯钉住。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs`，新增 `RetrievalExecution`、`RetrievalDiagnostic`、`retrieve_with_diagnostics()` 与内部候选聚合逻辑，并让现有 `retrieve()` 复用同一条执行链继续只返回 `Vec<RetrievalHit>`。原因是我们需要解释 retrieval 排序，但不能为了解释而再造第二套排序规则；目的是让命中结果与诊断结果共享同一批评分信号，同时保持 foundation 旧合同稳定。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-diagnostics-design.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-diagnostics-plan.md`，并更新 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`。原因是这轮新增了 retrieval explainability 合同；目的是把 durable memory 同步到 Layer 4，避免后续 AI 把 diagnostics 误做成行为层或输出层改造。
+### 修改原因
+- 用户已批准按方案 A 继续 foundation retrieval 主线，要求继续小步推进，不要把底座能力扩散到业务层、CLI、Tool 或 GUI。
+- 这轮继续形成一个记忆点：diagnostics 只负责解释排序和命中，不参与命中判定，不改变排序规则，不给 `RetrievalHit` 加字段，也不提前引入 `RetrievalConfig`。
+### 方案还差什么?
+- [ ] 下一步如继续沿 foundation 主线推进，优先考虑继续做 diagnostics 友好的小步增强，例如 evidence hygiene diagnostics、稳定排序说明或更复杂 locator 前先补红灯样本。
+- [ ] 只有在未来出现第二个真实且需求冲突的 retrieval 调用方时，才重新评估是否需要 `RetrievalConfig`、pipeline 级 diagnostics 承接或更外层的检索策略对象。
+### 潜在问题
+- [ ] 当前 diagnostics 仍只停留在 retrieval 内部 API；如果后续要让 pipeline 或 Tool 消费，应该单开任务设计承接面，而不是直接把 diagnostics 生硬挂到现有业务输出上。
+- [ ] 当前 locator 解释仍基于最小 `A1` / `A1:B3` 规则；如果后续出现带 sheet 前缀、命名区域或跨表引用的 locator，需要先补红灯测试再扩解析。
+- [ ] 仓库当前仍保留既有 `dead_code` warnings，这不是本轮新增问题；后续若要做零 warning 收口，应单开治理任务。
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `14 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `33 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，按 TDD 新增 evidence hygiene diagnostics 的 3 条回归测试，覆盖“重复 `source_ref + locator` 必须被识别”“超宽/弱 locator 必须被标记”“占位符式弱 source_ref 必须被标记”，同时补齐既有 diagnostics 结构断言中的 hygiene 字段。原因是当前 diagnostics 只解释命中和排序，还缺少证据质量视角；目的是把 evidence hygiene 合同先用红灯固定下来。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs`，新增 `RetrievalHygieneFlag`、`duplicate_evidence_ref_count`、`weak_locator_count`、`weak_source_ref_count`、`hygiene_flags` 及对应识别 helper，把 hygiene diagnostics 接入现有 `RetrievalDiagnostic` 生成链。原因是 foundation retrieval 需要告诉后续 AI “证据是否健康”，但不能为了这件事再造新层或改排序；目的是在不改 `retrieve()` 合同、不改排序链、不改 `RetrievalHit` 的前提下，为 diagnostics 增加最小质量风险视图。
+- 新增 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-hygiene-diagnostics-design.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-hygiene-diagnostics-plan.md`，并更新 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`。原因是这轮新增了 evidence hygiene diagnostics 合同；目的是把 durable memory 推进到 Layer 5，避免后续 AI 把 hygiene 误做成排序惩罚或应用层输出。
+### 修改原因
+- 用户已明确要求继续沿 foundation 主线做 evidence hygiene diagnostics，并点名要覆盖“重复证据、弱 locator、弱 source_ref”。
+- 这轮继续形成一个记忆点：hygiene diagnostics 只负责暴露证据质量风险，不参与命中判定，不改变排序规则，不提前扩散到 CLI、Tool、GUI，也不提前引入 `RetrievalConfig`。
+### 方案还差什么?
+- [ ] 下一步如继续沿 foundation 主线推进，优先考虑继续增强 hygiene 启发式本身，例如 `Sheet1!A1`、命名区域、跨表 locator、弱 source_ref 词表扩展，但必须先补红灯样本。
+- [ ] 如果未来需要把 hygiene diagnostics 暴露给 pipeline 或 Tool，应单开任务设计承接面，而不是直接把 retrieval 内部字段扩散到业务输出。
+### 潜在问题
+- [ ] 当前弱 locator 的“过宽范围”阈值是固定启发式，后续如果真实样本里经常出现合法大范围引用，可能需要先补样本再微调阈值。
+- [ ] 当前弱 source_ref 规则只覆盖最小占位词集合，后续如果出现更多低区分度来源名，需要用新红灯测试驱动词表扩展。
+- [ ] 仓库当前仍保留既有 `dead_code` warnings，这不是本轮新增问题；后续若要做零 warning 收口，应单开治理任务。
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `17 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `36 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，按 TDD 新增 4 条 locator hygiene 边界回归测试，覆盖“`Sheet1!A1` 不应被判为 weak locator”“带 sheet 前缀和 `$` 的小范围绝对引用不应被误判”“带 sheet 前缀的大范围 locator 仍应被标记为 weak”“命名区域当前仍应视为 weak locator”。修改原因是上一轮 Layer 5 只锁定了最小 hygiene 合同，还没有把真实 Excel/WPS 常见 locator 形态补进红灯样本；修改目的是继续沿 foundation 主线增强 explainability，但不把范围扩散到业务层或配置层。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs`，新增 `normalize_locator_cell_text()` 并最小增强 `parse_locator_cell()`、`parse_locator_range()`，让 locator hygiene 识别支持 sheet 前缀与绝对引用标记 `$`。修改原因是红灯测试已经证明当前实现会把常见的 `Sheet!A1` / `Sheet!$A$1:$D$5` 误判为 weak locator；修改目的是只在 foundation retrieval 内补足最小 A1 风格 locator 解析，不引入完整 Excel 公式语义，也不改排序和命中合同。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`，补充 Task 11 Layer 5.1 的 locator hygiene 边界说明、验证命令与最新通过数。修改原因是这次增强属于 foundation durable memory 的一部分；修改目的是避免后续 AI 误把“支持 sheet-qualified locator”理解成“已经支持完整 Excel locator 语义”。
+### 修改原因
+- 用户已批准沿 foundation 主线继续做 retrieval hygiene 小步增强，这一轮的落点是 locator hygiene 的边界补强，而不是业务层接线、CLI 暴露或架构重构。
+- 这轮继续形成一个记忆点：foundation retrieval 的 locator 解析只能按红灯测试驱动做最小增强，先支持常见 A1 风格变体，再明确保留 named range 为 weak locator，不能因为“想更智能”就把解析器扩成公式系统。
+### 方案还差什么?
+- [ ] 如果下一步继续增强 locator hygiene，可优先补“更复杂但仍属 A1 风格”的红灯样本，例如更多 sheet 名写法或明确的跨表变体，但仍要先补测试再扩实现。
+- [ ] 如果未来要支持 named range、3D 引用或更复杂的 Excel locator 语义，应单独开任务并重新定义合同，不能在当前最小解析基础上偷偷放大范围。
+### 潜在问题
+- [ ] 当前 locator 归一化通过“取最后一个 `!` 之后的片段并移除 `$`”实现，适合本轮最小边界，但如果后续引入更复杂外部引用格式，可能需要先补红灯测试再调整规则。
+- [ ] 仓库当前仍有大量既有脏改动和既有 `dead_code` warnings；本轮已确认 foundation 回归通过，但正式提交前仍需按主题严格核对 stage 范围，避免混入无关文件。
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `21 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `40 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，按方案 B 新增当前 worktree 的脏改动软隔离地图，正式把 52 个脏改动分成 `foundation`、`security`、`stock`、`shared entry`、`docs and handoff` 五组，并写清楚各组范围和继续开发时的默认边界。修改原因是当前工作区已经不是单线开发状态，如果不把并行脏改动地图写进 durable memory，后续 AI 很容易串线；修改目的是在不回滚、不清理并行改动的前提下，先把仓库使用规则整理清楚。
+### 修改原因
+- 用户已批准方案 B，要求先整理脏改动，但当前仓库同时存在 foundation、security、stock 与 shared 入口层的并行未提交内容，不适合做一次性硬清理。
+- 这轮继续形成一个记忆点：整理脏改动不等于可以删除或回滚并行业务线，当前正确动作是“先归类、再隔离、后续按主题继续推进”，默认仍以 foundation 为主线。
+### 方案还差什么?
+- [ ] 如果后续要进一步收口工作区，可在用户明确同意后，继续把五组改动拆成独立提交或独立分支，但那属于下一层“硬隔离”，不是本轮方案 B。
+- [ ] 如果后续某一条业务线要恢复开发，应先在 handoff 或执行记录里显式标记 active line 的切换，避免继续串台。
+### 潜在问题
+- [ ] 当前软隔离只解决“可读、可控、可交接”，没有让工作区变成真正干净的单主题状态；正式提交前仍需要按主题核对 stage 范围。
+- [ ] `src/ops/mod.rs` 与 `src/tools/dispatcher.rs` 仍属于 shared entry 高风险文件，后续如果同时承接多条业务线，最容易再次串台。
+### 关闭项
+- 已完成当前 worktree 脏改动的主题归类与交接手册固化。
+- 已明确默认继续开发时应优先停留在 foundation 组，除非用户显式切换业务线。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，新增 “Dirty File Meaning Reference For Future AI Handoffs” 一节，对当前脏文件按 `foundation`、`security`、`stock`、`shared`、`docs` 五组做逐项用途说明，并补充“为什么不能默认合并或删除”的固定说明。修改原因是用户希望以后不用每次重新分析这些脏文件各自做什么；修改目的是把当前 worktree 的脏文件语义沉淀成 durable memory，供后续 AI 直接承接。
+### 修改原因
+- 用户已批准方案 B，要求把“我认为脏的文件分别做什么用”正式写进 AI 交接手册，而不是只保留一份分组清单。
+- 这轮继续形成一个记忆点：当前工作区的脏文件大多是未收口的有效工作，不应因为“看起来脏”就被误删；正确做法是先看所属主线和用途，再决定是否继续开发、单独提交或后续硬隔离。
+### 方案还差什么?
+- [ ] 如果后续要进一步把脏文件整理成可提交状态，可以按本节说明继续细化为“可先提交文件”和“继续保留并行文件”两张清单。
+- [ ] 如果后续某一组文件发生明显职责变化，应同步更新 handoff 手册，不要让“文件用途说明”再次过期。
+### 潜在问题
+- [ ] 这次补的是“用途说明”，不是“最终提交方案”，所以工作区本身仍然是脏的，正式提交前还需要继续按主题筛选 stage 范围。
+- [ ] 部分旧文件头注释在终端里仍有编码显示噪声，但本轮 handoff 说明已用新的 UTF-8 文本重新解释其职责；后续若要清理历史注释显示问题，应单开任务处理。
+### 关闭项
+- 已完成当前脏文件用途说明的 handoff 固化，后续 AI 不需要再从零重新猜测这些文件的职责。
+- 已完成本轮任务日志追加。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，按 TDD 新增 3 条 weak source_ref 边界回归测试，覆盖“多占位词组合来源名应判弱”“占位词加编号来源名应判弱”“含占位词但带明确业务语义的来源名不应误判”为 weak source_ref。修改原因是当前规则只覆盖单 token 占位词，边界过窄；修改目的是继续沿 foundation 主线把 hygiene diagnostics 的来源命名质量边界补完整。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs`，最小扩展 `is_weak_source_ref()` 与新增 `is_weak_source_ref_token()`，让“全由占位词/数字组成的短来源名”也能被识别为弱来源，但保留含具体业务词的来源名不被误伤。修改原因是红灯测试已证明 `source data`、`table 1` 会被漏判；修改目的是只增强 diagnostics 识别，不改排序、不改命中、不引入额外分类系统。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`，补充 Task 11 Layer 5.2 的 weak source_ref 新边界与最新验证结果。修改原因是这次仍属于 foundation retrieval hygiene 小步增强；修改目的是让后续 AI 直接继承新的来源名边界，而不用重新试探规则。
+### 修改原因
+- 用户已批准继续走方案 A，只做 `weak source_ref` 的底座内增强，不碰业务层、CLI、Tool、GUI。
+- 这轮继续形成一个记忆点：weak source_ref 不再只看“是不是单个占位词”，而要看“是不是几乎全由占位词和编号构成”；但只要来源名里有清晰业务语义，就不能被简单误杀。
+### 方案还差什么?
+- [ ] 如果下一步继续沿 hygiene diagnostics 推进，可优先补更多低区分度来源名样本，例如更短的泛化缩写或更多默认命名组合，但仍要先补红灯再扩规则。
+- [ ] 如果未来要把 weak source_ref 输出暴露给 pipeline 或 Tool，应单开承接任务，不能直接把 retrieval 内部字段扩散出去。
+### 潜在问题
+- [ ] 当前弱来源规则仍是最小启发式，不适合直接当成完整来源分类器；如果后续真实样本的来源命名更复杂，仍要靠红灯测试驱动扩展。
+- [ ] 仓库当前依旧保留既有 `dead_code` warnings；本轮已确认 foundation 回归通过，但 warning 噪声并不是这次新增的问题。
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit source_ref -- --nocapture`，结果为 `5 passed`。
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `24 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `43 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，新增 `retrieval_engine_diagnostics_flag_compact_placeholder_source_refs_with_numeric_suffix` 红灯回归与 `sample_graph_store_for_compact_placeholder_numeric_source_ref_hygiene()` 样本，锁定 `sheet1` 这类紧凑编号占位来源也必须被诊断为 weak source_ref。原因是上一轮只覆盖了 `table 1` 这类带空格编号写法；目的是继续沿 foundation retrieval hygiene 主线补最小边界，而不是扩成更重的来源分类系统。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs`，在 `is_weak_source_ref_token()` 旁新增 `matches_placeholder_token_with_numeric_suffix()`，把 `placeholder token + digits` 这一种紧凑默认命名形态纳入现有 weak source_ref 规则。原因是 TDD 红灯证明 `sheet1` 会漏诊；目的是只补诊断 helper，不改排序链、不改 hit 合同、不扩散到业务层。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，补记 Task 11 Layer 5.3 的边界与验证结果。原因是后续 AI 需要直接知道 `sheet1` 已被纳入 weak source_ref hygiene；目的是减少重复探路和重复重构。
+
+### 修改原因
+- 用户已批准继续走 `foundation` 主线里的 `方案A`，因此这轮继续只在 `src/ops/foundation/retrieval_engine.rs` 内做 retrieval hygiene 小步增强，不碰 CLI、Tool、GUI、security、stock 线。
+- 这轮再次形成一个记忆点：weak source_ref 的扩边界要优先选“默认命名的同义变体”这类低风险样本，例如 `table 1 -> sheet1`，先补红灯、再做最小实现，避免一上来就把来源命名做成宽泛关键词系统。
+
+### 方案还差什么
+- [ ] 下一步仍优先留在 retrieval hygiene 线上，继续补保守边界，例如更多紧凑默认命名变体或 locator hygiene 的小缺口。
+- [ ] 如果继续扩 source_ref hygiene，优先沿“占位词 + 数字”这一类稳定形态前进，不要直接升级成通用来源语义分类。
+
+### 潜在问题
+- [ ] 当前新增规则只覆盖 `placeholder token + 纯数字后缀`，像缩写默认名 `tbl1`、`src01` 这类尚未纳入；后续如果要扩，必须先补保护测试，避免误伤真实业务来源。
+- [ ] 仓库级 `dead_code` warnings 仍然存在，但本轮已确认不是 foundation retrieval 修改引入的问题，不建议把 warnings 清理和本轮 hygiene 边界增强混做。
+
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit retrieval_engine_diagnostics_flag_compact_placeholder_source_refs_with_numeric_suffix -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `25 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `44 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，先写红灯测试，新增 `retrieval_engine_diagnostics_do_not_flag_windows_path_external_workbook_range_locator_as_weak` 和 `retrieval_engine_diagnostics_do_not_flag_windows_path_external_workbook_absolute_range_locator_as_weak`，并补充对应 fixture。原因是普通 `[Workbook]Sheet!A1` 前缀已经被现有实现覆盖，不能形成有效红灯；目的是把本轮 locator hygiene 收窄到一个真实缺口：Windows drive letter 前缀会破坏范围 locator 解析。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\foundation\retrieval_engine.rs`，在 `parse_locator_range()` 旁新增 `normalize_locator_range_text()`，把“先剥 workbook/sheet 前缀，再切 `A1:B3` 范围”收口到局部 helper。原因是 `C:\Reports\[Book.xlsx]Sheet1!A1:B3` 这类 locator 会被 `C:` 提前切断；目的是只修正 Windows 绝对路径外部工作簿范围这一条边界，不改排序、不改命中、不扩成完整公式解析器。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-locator-boundary-design.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-locator-boundary-plan.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，同步补记 Task 11 Layer 5.4 的边界、测试和验证结果。原因是后续 AI 需要直接知道这轮补的是“Windows 绝对路径外部工作簿范围 locator”；目的是避免未来又从普通外部前缀开始重复试探。
+
+### 修改原因
+- 用户已批准继续走 P0 下的方案 A，也就是 `locator hygiene` 的保守边界扩展，因此这轮继续只在 `foundation retrieval` 内推进，不碰业务层、CLI、Tool、GUI。
+- 这轮再次形成一个记忆点：如果新写的“红灯测试”一上来就直接绿了，说明测试没有打中真实缺口，必须立刻换成真正失败的样本，而不是带着假红灯继续写生产代码。
+
+### 方案还差什么
+- [ ] 下一步仍优先继续 locator hygiene 的保守边界，例如是否要支持更窄范围的外部路径变体或特定 3D 引用样本，但必须先补红灯。
+- [ ] 如果继续扩 locator 边界，优先沿“真实常见桌面表格定位变体”推进，不要直接升级成通用 Excel 公式解析器。
+
+### 潜在问题
+- [ ] 当前新增规则只修补了 Windows drive letter 影响范围切分这一条边界，像 3D 引用、命名区域、复杂公式仍未纳入；后续若要扩，必须先补保护测试。
+- [ ] 仓库级 `dead_code` warnings 仍然存在，但本轮已确认不是 foundation retrieval 修改引入的问题，不建议与 locator hygiene 边界增强混做。
+
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit windows_path_external_workbook -- --nocapture`，结果为 `2 passed`。
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `27 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `46 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\retrieval_engine_unit.rs`，于 2026-04-09 CST 按保护性 TDD 追加 `retrieval_engine_diagnostics_still_flag_windows_path_external_workbook_large_range_locator_as_weak` 与 `retrieval_engine_diagnostics_still_flag_windows_path_external_workbook_absolute_large_range_locator_as_weak`，并补充对应 fixture。修改原因是 Task 11 Layer 5.4 已确认 Windows 路径前缀小范围 locator 不再误判，但还缺少“大范围仍 weak”这一层回归护栏；修改目的是把“可解析”和“是否足够具体”两层语义彻底钉住。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-foundation-navigation-pipeline.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-locator-boundary-design.md`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\plans\2026-04-09-foundation-retrieval-locator-boundary-plan.md`，于 2026-04-09 CST 追加 Task 11 Layer 5.5 记录。修改原因是这轮新增测试直接绿灯，没有生产代码变更，但这个“已确认边界”必须沉淀成 durable memory；修改目的是避免后续 AI 误以为这里仍有待修逻辑。
+### 修改原因
+- 用户已批准继续走 foundation 主线下的 `方案 A`，因此这轮只做 locator hygiene 的保守边界保护，不扩展到业务层、CLI、Tool、GUI。
+- 这轮再次形成一个记忆点：当新增的是“保护边界测试”且测试直接通过时，应把它记录为已确认合同，而不是为了制造改动去硬改生产代码。
+### 方案还差什么
+- [ ] 下一步仍可继续沿 locator hygiene 做保守边界补强，优先考虑 3D 引用仍 weak / unsupported 的保护测试，而不是继续扩 locator 解析能力。
+- [ ] 如后续继续扩 locator 支持，必须先补失败测试并确认是真实缺口，避免从 foundation retrieval 滑向完整 Excel 公式解析器。
+### 潜在问题
+- [ ] 当前 Windows 路径 locator 的边界仍只覆盖 A1 风格单点与范围，不覆盖 3D 引用、命名区域或复杂公式；后续若要扩展，仍需单独 red-green。
+- [ ] 仓库级 `dead_code` warnings 仍然存在，但本轮验证已确认这些不是 locator hygiene 保护测试引入的问题。
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit windows_path_external_workbook_large_range -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test retrieval_engine_unit absolute_large_range -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `29 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `48 passed`。

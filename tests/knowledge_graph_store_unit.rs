@@ -38,15 +38,27 @@ fn graph_store_reads_nodes_and_outgoing_edges() {
 // 目的：统一当前 graph store 测试数据来源，让红绿闭环聚焦在最小图谱读模型本身。
 fn sample_graph_store() -> KnowledgeGraphStore {
     let nodes = vec![
-        KnowledgeNode::new("node-revenue-1", "Revenue Summary", "Revenue is derived from invoices.")
-            .with_concept_id("revenue")
-            .with_evidence_ref(EvidenceRef::new("sheet:sales", "A1:B12")),
-        KnowledgeNode::new("node-invoice-1", "Invoice Facts", "Invoices support revenue calculation.")
-            .with_concept_id("invoice")
-            .with_evidence_ref(EvidenceRef::new("sheet:invoice", "C1:D20")),
-        KnowledgeNode::new("node-trend-1", "Trend Notes", "Trend analysis compares revenue by month.")
-            .with_concept_id("trend")
-            .with_evidence_ref(EvidenceRef::new("sheet:trend", "E1:F8")),
+        KnowledgeNode::new(
+            "node-revenue-1",
+            "Revenue Summary",
+            "Revenue is derived from invoices.",
+        )
+        .with_concept_id("revenue")
+        .with_evidence_ref(EvidenceRef::new("sheet:sales", "A1:B12")),
+        KnowledgeNode::new(
+            "node-invoice-1",
+            "Invoice Facts",
+            "Invoices support revenue calculation.",
+        )
+        .with_concept_id("invoice")
+        .with_evidence_ref(EvidenceRef::new("sheet:invoice", "C1:D20")),
+        KnowledgeNode::new(
+            "node-trend-1",
+            "Trend Notes",
+            "Trend analysis compares revenue by month.",
+        )
+        .with_concept_id("trend")
+        .with_evidence_ref(EvidenceRef::new("sheet:trend", "E1:F8")),
     ];
     let edges = vec![
         KnowledgeEdge::new(

@@ -6,10 +6,14 @@ use excel_skill::ops::foundation::ontology_schema::OntologyRelationType;
 // 目的：先验证 record 层能稳定表达“节点关联概念 + 节点挂载证据 + 节点间关系”三件核心事情。
 #[test]
 fn knowledge_record_keeps_concepts_evidence_and_edges() {
-    let node = KnowledgeNode::new("node-revenue-1", "Revenue Summary", "Revenue is derived from invoices.")
-        .with_concept_id("revenue")
-        .with_concept_id("invoice")
-        .with_evidence_ref(EvidenceRef::new("sheet:sales", "A1:B12"));
+    let node = KnowledgeNode::new(
+        "node-revenue-1",
+        "Revenue Summary",
+        "Revenue is derived from invoices.",
+    )
+    .with_concept_id("revenue")
+    .with_concept_id("invoice")
+    .with_evidence_ref(EvidenceRef::new("sheet:sales", "A1:B12"));
     let edge = KnowledgeEdge::new(
         "node-revenue-1",
         "node-invoice-1",

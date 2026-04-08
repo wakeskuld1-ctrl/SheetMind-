@@ -67,7 +67,9 @@ impl CapabilityRouter {
             });
         }
 
-        Ok(CapabilityRoute { matched_concept_ids })
+        Ok(CapabilityRoute {
+            matched_concept_ids,
+        })
     }
 
     // 2026-04-07 CST: 这里把匹配过程拆成独立函数，原因是路由策略本身是 Task 5 的核心变化点，
@@ -86,7 +88,10 @@ impl CapabilityRouter {
 
                 let candidate = tokens[start..end].join(" ");
                 if let Some(concept_id) = self.ontology_store.find_concept_id(&candidate) {
-                    if !matched_concept_ids.iter().any(|matched| matched == concept_id) {
+                    if !matched_concept_ids
+                        .iter()
+                        .any(|matched| matched == concept_id)
+                    {
                         matched_concept_ids.push(concept_id.to_string());
                     }
 

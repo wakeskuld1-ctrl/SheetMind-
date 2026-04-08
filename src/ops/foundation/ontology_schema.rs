@@ -53,7 +53,9 @@ pub struct OntologyRelation {
 // 目的：让测试和后续调用方能明确区分“构造成功”和“索引冲突”两类结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OntologySchemaError {
-    DuplicateConceptId { concept_id: String },
+    DuplicateConceptId {
+        concept_id: String,
+    },
     DuplicateLookupKey {
         lookup_key: String,
         existing_concept_id: String,
