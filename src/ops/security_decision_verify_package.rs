@@ -5,15 +5,17 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::ops::stock::security_approval_brief_signature::{
-    verify_security_approval_brief_document, SecurityApprovalBriefSignatureEnvelope,
+    SecurityApprovalBriefSignatureEnvelope, verify_security_approval_brief_document,
 };
-use crate::ops::stock::security_decision_approval_brief::SecurityDecisionApprovalBrief;
 use crate::ops::stock::security_decision_approval_bridge::{
     PersistedApprovalRequest, PersistedDecisionCard,
 };
+use crate::ops::stock::security_decision_approval_brief::SecurityDecisionApprovalBrief;
 use crate::ops::stock::security_decision_package::{
-    sha256_for_bytes, SecurityDecisionPackageArtifact, SecurityDecisionPackageDocument,
+    SecurityDecisionPackageArtifact, SecurityDecisionPackageDocument, sha256_for_bytes,
 };
+use crate::ops::stock::security_position_plan::SecurityPositionPlan;
+use crate::ops::stock::security_scorecard::SecurityScorecardDocument;
 
 // 2026-04-02 CST: 这里定义证券审批包校验请求，原因是 P0-5 需要一个正式 Tool 来执行 package 路径、签名 secret 和报告落盘策略；
 // 目的：把 verify 所需的最小输入参数收口到稳定合同，避免调用方手工拼接内部校验细节。
@@ -84,6 +86,13 @@ pub struct SecurityDecisionPackageGovernanceCheck {
     pub approval_ref_matched: bool,
     pub evidence_hash_matched: bool,
     pub governance_hash_matched: bool,
+    pub object_graph_consistent: bool,
+    pub scorecard_binding_consistent: bool,
+    pub scorecard_complete: bool,
+    pub scorecard_action_aligned: bool,
+    pub position_plan_binding_consistent: bool,
+    pub position_plan_complete: bool,
+    pub position_plan_direction_aligned: bool,
 }
 
 // 2026-04-02 CST: 这里定义校验错误边界，原因是 verify 阶段既可能失败在路径解析，也可能失败在落盘；
@@ -115,11 +124,8 @@ pub fn security_decision_verify_package(
     let mut issues = Vec::new();
     let artifact_checks = build_artifact_checks(&package.artifact_manifest, &mut issues);
     let hash_checks = build_hash_checks(&package.artifact_manifest, &mut issues);
-    let signature_checks = build_signature_checks(
-        &package.artifact_manifest,
-        request,
-        &mut issues,
-    )?;
+    let signature_checks =
+        build_signature_checks(&package.artifact_manifest, request, &mut issues)?;
     let governance_checks =
         build_governance_checks(&package, &package.artifact_manifest, &mut issues)?;
     let package_valid = issues.is_empty();
@@ -162,16 +168,28 @@ fn build_artifact_checks(
             && !artifact.path.trim().is_empty()
             && Path::new(&artifact.path).exists();
         let (status, message) = if artifact.required && !artifact.present {
-            issues.push(format!("required artifact `{}` is not present", artifact.artifact_role));
-            ("failed".to_string(), "required artifact missing from manifest".to_string())
+            issues.push(format!(
+                "required artifact `{}` is not present",
+                artifact.artifact_role
+            ));
+            (
+                "failed".to_string(),
+                "required artifact missing from manifest".to_string(),
+            )
         } else if artifact.present && !exists_on_disk {
             issues.push(format!(
                 "artifact `{}` expected at `{}` but file does not exist",
                 artifact.artifact_role, artifact.path
             ));
-            ("failed".to_string(), "artifact file missing on disk".to_string())
+            (
+                "failed".to_string(),
+                "artifact file missing on disk".to_string(),
+            )
         } else if !artifact.present && !artifact.required {
-            ("warning".to_string(), "optional artifact not present".to_string())
+            (
+                "warning".to_string(),
+                "optional artifact not present".to_string(),
+            )
         } else {
             ("passed".to_string(), "artifact present on disk".to_string())
         };
@@ -226,7 +244,9 @@ fn compute_manifest_compatible_sha256(
 ) -> String {
     if artifact.path.ends_with(".json") {
         if let Ok(value) = serde_json::from_slice::<serde_json::Value>(payload) {
-            if let Ok(sha256) = crate::ops::stock::security_decision_package::sha256_for_json_value(&value) {
+            if let Ok(sha256) =
+                crate::ops::stock::security_decision_package::sha256_for_json_value(&value)
+            {
                 return sha256;
             }
         }
@@ -261,7 +281,9 @@ fn build_signature_checks(
     }
 
     let Some(approval_brief_artifact) = approval_brief_artifact else {
-        issues.push("approval_brief_signature exists but approval_brief artifact is missing".to_string());
+        issues.push(
+            "approval_brief_signature exists but approval_brief artifact is missing".to_string(),
+        );
         return Ok(vec![SecurityDecisionPackageSignatureCheck {
             artifact_role: "approval_brief_signature".to_string(),
             algorithm: "hmac_sha256".to_string(),
@@ -286,9 +308,15 @@ fn build_signature_checks(
 
     let verification = verify_security_approval_brief_document(&brief, &envelope, &secret);
     let (payload_sha256_matched, signature_valid, message) = match verification {
-        Ok(()) => (true, true, "approval brief detached signature verified".to_string()),
+        Ok(()) => (
+            true,
+            true,
+            "approval brief detached signature verified".to_string(),
+        ),
         Err(error) => {
-            issues.push(format!("approval brief detached signature verification failed: {error}"));
+            issues.push(format!(
+                "approval brief detached signature verification failed: {error}"
+            ));
             let payload_matches = !error.contains("payload sha256 mismatch");
             (payload_matches, false, error)
         }
@@ -312,8 +340,11 @@ fn build_governance_checks(
     let decision_card = load_optional_json::<PersistedDecisionCard>(artifacts, "decision_card")?;
     let approval_request =
         load_optional_json::<PersistedApprovalRequest>(artifacts, "approval_request")?;
+    let position_plan = load_optional_json::<SecurityPositionPlan>(artifacts, "position_plan")?;
     let approval_brief =
         load_optional_json::<SecurityDecisionApprovalBrief>(artifacts, "approval_brief")?;
+    let scorecard =
+        load_optional_json::<SecurityScorecardDocument>(artifacts, "security_scorecard")?;
 
     let decision_ref_matched = decision_card
         .as_ref()
@@ -370,12 +401,218 @@ fn build_governance_checks(
         issues.push("governance governance_hash mismatch across package artifacts".to_string());
     }
 
+    // 2026-04-08 CST: 这里新增对象图一致性校验，原因是 Task 1 要把 package 从“文件清单合同”提升为“正式对象图合同”；
+    // 目的：就算文件还存在，只要对象引用或对象路径漂移，也能被 verify 明确拦下来。
+    let object_graph_consistent = decision_card
+        .as_ref()
+        .map(|card| {
+            package.object_graph.decision_ref == package.decision_ref
+                && package.object_graph.decision_ref == card.decision_ref
+                && package.object_graph.decision_card_path
+                    == find_artifact_path(artifacts, "decision_card")
+        })
+        .unwrap_or(false)
+        && approval_request
+            .as_ref()
+            .map(|request| {
+                package.object_graph.approval_ref == package.approval_ref
+                    && request.approval_ref == package.object_graph.approval_ref
+                    && request
+                        .decision_ref
+                        .as_ref()
+                        .map(|value| value == &package.object_graph.decision_ref)
+                        .unwrap_or(false)
+                    && package.object_graph.approval_request_path
+                        == find_artifact_path(artifacts, "approval_request")
+            })
+            .unwrap_or(false)
+        && position_plan
+            .as_ref()
+            .map(|plan| {
+                plan.plan_id == package.object_graph.position_plan_ref
+                    && plan.decision_ref == package.object_graph.decision_ref
+                    && plan.approval_ref == package.object_graph.approval_ref
+                    && package.object_graph.position_plan_path
+                        == find_artifact_path(artifacts, "position_plan")
+            })
+            .unwrap_or(false)
+        && approval_brief
+            .as_ref()
+            .map(|brief| {
+                brief.brief_id == package.object_graph.approval_brief_ref
+                    && brief.decision_ref == package.object_graph.decision_ref
+                    && brief.approval_ref == package.object_graph.approval_ref
+                    && package.object_graph.approval_brief_path
+                        == find_artifact_path(artifacts, "approval_brief")
+            })
+            .unwrap_or(false)
+        && scorecard
+            .as_ref()
+            .map(|scorecard| {
+                scorecard.scorecard_id == package.object_graph.scorecard_ref
+                    && scorecard.decision_ref == package.object_graph.decision_ref
+                    && scorecard.approval_ref == package.object_graph.approval_ref
+                    && package.object_graph.scorecard_path
+                        == find_artifact_path(artifacts, "security_scorecard")
+            })
+            .unwrap_or(false);
+    if !object_graph_consistent {
+        issues.push("package object_graph mismatch across package artifacts".to_string());
+    }
+
+    // 2026-04-09 CST: 这里新增评分卡绑定一致性校验，原因是评分卡已正式进入 package object graph 与 artifact manifest；
+    // 目的：确保 scorecard 的 ref/path/approval 链接与 package 主锚点一致，而不是仅仅文件存在就算通过。
+    let scorecard_binding_consistent = scorecard
+        .as_ref()
+        .map(|scorecard| {
+            scorecard.decision_ref == package.decision_ref
+                && scorecard.approval_ref == package.approval_ref
+                && scorecard.scorecard_id == package.object_graph.scorecard_ref
+                && package.object_graph.scorecard_path
+                    == find_artifact_path(artifacts, "security_scorecard")
+        })
+        .unwrap_or(false);
+    if !scorecard_binding_consistent {
+        issues.push("security_scorecard binding mismatch across package artifacts".to_string());
+    }
+
+    // 2026-04-09 CST: 这里新增评分卡完整性校验，原因是正式 scorecard 至少要有状态、原始特征快照、限制说明和对象头；
+    // 目的：把“有个文件”提升为“这份 scorecard 合同本身是完整的”。
+    let scorecard_complete = scorecard
+        .as_ref()
+        .map(|scorecard| {
+            !scorecard.contract_version.trim().is_empty()
+                && !scorecard.document_type.trim().is_empty()
+                && !scorecard.scorecard_id.trim().is_empty()
+                && !scorecard.score_status.trim().is_empty()
+                && !scorecard.raw_feature_snapshot.is_empty()
+        })
+        .unwrap_or(false);
+    if !scorecard_complete {
+        issues.push("security_scorecard formal contract is incomplete".to_string());
+    }
+
+    // 2026-04-09 CST: 这里新增评分卡动作对齐校验，原因是评分卡进入 package 后必须和最终投决动作保持一致；
+    // 目的：避免后续出现“投决建议 avoid，但 scorecard 仍写成 buy”这类新的治理漂移。
+    let scorecard_action_aligned = decision_card
+        .as_ref()
+        .zip(scorecard.as_ref())
+        .map(|(card, scorecard)| {
+            card.recommendation_action == scorecard.recommendation_action
+                && card.exposure_side == scorecard.exposure_side
+        })
+        .unwrap_or(false);
+    if !scorecard_action_aligned {
+        issues.push("security_scorecard action does not align with decision_card".to_string());
+    }
+
+    // 2026-04-08 CST: 这里新增仓位计划审批绑定一致性校验，原因是 Task 2 要让 approval_request 正式声明它审批的是哪一份 position_plan；
+    // 目的：确保 approval_request、position_plan 和 package.object_graph 三者围绕同一 plan 保持一致，而不是只在 package 层看得到文件。
+    let position_plan_binding_consistent = approval_request
+        .as_ref()
+        .and_then(|request| request.position_plan_binding.as_ref())
+        .zip(position_plan.as_ref())
+        .map(|(binding, plan)| {
+            let position_plan_artifact_path = find_artifact_path(artifacts, "position_plan");
+            let position_plan_artifact_sha = find_artifact_sha(artifacts, "position_plan");
+            binding.position_plan_ref == plan.plan_id
+                && binding.position_plan_path == position_plan_artifact_path
+                && binding.position_plan_contract_version == plan.contract_version
+                && binding.position_plan_sha256 == position_plan_artifact_sha
+                && binding.plan_status == plan.plan_status
+                && binding.plan_direction == plan.plan_direction
+                && binding.position_plan_ref == package.object_graph.position_plan_ref
+                && binding.position_plan_path == package.object_graph.position_plan_path
+                && plan.approval_binding.decision_ref == package.decision_ref
+                && plan.approval_binding.approval_ref == package.approval_ref
+                && plan.approval_binding.approval_request_ref == package.approval_ref
+        })
+        .unwrap_or(false);
+    if !position_plan_binding_consistent {
+        issues.push(
+            "approval_request position_plan_binding mismatch across approval chain".to_string(),
+        );
+    }
+
+    let position_plan_complete = position_plan
+        .as_ref()
+        .map(|plan| {
+            !plan.contract_version.trim().is_empty()
+                && !plan.document_type.trim().is_empty()
+                && !plan.decision_id.trim().is_empty()
+                && !plan.plan_direction.trim().is_empty()
+                && !plan.approval_binding.package_scope.trim().is_empty()
+                && !plan.approval_binding.binding_status.trim().is_empty()
+                && !plan.reduce_plan.trigger_condition.trim().is_empty()
+                && !plan.reduce_plan.notes.trim().is_empty()
+        })
+        .unwrap_or(false);
+    if !position_plan_complete {
+        issues.push("position_plan formal contract is incomplete".to_string());
+    }
+
+    let position_plan_direction_aligned = decision_card
+        .as_ref()
+        .zip(position_plan.as_ref())
+        .map(|(card, plan)| persisted_direction_label(&card.direction) == plan.plan_direction)
+        .unwrap_or(false);
+    if !position_plan_direction_aligned {
+        issues.push(
+            "position_plan direction does not align with decision_card direction".to_string(),
+        );
+    }
+
     Ok(SecurityDecisionPackageGovernanceCheck {
         decision_ref_matched,
         approval_ref_matched,
         evidence_hash_matched,
         governance_hash_matched,
+        object_graph_consistent,
+        scorecard_binding_consistent,
+        scorecard_complete,
+        scorecard_action_aligned,
+        position_plan_binding_consistent,
+        position_plan_complete,
+        position_plan_direction_aligned,
     })
+}
+
+fn find_artifact_path(
+    artifacts: &[SecurityDecisionPackageArtifact],
+    artifact_role: &str,
+) -> String {
+    artifacts
+        .iter()
+        .find(|artifact| artifact.artifact_role == artifact_role)
+        .map(|artifact| artifact.path.clone())
+        .unwrap_or_default()
+}
+
+fn find_artifact_sha(artifacts: &[SecurityDecisionPackageArtifact], artifact_role: &str) -> String {
+    artifacts
+        .iter()
+        .find(|artifact| artifact.artifact_role == artifact_role)
+        .map(|artifact| artifact.sha256.clone())
+        .unwrap_or_default()
+}
+
+fn persisted_direction_label(
+    direction: &crate::ops::stock::security_decision_approval_bridge::PersistedDecisionDirection,
+) -> String {
+    match direction {
+        crate::ops::stock::security_decision_approval_bridge::PersistedDecisionDirection::Long => {
+            "Long".to_string()
+        }
+        crate::ops::stock::security_decision_approval_bridge::PersistedDecisionDirection::Short => {
+            "Short".to_string()
+        }
+        crate::ops::stock::security_decision_approval_bridge::PersistedDecisionDirection::Hedge => {
+            "Hedge".to_string()
+        }
+        crate::ops::stock::security_decision_approval_bridge::PersistedDecisionDirection::NoTrade => {
+            "NoTrade".to_string()
+        }
+    }
 }
 
 fn load_optional_json<T: for<'de> Deserialize<'de>>(

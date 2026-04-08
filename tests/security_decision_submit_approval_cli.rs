@@ -1,7 +1,7 @@
 mod common;
 
 use chrono::{Duration, NaiveDate};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -28,8 +28,7 @@ fn create_stock_history_csv(prefix: &str, file_name: &str, rows: &[String]) -> P
     fs::create_dir_all(&fixture_dir).expect("security decision submit fixture dir should exist");
 
     let csv_path = fixture_dir.join(file_name);
-    fs::write(&csv_path, rows.join("\n"))
-        .expect("security decision submit csv should be written");
+    fs::write(&csv_path, rows.join("\n")).expect("security decision submit csv should be written");
     csv_path
 }
 
@@ -100,11 +99,13 @@ fn tool_catalog_includes_security_decision_submit_approval() {
 
     // 2026-04-02 CST: 这里先锁住新审批提交 Tool 的可发现性，原因是没进 catalog 就等于产品主入口不存在；
     // 目的：确保后续 Skill 与 CLI 能稳定找到“提交到审批主线”的正式入口。
-    assert!(output["data"]["tool_catalog"]
-        .as_array()
-        .expect("tool catalog should be an array")
-        .iter()
-        .any(|tool| tool == "security_decision_submit_approval"));
+    assert!(
+        output["data"]["tool_catalog"]
+            .as_array()
+            .expect("tool catalog should be an array")
+            .iter()
+            .any(|tool| tool == "security_decision_submit_approval")
+    );
 }
 
 #[test]
@@ -197,33 +198,59 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
     // 2026-04-02 CST: 这里锁住 ready_for_review 提交路径，原因是 P0-1 的目标就是把可上会的证券投决对象正式落进审批主线；
     // 目的：确保 decision/approval/audit 四类工件一次写齐，后续私有多签流程可以直接接着跑。
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["committee_result"]["decision_card"]["status"], "ready_for_review");
+    assert_eq!(
+        output["data"]["committee_result"]["decision_card"]["status"],
+        "ready_for_review"
+    );
     assert_eq!(output["data"]["approval_request"]["status"], "Pending");
     assert_eq!(output["data"]["approval_request"]["min_approvals"], 2);
-    assert_eq!(output["data"]["approval_request"]["require_risk_signoff"], true);
-    assert!(output["data"]["decision_ref"]
-        .as_str()
-        .expect("decision ref should exist")
-        .starts_with("decision_ref:"));
-    assert!(output["data"]["approval_ref"]
-        .as_str()
-        .expect("approval ref should exist")
-        .starts_with("approval_ref:"));
-    assert!(output["data"]["approval_brief"]["bull_summary"]
-        .as_array()
-        .expect("bull summary should be array")
-        .len()
-        >= 1);
-    assert!(output["data"]["approval_brief"]["bear_summary"]
-        .as_array()
-        .expect("bear summary should be array")
-        .len()
-        >= 1);
-    assert!(output["data"]["approval_brief"]["gate_summary"]
-        .as_array()
-        .expect("gate summary should be array")
-        .len()
-        >= 1);
+    assert_eq!(
+        output["data"]["approval_request"]["require_risk_signoff"],
+        true
+    );
+    // 2026-04-08 CST: 这里先锁定 approval_request 对仓位计划的正式绑定，原因是 Task 2 要让 position_plan 从 package 附属文件升级成正式可审批对象；
+    // 目的：确保审批请求自己就明确知道“审的是哪一个仓位计划、路径在哪、合同版本是什么”，而不是只依赖 package 间接推断。
+    assert_eq!(
+        output["data"]["approval_request"]["position_plan_binding"]["position_plan_ref"],
+        output["data"]["position_plan"]["plan_id"]
+    );
+    assert_eq!(
+        output["data"]["approval_request"]["position_plan_binding"]["position_plan_path"],
+        output["data"]["position_plan_path"]
+    );
+    assert!(
+        output["data"]["decision_ref"]
+            .as_str()
+            .expect("decision ref should exist")
+            .starts_with("decision_ref:")
+    );
+    assert!(
+        output["data"]["approval_ref"]
+            .as_str()
+            .expect("approval ref should exist")
+            .starts_with("approval_ref:")
+    );
+    assert!(
+        output["data"]["approval_brief"]["bull_summary"]
+            .as_array()
+            .expect("bull summary should be array")
+            .len()
+            >= 1
+    );
+    assert!(
+        output["data"]["approval_brief"]["bear_summary"]
+            .as_array()
+            .expect("bear summary should be array")
+            .len()
+            >= 1
+    );
+    assert!(
+        output["data"]["approval_brief"]["gate_summary"]
+            .as_array()
+            .expect("gate summary should be array")
+            .len()
+            >= 1
+    );
     assert_eq!(
         output["data"]["position_plan"]["decision_ref"],
         output["data"]["decision_ref"]
@@ -232,10 +259,33 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
         output["data"]["position_plan"]["approval_ref"],
         output["data"]["approval_ref"]
     );
-    assert!(output["data"]["approval_brief"]["brief_id"]
-        .as_str()
-        .expect("brief id should exist")
-        .starts_with("brief-"));
+    assert_eq!(
+        output["data"]["position_plan"]["contract_version"],
+        "security_position_plan.v2"
+    );
+    assert_eq!(
+        output["data"]["position_plan"]["document_type"],
+        "security_position_plan"
+    );
+    assert_eq!(output["data"]["position_plan"]["plan_direction"], "Long");
+    assert_eq!(
+        output["data"]["position_plan"]["approval_binding"]["approval_ref"],
+        output["data"]["approval_ref"]
+    );
+    assert_eq!(
+        output["data"]["position_plan"]["approval_binding"]["approval_request_ref"],
+        output["data"]["approval_ref"]
+    );
+    assert_eq!(
+        output["data"]["position_plan"]["reduce_plan"]["allow_reduce"],
+        true
+    );
+    assert!(
+        output["data"]["approval_brief"]["brief_id"]
+            .as_str()
+            .expect("brief id should exist")
+            .starts_with("brief-")
+    );
     assert_eq!(
         output["data"]["approval_brief"]["contract_version"],
         "security_approval_brief.v1"
@@ -252,34 +302,61 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
         output["data"]["approval_brief"]["package_binding"]["artifact_role"],
         "approval_brief"
     );
-    assert!(output["data"]["approval_brief"]["recommended_review_action"]
-        .as_str()
-        .expect("recommended review action should exist")
-        .contains("approve"));
-    assert!(output["data"]["approval_brief_path"]
-        .as_str()
-        .expect("approval brief path should exist")
-        .contains("approval_briefs"));
-    assert!(output["data"]["decision_package_path"]
-        .as_str()
-        .expect("decision package path should exist")
-        .contains("decision_packages"));
-    assert_eq!(
-        output["data"]["position_plan"]["plan_status"],
-        "reviewable"
+    assert!(
+        output["data"]["approval_brief"]["recommended_review_action"]
+            .as_str()
+            .expect("recommended review action should exist")
+            .contains("approve")
     );
-    assert!(output["data"]["position_plan"]["suggested_gross_pct"]
-        .as_f64()
-        .expect("suggested gross pct should exist")
-        > 0.0);
-    assert!(output["data"]["approval_brief"]["entry_summary"]
-        .as_str()
-        .expect("entry summary should exist")
-        .contains("首仓"));
-    assert!(output["data"]["approval_brief"]["stop_loss_summary"]
-        .as_str()
-        .expect("stop loss summary should exist")
-        .contains("止损"));
+    assert!(
+        output["data"]["approval_brief_path"]
+            .as_str()
+            .expect("approval brief path should exist")
+            .contains("approval_briefs")
+    );
+    assert!(
+        output["data"]["decision_package_path"]
+            .as_str()
+            .expect("decision package path should exist")
+            .contains("decision_packages")
+    );
+    assert_eq!(output["data"]["position_plan"]["plan_status"], "reviewable");
+    // 2026-04-08 CST: 这里先锁定 package 显式对象图合同，原因是 Task 1 要把 position_plan / approval_brief 从隐式 artifact 关系升级为正式对象引用；
+    // 目的：确保 submit_approval 生成的新 package 不只是“文件清单存在”，而是已经把决策对象图写成可校验的正式合同。
+    assert_eq!(
+        output["data"]["decision_package"]["object_graph"]["decision_ref"],
+        output["data"]["decision_ref"]
+    );
+    assert_eq!(
+        output["data"]["decision_package"]["object_graph"]["approval_ref"],
+        output["data"]["approval_ref"]
+    );
+    assert_eq!(
+        output["data"]["decision_package"]["object_graph"]["position_plan_ref"],
+        output["data"]["position_plan"]["plan_id"]
+    );
+    assert_eq!(
+        output["data"]["decision_package"]["object_graph"]["approval_brief_ref"],
+        output["data"]["approval_brief"]["brief_id"]
+    );
+    assert!(
+        output["data"]["position_plan"]["suggested_gross_pct"]
+            .as_f64()
+            .expect("suggested gross pct should exist")
+            > 0.0
+    );
+    assert!(
+        output["data"]["approval_brief"]["entry_summary"]
+            .as_str()
+            .expect("entry summary should exist")
+            .contains("首仓")
+    );
+    assert!(
+        output["data"]["approval_brief"]["stop_loss_summary"]
+            .as_str()
+            .expect("stop loss summary should exist")
+            .contains("止损")
+    );
 
     let decision_path = PathBuf::from(
         output["data"]["decision_card_path"]
@@ -329,7 +406,10 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
         &fs::read(&decision_path).expect("persisted decision card should be readable"),
     )
     .expect("persisted decision card should be valid json");
-    assert_eq!(persisted_decision["scene_name"], "security_decision_committee");
+    assert_eq!(
+        persisted_decision["scene_name"],
+        "security_decision_committee"
+    );
     assert_eq!(persisted_decision["asset_id"], "601916.SH");
     assert_eq!(persisted_decision["status"], "ReadyForReview");
     assert_eq!(persisted_decision["direction"], "Long");
@@ -340,15 +420,29 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
     )
     .expect("persisted approval request should be valid json");
     assert_eq!(persisted_request["status"], "Pending");
-    assert_eq!(persisted_request["decision_id"], persisted_decision["decision_id"]);
+    assert_eq!(
+        persisted_request["decision_id"],
+        persisted_decision["decision_id"]
+    );
     assert_eq!(persisted_request["auto_reject_recommended"], false);
+    assert_eq!(
+        persisted_request["position_plan_binding"]["position_plan_ref"],
+        output["data"]["position_plan"]["plan_id"]
+    );
+    assert_eq!(
+        persisted_request["position_plan_binding"]["plan_direction"],
+        output["data"]["position_plan"]["plan_direction"]
+    );
 
     let persisted_events: Value = serde_json::from_slice(
         &fs::read(&events_path).expect("persisted approval events should be readable"),
     )
     .expect("persisted approval events should be valid json");
     assert_eq!(
-        persisted_events.as_array().expect("approval events should be array").len(),
+        persisted_events
+            .as_array()
+            .expect("approval events should be array")
+            .len(),
         0
     );
 
@@ -382,6 +476,14 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
         &fs::read(&position_plan_path).expect("persisted position plan should be readable"),
     )
     .expect("persisted position plan should be valid json");
+    assert_eq!(
+        persisted_position_plan["contract_version"],
+        "security_position_plan.v2"
+    );
+    assert_eq!(
+        persisted_position_plan["document_type"],
+        "security_position_plan"
+    );
     assert_eq!(persisted_position_plan["plan_status"], "reviewable");
     assert_eq!(
         persisted_position_plan["decision_ref"],
@@ -391,6 +493,11 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
         persisted_position_plan["approval_ref"],
         output["data"]["approval_ref"]
     );
+    assert_eq!(
+        persisted_position_plan["approval_binding"]["approval_request_ref"],
+        output["data"]["approval_ref"]
+    );
+    assert_eq!(persisted_position_plan["reduce_plan"]["allow_reduce"], true);
 
     let persisted_decision_package: Value = serde_json::from_slice(
         &fs::read(&decision_package_path).expect("persisted decision package should be readable"),
@@ -408,30 +515,56 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
         persisted_decision_package["approval_ref"],
         output["data"]["approval_ref"]
     );
+    // 2026-04-08 CST: 这里补充持久化 package 的对象图断言，原因是 Task 1 需要冻结正式对象图，而不只是保证 CLI 返回值里短暂带出；
+    // 目的：确保真正落盘的 package JSON 也具备稳定的 object_graph，后续 verify / revision 都能基于磁盘对象图继续工作。
+    assert_eq!(
+        persisted_decision_package["object_graph"]["position_plan_ref"],
+        persisted_position_plan["plan_id"]
+    );
+    assert_eq!(
+        persisted_decision_package["object_graph"]["approval_brief_ref"],
+        persisted_approval_brief["brief_id"]
+    );
+    assert_eq!(
+        persisted_decision_package["object_graph"]["position_plan_path"],
+        Value::String(position_plan_path.to_string_lossy().to_string())
+    );
+    assert_eq!(
+        persisted_decision_package["object_graph"]["approval_brief_path"],
+        Value::String(approval_brief_path.to_string_lossy().to_string())
+    );
     assert_eq!(
         persisted_decision_package["package_status"],
         "review_bundle_ready"
     );
-    assert!(persisted_decision_package["artifact_manifest"]
-        .as_array()
-        .expect("artifact manifest should be array")
-        .iter()
-        .any(|artifact| artifact["artifact_role"] == "decision_card"));
-    assert!(persisted_decision_package["artifact_manifest"]
-        .as_array()
-        .expect("artifact manifest should be array")
-        .iter()
-        .any(|artifact| artifact["artifact_role"] == "approval_request"));
-    assert!(persisted_decision_package["artifact_manifest"]
-        .as_array()
-        .expect("artifact manifest should be array")
-        .iter()
-        .any(|artifact| artifact["artifact_role"] == "position_plan"));
-    assert!(persisted_decision_package["artifact_manifest"]
-        .as_array()
-        .expect("artifact manifest should be array")
-        .iter()
-        .any(|artifact| artifact["artifact_role"] == "approval_brief"));
+    assert!(
+        persisted_decision_package["artifact_manifest"]
+            .as_array()
+            .expect("artifact manifest should be array")
+            .iter()
+            .any(|artifact| artifact["artifact_role"] == "decision_card")
+    );
+    assert!(
+        persisted_decision_package["artifact_manifest"]
+            .as_array()
+            .expect("artifact manifest should be array")
+            .iter()
+            .any(|artifact| artifact["artifact_role"] == "approval_request")
+    );
+    assert!(
+        persisted_decision_package["artifact_manifest"]
+            .as_array()
+            .expect("artifact manifest should be array")
+            .iter()
+            .any(|artifact| artifact["artifact_role"] == "position_plan")
+    );
+    assert!(
+        persisted_decision_package["artifact_manifest"]
+            .as_array()
+            .expect("artifact manifest should be array")
+            .iter()
+            .any(|artifact| artifact["artifact_role"] == "approval_brief")
+    );
     assert_eq!(
         persisted_decision_package["governance_binding"]["decision_ref"],
         output["data"]["decision_ref"]
@@ -531,22 +664,35 @@ fn security_decision_submit_approval_maps_blocked_status_and_auto_reject_flags()
     // 2026-04-02 CST: 这里锁住 blocked 提交路径，原因是审批桥接不能只会处理“好看”的投决对象；
     // 目的：确保被风险闸门拦下的证券决策也能形成正式审批记录，并显式带上 auto-reject 语义。
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["committee_result"]["decision_card"]["status"], "blocked");
-    assert_eq!(output["data"]["approval_request"]["status"], "NeedsMoreEvidence");
-    assert_eq!(output["data"]["approval_request"]["auto_reject_recommended"], true);
+    assert_eq!(
+        output["data"]["committee_result"]["decision_card"]["status"],
+        "blocked"
+    );
+    assert_eq!(
+        output["data"]["approval_request"]["status"],
+        "NeedsMoreEvidence"
+    );
+    assert_eq!(
+        output["data"]["approval_request"]["auto_reject_recommended"],
+        true
+    );
     assert_eq!(output["data"]["position_plan"]["plan_status"], "blocked");
     assert_eq!(output["data"]["position_plan"]["suggested_gross_pct"], 0.0);
     assert_eq!(output["data"]["position_plan"]["starter_gross_pct"], 0.0);
     assert_eq!(output["data"]["position_plan"]["max_gross_pct"], 0.0);
-    assert!(output["data"]["approval_brief"]["recommended_review_action"]
-        .as_str()
-        .expect("recommended review action should exist")
-        .contains("request_more_evidence"));
-    assert!(output["data"]["approval_request"]["auto_reject_gate_names"]
-        .as_array()
-        .expect("auto reject gate names should be array")
-        .iter()
-        .any(|gate| gate == "risk_reward_gate"));
+    assert!(
+        output["data"]["approval_brief"]["recommended_review_action"]
+            .as_str()
+            .expect("recommended review action should exist")
+            .contains("request_more_evidence")
+    );
+    assert!(
+        output["data"]["approval_request"]["auto_reject_gate_names"]
+            .as_array()
+            .expect("auto reject gate names should be array")
+            .iter()
+            .any(|gate| gate == "risk_reward_gate")
+    );
 
     let decision_path = PathBuf::from(
         output["data"]["decision_card_path"]
@@ -677,24 +823,27 @@ fn security_decision_submit_approval_can_write_detached_signature_for_approval_b
         signature_envelope["contract_version"],
         "security_approval_brief.v1"
     );
-    assert_eq!(
-        signature_envelope["key_id"],
-        "brief_signing_key_20260402"
+    assert_eq!(signature_envelope["key_id"], "brief_signing_key_20260402");
+    assert!(
+        signature_envelope["brief_id"]
+            .as_str()
+            .expect("brief id should exist")
+            .starts_with("brief-")
     );
-    assert!(signature_envelope["brief_id"]
-        .as_str()
-        .expect("brief id should exist")
-        .starts_with("brief-"));
-    assert!(signature_envelope["payload_sha256"]
-        .as_str()
-        .expect("payload sha should exist")
-        .len()
-        >= 32);
-    assert!(output["data"]["decision_package"]["artifact_manifest"]
-        .as_array()
-        .expect("artifact manifest should be array")
-        .iter()
-        .any(|artifact| artifact["artifact_role"] == "approval_brief_signature"));
+    assert!(
+        signature_envelope["payload_sha256"]
+            .as_str()
+            .expect("payload sha should exist")
+            .len()
+            >= 32
+    );
+    assert!(
+        output["data"]["decision_package"]["artifact_manifest"]
+            .as_array()
+            .expect("artifact manifest should be array")
+            .iter()
+            .any(|artifact| artifact["artifact_role"] == "approval_brief_signature")
+    );
 }
 
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {

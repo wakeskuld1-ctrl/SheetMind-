@@ -3,12 +3,12 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::ops::stock::security_decision_approval_brief::{
-    build_security_decision_approval_brief, SecurityApprovalBriefBuildInput,
-    SecurityDecisionApprovalBrief,
+    SecurityApprovalBriefBuildInput, SecurityDecisionApprovalBrief,
+    build_security_decision_approval_brief,
 };
 use crate::ops::stock::security_decision_committee::SecurityDecisionCommitteeResult;
 use crate::ops::stock::security_position_plan::{
-    build_security_position_plan, SecurityPositionPlan, SecurityPositionPlanBuildInput,
+    SecurityPositionPlan, SecurityPositionPlanBuildInput, build_security_position_plan,
 };
 
 // 2026-04-02 CST: 这里定义桥接输入，原因是证券投决结果进入审批主线时，还需要审批规则参数和时间锚点；
@@ -46,6 +46,12 @@ pub struct PersistedDecisionCard {
     pub instrument_type: String,
     pub strategy_type: String,
     pub horizon: String,
+    // 2026-04-09 CST: 这里补齐正式动作语义落盘，原因是治理链后续需要直接读取“最终建议动作”，不能只看旧 direction；
+    // 目的：让 approval、verify、复盘与 scorecard 都能围绕统一动作字段对齐。
+    pub recommendation_action: String,
+    // 2026-04-09 CST: 这里补齐正式暴露方向落盘，原因是 exposure_side 已经成为 decision_card 的主语义之一；
+    // 目的：让私有审批映射与 scorecard 对齐时有明确 side 字段，而不是回退到含混旧 direction。
+    pub exposure_side: String,
     pub direction: PersistedDecisionDirection,
     pub status: PersistedDecisionStatus,
     pub confidence_score: f64,
@@ -143,6 +149,21 @@ pub struct PersistedApprovalRequest {
     pub auto_reject_gate_names: Vec<String>,
     pub recovery_action_required: bool,
     pub recovery_actions: Vec<String>,
+    // 2026-04-08 CST: 这里补入审批请求对仓位计划的正式绑定，原因是 Task 2 需要让 approval_request 自己声明被审批的仓位计划；
+    // 目的：把计划引用、路径、版本与方向摘要直接纳入审批对象，而不是继续只靠 package 间接引用。
+    #[serde(default)]
+    pub position_plan_binding: Option<PersistedApprovalPositionPlanBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersistedApprovalPositionPlanBinding {
+    pub position_plan_ref: String,
+    pub position_plan_path: String,
+    pub position_plan_contract_version: String,
+    pub position_plan_sha256: String,
+    pub plan_status: String,
+    pub plan_direction: String,
+    pub gross_limit_summary: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -219,7 +240,9 @@ pub fn bridge_security_decision_to_approval(
         instrument_type: "equity".to_string(),
         strategy_type: "security_decision_committee".to_string(),
         horizon: "swing".to_string(),
-        direction: map_direction(&committee.decision_card.direction),
+        recommendation_action: committee.decision_card.recommendation_action.clone(),
+        exposure_side: committee.decision_card.exposure_side.clone(),
+        direction: map_direction(&committee.decision_card.exposure_side),
         status: decision_status.clone(),
         confidence_score: committee.decision_card.confidence_score,
         expected_return_range: expected_return,
@@ -268,11 +291,13 @@ pub fn bridge_security_decision_to_approval(
         } else {
             Vec::new()
         },
+        position_plan_binding: None,
     };
 
     let position_plan = build_security_position_plan(
         committee,
         &SecurityPositionPlanBuildInput {
+            decision_id: decision_card.decision_id.clone(),
             decision_ref: decision_ref.clone(),
             approval_ref: approval_ref.clone(),
         },
@@ -411,7 +436,12 @@ fn parse_percent_range(value: &str) -> PersistedExpectedReturnRange {
 }
 
 fn parse_percent(value: &str) -> Option<f64> {
-    value.trim().trim_end_matches('%').parse::<f64>().ok().map(|v| v / 100.0)
+    value
+        .trim()
+        .trim_end_matches('%')
+        .parse::<f64>()
+        .ok()
+        .map(|v| v / 100.0)
 }
 
 fn map_position_size(value: &str) -> PersistedPositionSizeSuggestion {

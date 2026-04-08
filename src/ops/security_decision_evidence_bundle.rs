@@ -1,13 +1,15 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use thiserror::Error;
 
 use crate::ops::stock::security_analysis_contextual::SecurityAnalysisContextualResult;
 use crate::ops::stock::security_analysis_fullstack::{
-    security_analysis_fullstack, DisclosureContext, FundamentalContext, IndustryContext,
-    IntegratedConclusion, SecurityAnalysisFullstackError, SecurityAnalysisFullstackRequest,
-    SecurityAnalysisFullstackResult,
+    DisclosureContext, FundamentalContext, IndustryContext, IntegratedConclusion,
+    SecurityAnalysisFullstackError, SecurityAnalysisFullstackRequest,
+    SecurityAnalysisFullstackResult, security_analysis_fullstack,
 };
 
 // 2026-04-01 CST: 这里定义证券投决证据包请求，原因是方案 B 需要把研究链输出冻结成投决层的单一输入合同；
@@ -33,7 +35,7 @@ pub struct SecurityDecisionEvidenceBundleRequest {
 
 // 2026-04-01 CST: 这里定义证据质量摘要，原因是投决会需要先知道“证据完整度”再决定是否进入裁决；
 // 目的：把技术、基本面、公告的可用性收敛成稳定字段，便于后续 Gate 和 Skill 统一消费。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityEvidenceQuality {
     pub technical_status: String,
     pub fundamental_status: String,
@@ -44,7 +46,7 @@ pub struct SecurityEvidenceQuality {
 
 // 2026-04-01 CST: 这里定义证券投决证据包结果，原因是我们要把研究链结果提升成投决层可冻结、可审计的对象；
 // 目的：显式携带 analysis_date、data_gaps、evidence_hash，避免后续对话中悄悄混入新的事实或日期。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityDecisionEvidenceBundleResult {
     pub symbol: String,
     pub analysis_date: String,
@@ -84,6 +86,62 @@ pub fn security_decision_evidence_bundle(
     };
     let analysis = security_analysis_fullstack(&fullstack_request)?;
     Ok(build_evidence_bundle(request, analysis))
+}
+
+// 2026-04-09 CST: 这里新增证据包到原子特征种子的统一映射，原因是 Task 2 要把 feature_snapshot 的“当时可见特征”
+// 收口在研究层正式中间对象上；目的：避免 feature_snapshot / scorecard / training 各自重复拼同一批证据字段。
+pub fn build_evidence_bundle_feature_seed(
+    bundle: &SecurityDecisionEvidenceBundleResult,
+) -> BTreeMap<String, Value> {
+    let mut features = BTreeMap::new();
+    features.insert(
+        "integrated_stance".to_string(),
+        Value::String(bundle.integrated_conclusion.stance.clone()),
+    );
+    features.insert(
+        "technical_alignment".to_string(),
+        Value::String(
+            bundle
+                .technical_context
+                .contextual_conclusion
+                .alignment
+                .clone(),
+        ),
+    );
+    features.insert(
+        "technical_status".to_string(),
+        Value::String(bundle.evidence_quality.technical_status.clone()),
+    );
+    features.insert(
+        "fundamental_status".to_string(),
+        Value::String(bundle.fundamental_context.status.clone()),
+    );
+    features.insert(
+        "fundamental_available".to_string(),
+        json!(bundle.fundamental_context.status == "available"),
+    );
+    features.insert(
+        "disclosure_status".to_string(),
+        Value::String(bundle.disclosure_context.status.clone()),
+    );
+    features.insert(
+        "disclosure_available".to_string(),
+        json!(bundle.disclosure_context.status == "available"),
+    );
+    features.insert(
+        "overall_evidence_status".to_string(),
+        Value::String(bundle.evidence_quality.overall_status.clone()),
+    );
+    features.insert("data_gap_count".to_string(), json!(bundle.data_gaps.len()));
+    features.insert(
+        "risk_note_count".to_string(),
+        json!(bundle.risk_notes.len()),
+    );
+    features.insert(
+        "analysis_date".to_string(),
+        Value::String(bundle.analysis_date.clone()),
+    );
+    features
 }
 
 // 2026-04-01 CST: 这里把 fullstack 结果映射成投决证据包，原因是研究层和投决层虽然复用数据，但合同职责不同；

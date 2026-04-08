@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::ops::stock::technical_consultation_basic::{
-    technical_consultation_basic, TechnicalConsultationBasicError,
-    TechnicalConsultationBasicRequest, TechnicalConsultationBasicResult,
+    TechnicalConsultationBasicError, TechnicalConsultationBasicRequest,
+    TechnicalConsultationBasicResult, technical_consultation_basic,
 };
 
 const DEFAULT_LOOKBACK_DAYS: usize = 260;
@@ -29,7 +29,7 @@ pub struct SecurityAnalysisContextualRequest {
 
 // 2026-04-01 CST: 这里定义综合证券分析结果，原因是上层 Tool 不能只回三个子结果平铺，还要回传已收口的环境结论。
 // 目的：让 CLI / Skill / 后续 GUI 直接消费统一的综合证券分析合同。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityAnalysisContextualResult {
     pub symbol: String,
     pub market_symbol: String,
@@ -42,7 +42,7 @@ pub struct SecurityAnalysisContextualResult {
 
 // 2026-04-01 CST: 这里定义综合结论对象，原因是方案 B 需要把顺风、逆风、混合环境稳定沉淀成正式合同。
 // 目的：统一 headline、rationale、risk_flags 的返回结构，降低上层重复解释成本。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityContextualConclusion {
     pub alignment: String,
     pub headline: String,
@@ -187,7 +187,9 @@ fn build_contextual_conclusion(
                 ),
                 "当前更适合把环境强弱视为观察背景，而不是直接替代个股确认信号".to_string(),
             ],
-            risk_flags: vec!["个股自身尚未完成方向确认，贸然追随环境可能放大假突破风险".to_string()],
+            risk_flags: vec![
+                "个股自身尚未完成方向确认，贸然追随环境可能放大假突破风险".to_string(),
+            ],
         };
     }
 

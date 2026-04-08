@@ -6,12 +6,12 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::ops::stock::security_decision_package::{
-    build_security_decision_package, sha256_for_bytes, sha256_for_json_value,
     SecurityDecisionPackageArtifact, SecurityDecisionPackageBuildInput,
-    SecurityDecisionPackageDocument,
+    SecurityDecisionPackageDocument, build_security_decision_package, sha256_for_bytes,
+    sha256_for_json_value,
 };
 use crate::ops::stock::security_decision_verify_package::{
-    security_decision_verify_package, SecurityDecisionVerifyPackageRequest,
+    SecurityDecisionVerifyPackageRequest, security_decision_verify_package,
 };
 
 // 2026-04-02 CST: 这里定义审批包版本化请求，原因是 P0-6 需要一个正式 Tool 把旧 package 升级成下一版本；
@@ -69,8 +69,11 @@ pub fn security_decision_package_revision(
     let updated_artifact_manifest = rebuild_artifact_manifest(&previous_package.artifact_manifest)?;
     let trigger_event_summary = infer_trigger_event_summary(&updated_artifact_manifest);
     let next_version = previous_package.package_version.saturating_add(1);
-    let revised_package_path =
-        resolve_revision_package_path(&previous_package_path, &previous_package.decision_id, next_version)?;
+    let revised_package_path = resolve_revision_package_path(
+        &previous_package_path,
+        &previous_package.decision_id,
+        next_version,
+    )?;
 
     let approval_request_status =
         infer_approval_status(&updated_artifact_manifest).unwrap_or_else(|| "Pending".to_string());
@@ -88,6 +91,16 @@ pub fn security_decision_package_revision(
         analysis_date: previous_package.analysis_date.clone(),
         decision_status: previous_package.package_status.clone(),
         approval_status: approval_request_status,
+        // 2026-04-08 CST: 这里沿用上一版 package 的对象图绑定，原因是 Task 1 新增的显式对象图不能在 revision 时丢失；
+        // 目的：确保 package 版本升级只更新版本与 manifest，而不破坏已经冻结的正式对象引用。
+        position_plan_ref: previous_package.object_graph.position_plan_ref.clone(),
+        approval_brief_ref: previous_package.object_graph.approval_brief_ref.clone(),
+        scorecard_ref: previous_package.object_graph.scorecard_ref.clone(),
+        decision_card_path: previous_package.object_graph.decision_card_path.clone(),
+        approval_request_path: previous_package.object_graph.approval_request_path.clone(),
+        position_plan_path: previous_package.object_graph.position_plan_path.clone(),
+        approval_brief_path: previous_package.object_graph.approval_brief_path.clone(),
+        scorecard_path: previous_package.object_graph.scorecard_path.clone(),
         evidence_hash: previous_package.governance_binding.evidence_hash.clone(),
         governance_hash: previous_package.governance_binding.governance_hash.clone(),
         artifact_manifest: updated_artifact_manifest,
@@ -96,15 +109,18 @@ pub fn security_decision_package_revision(
     persist_json(&revised_package_path, &revised_package)?;
 
     let verification_report_path = if request.reverify_after_revision {
-        let verification = security_decision_verify_package(&SecurityDecisionVerifyPackageRequest {
-            package_path: revised_package_path.to_string_lossy().to_string(),
-            approval_brief_signing_key_secret: request.approval_brief_signing_key_secret.clone(),
-            approval_brief_signing_key_secret_env: request
-                .approval_brief_signing_key_secret_env
-                .clone(),
-            write_report: true,
-        })
-        .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
+        let verification =
+            security_decision_verify_package(&SecurityDecisionVerifyPackageRequest {
+                package_path: revised_package_path.to_string_lossy().to_string(),
+                approval_brief_signing_key_secret: request
+                    .approval_brief_signing_key_secret
+                    .clone(),
+                approval_brief_signing_key_secret_env: request
+                    .approval_brief_signing_key_secret_env
+                    .clone(),
+                write_report: true,
+            })
+            .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
         verification.verification_report_path
     } else {
         None

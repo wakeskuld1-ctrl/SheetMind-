@@ -115,7 +115,10 @@ impl RoamingEngine {
                 break;
             }
 
-            if !concept_ids.iter().any(|concept_id| concept_id == &seed_concept_id) {
+            if !concept_ids
+                .iter()
+                .any(|concept_id| concept_id == &seed_concept_id)
+            {
                 concept_ids.push(seed_concept_id.clone());
                 queue.push_back((seed_concept_id, 0usize));
             }

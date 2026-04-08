@@ -12,7 +12,12 @@ fn ontology_store_reads_concepts_from_schema() {
 
     assert_eq!(store.find_concept_id("Revenue"), Some("revenue"));
     assert_eq!(store.find_concept_id("sales"), Some("revenue"));
-    assert_eq!(store.concept("invoice").map(|concept| concept.name.as_str()), Some("Invoice"));
+    assert_eq!(
+        store
+            .concept("invoice")
+            .map(|concept| concept.name.as_str()),
+        Some("Invoice")
+    );
 }
 
 // 2026-04-07 CST: 这里补 relation 邻接查询测试，原因是 foundation 主链下一步的 roaming

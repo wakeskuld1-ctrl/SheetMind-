@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::common::{create_test_runtime_db, run_cli_with_json, run_cli_with_json_runtime_and_envs};
+use crate::common::{
+    create_test_runtime_db, run_cli_with_json, run_cli_with_json_runtime_and_envs,
+};
 
 // 2026-04-08 CST: 这里新增 Task 3 的独立 CLI 测试夹具，原因是会后结论对象化属于新的正式治理入口，必须先有独立红测来锁定合同；
 // 目的：避免后续把会后结论继续塞回 revision 摘要或 approval_request 状态字段里，导致对象边界再次退化。
@@ -26,8 +28,7 @@ fn create_stock_history_csv(prefix: &str, file_name: &str, rows: &[String]) -> P
     fs::create_dir_all(&fixture_dir).expect("security post meeting fixture dir should exist");
 
     let csv_path = fixture_dir.join(file_name);
-    fs::write(&csv_path, rows.join("\n"))
-        .expect("security post meeting csv should be written");
+    fs::write(&csv_path, rows.join("\n")).expect("security post meeting csv should be written");
     csv_path
 }
 
@@ -98,11 +99,13 @@ fn tool_catalog_includes_security_record_post_meeting_conclusion() {
 
     // 2026-04-08 CST: 这里先锁定 Task 3 新 Tool 的可发现性，原因是没有 catalog 入口就不算正式治理能力；
     // 目的：确保后续 Skill、CLI 和审批链都能稳定找到“记录会后结论”这个正式入口。
-    assert!(output["data"]["tool_catalog"]
-        .as_array()
-        .expect("tool catalog should be an array")
-        .iter()
-        .any(|tool| tool == "security_record_post_meeting_conclusion"));
+    assert!(
+        output["data"]["tool_catalog"]
+            .as_array()
+            .expect("tool catalog should be an array")
+            .iter()
+            .any(|tool| tool == "security_record_post_meeting_conclusion")
+    );
 }
 
 #[test]
@@ -214,11 +217,8 @@ fn security_record_post_meeting_conclusion_creates_conclusion_and_revises_packag
             "approval_brief_signing_key_secret": "brief-secret-for-tests"
         }
     });
-    let record_output = run_cli_with_json_runtime_and_envs(
-        &record_request.to_string(),
-        &runtime_db_path,
-        &[],
-    );
+    let record_output =
+        run_cli_with_json_runtime_and_envs(&record_request.to_string(), &runtime_db_path, &[]);
 
     // 2026-04-08 CST: 这里先锁定 Task 3 新 Tool 的最小 happy path，原因是方案 C 要求“会后结论对象 + 独立入口 + package revision”三者同时成立；
     // 目的：确保这不是单纯补一个 JSON 文件，而是真正形成会后结论落盘并驱动 package 进入新版本的正式治理动作。
@@ -236,14 +236,18 @@ fn security_record_post_meeting_conclusion_creates_conclusion_and_revises_packag
         record_output["data"]["revision_reason"],
         "post_meeting_conclusion_recorded"
     );
-    assert!(record_output["data"]["post_meeting_conclusion_path"]
-        .as_str()
-        .expect("post meeting conclusion path should exist")
-        .contains("post_meeting_conclusions"));
-    assert!(record_output["data"]["decision_package_path"]
-        .as_str()
-        .expect("decision package path should exist")
-        .contains("decision_packages"));
+    assert!(
+        record_output["data"]["post_meeting_conclusion_path"]
+            .as_str()
+            .expect("post meeting conclusion path should exist")
+            .contains("post_meeting_conclusions")
+    );
+    assert!(
+        record_output["data"]["decision_package_path"]
+            .as_str()
+            .expect("decision package path should exist")
+            .contains("decision_packages")
+    );
 }
 
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {

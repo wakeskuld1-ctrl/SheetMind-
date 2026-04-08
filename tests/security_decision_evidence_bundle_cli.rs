@@ -100,11 +100,13 @@ fn tool_catalog_includes_security_decision_evidence_bundle() {
 
     // 2026-04-01 CST: 这里先锁工具目录可发现性，原因是新 Tool 如果没进 catalog，Skill 和 EXE 都无法稳定调起；
     // 目的：避免只实现了业务逻辑，却遗漏 dispatcher/catalog 暴露，导致证券投决链“代码存在但产品不可用”。
-    assert!(output["data"]["tool_catalog"]
-        .as_array()
-        .expect("tool catalog should be an array")
-        .iter()
-        .any(|tool| tool == "security_decision_evidence_bundle"));
+    assert!(
+        output["data"]["tool_catalog"]
+            .as_array()
+            .expect("tool catalog should be an array")
+            .iter()
+            .any(|tool| tool == "security_decision_evidence_bundle")
+    );
 }
 
 #[test]
@@ -197,10 +199,12 @@ fn security_decision_evidence_bundle_reports_analysis_date_and_data_gaps() {
             .len()
             >= 2
     );
-    assert!(output["data"]["evidence_hash"]
-        .as_str()
-        .expect("evidence hash should exist")
-        .starts_with("sec-"));
+    assert!(
+        output["data"]["evidence_hash"]
+            .as_str()
+            .expect("evidence hash should exist")
+            .starts_with("sec-")
+    );
 }
 
 // 2026-04-01 CST: 这里复用股票历史导入助手，原因是证据包必须建立在真实 stock_history_store 主链之上；

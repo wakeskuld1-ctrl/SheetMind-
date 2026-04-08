@@ -37,11 +37,7 @@ impl KnowledgeNode {
     // 2026-04-07 CST: 这里提供节点最小构造函数，原因是 Task 4 只需要能创建可读节点，
     // 后续 retrieval 再围绕 title/body 做简单评分即可，当前不需要更多复杂字段。
     // 目的：先把节点主键、标题和正文固定成最小可用骨架，给 graph store 查询层提供稳定载体。
-    pub fn new(
-        id: impl Into<String>,
-        title: impl Into<String>,
-        body: impl Into<String>,
-    ) -> Self {
+    pub fn new(id: impl Into<String>, title: impl Into<String>, body: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             title: title.into(),

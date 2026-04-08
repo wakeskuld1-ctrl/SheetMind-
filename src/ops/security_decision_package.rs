@@ -24,8 +24,25 @@ pub struct SecurityDecisionPackageDocument {
     pub symbol: String,
     pub analysis_date: String,
     pub package_status: String,
+    // 2026-04-08 CST: 这里新增显式对象图绑定块，原因是 Task 1 需要把 position_plan / approval_brief 从隐式 artifact 关系升级为正式对象图合同；
+    // 目的：让 package 不只知道“有哪些文件”，还知道“这些正式对象彼此如何绑定”，为后续执行层和复盘层扩展预留统一入口。
+    pub object_graph: SecurityDecisionPackageObjectGraph,
     pub artifact_manifest: Vec<SecurityDecisionPackageArtifact>,
     pub governance_binding: SecurityDecisionPackageGovernanceBinding,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityDecisionPackageObjectGraph {
+    pub decision_ref: String,
+    pub approval_ref: String,
+    pub position_plan_ref: String,
+    pub approval_brief_ref: String,
+    pub scorecard_ref: String,
+    pub decision_card_path: String,
+    pub approval_request_path: String,
+    pub position_plan_path: String,
+    pub approval_brief_path: String,
+    pub scorecard_path: String,
 }
 
 // 2026-04-02 CST: 这里定义审批包中的工件描述，原因是 package 需要引用而不是复制每个原始对象全文；
@@ -68,6 +85,16 @@ pub struct SecurityDecisionPackageBuildInput {
     pub analysis_date: String,
     pub decision_status: String,
     pub approval_status: String,
+    // 2026-04-08 CST: 这里补入对象图构建输入，原因是 package builder 需要一次性拿到正式对象引用与路径；
+    // 目的：把对象图收口在 builder，而不是让 submit / revision 在外部各自拼接，降低后续字段漂移风险。
+    pub position_plan_ref: String,
+    pub approval_brief_ref: String,
+    pub scorecard_ref: String,
+    pub decision_card_path: String,
+    pub approval_request_path: String,
+    pub position_plan_path: String,
+    pub approval_brief_path: String,
+    pub scorecard_path: String,
     pub evidence_hash: String,
     pub governance_hash: String,
     pub artifact_manifest: Vec<SecurityDecisionPackageArtifact>,
@@ -93,6 +120,18 @@ pub fn build_security_decision_package(
         symbol: input.symbol,
         analysis_date: input.analysis_date,
         package_status: derive_package_status(&input.decision_status, &input.approval_status),
+        object_graph: SecurityDecisionPackageObjectGraph {
+            decision_ref: input.decision_ref.clone(),
+            approval_ref: input.approval_ref.clone(),
+            position_plan_ref: input.position_plan_ref,
+            approval_brief_ref: input.approval_brief_ref,
+            scorecard_ref: input.scorecard_ref,
+            decision_card_path: input.decision_card_path,
+            approval_request_path: input.approval_request_path,
+            position_plan_path: input.position_plan_path,
+            approval_brief_path: input.approval_brief_path,
+            scorecard_path: input.scorecard_path,
+        },
         artifact_manifest: input.artifact_manifest,
         governance_binding: SecurityDecisionPackageGovernanceBinding {
             evidence_hash: input.evidence_hash,
