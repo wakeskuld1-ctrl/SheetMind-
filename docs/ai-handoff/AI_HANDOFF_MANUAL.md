@@ -293,9 +293,15 @@ Before moving on, re-read:
 
 ## 19. Parallel Security Governance Track Status (2026-04-08)
 
+<!-- 2026-04-08 CST: 调整交接口径，原因是本节记录的是 Task 11 前的最小 Green 快照，而第 20 节已经写入 Task 11 后的新状态；目的：让后续 AI 明确第 19 节是历史背景，第 20 节才是当前合同状态。 -->
+
 There is an active parallel security decision workflow line in this repository. It is not part of the foundation navigation kernel, but future AI sessions must not ignore it when working on the stock governance path.
 
-The current confirmed status on branch `codex/foundation-navigation-kernel` is:
+This section is a historical snapshot before Task 11 package binding landed.
+
+For the current contract state, always read Section 20 after this section.
+
+The following was the confirmed pre-Task-11 status on branch `codex/foundation-navigation-kernel`:
 
 - Task 3 minimum Green is complete for post-meeting conclusion recording
 - a formal `SecurityPostMeetingConclusion` object now exists
@@ -319,7 +325,7 @@ Verified commands for this slice:
 - `cargo test --test security_decision_verify_package_cli -- --nocapture`
 - `cargo test --test security_decision_package_revision_cli -- --nocapture`
 
-Important limitation:
+Historical limitation before Task 11:
 
 - Task 3 is not fully closed yet
 - the revised package does not yet formally carry `post_meeting_conclusion` inside `object_graph` or `artifact_manifest`
@@ -331,3 +337,36 @@ If a future AI continues the security governance line, read the security-specifi
 2. [execution-notes-2026-04-08-security-post-meeting-conclusion.md](/D:/Rust/Excel_Skill/docs/execution-notes-2026-04-08-security-post-meeting-conclusion.md)
 3. [security_record_post_meeting_conclusion.rs](/D:/Rust/Excel_Skill/src/ops/security_record_post_meeting_conclusion.rs)
 4. [security_post_meeting_conclusion_cli.rs](/D:/Rust/Excel_Skill/tests/security_post_meeting_conclusion_cli.rs)
+
+## 20. Security Governance Update After Task 11 (2026-04-08)
+
+This section supersedes the outdated limitation notes in Section 19 and should be treated as the current contract baseline for this line.
+
+The security governance line has now moved beyond the earlier "minimum Green only" state.
+
+Current confirmed status:
+
+- `post_meeting_conclusion` is formally registered in `artifact_manifest`
+- `post_meeting_conclusion_ref/path` are formally registered in `decision_package.object_graph`
+- `security_decision_submit_approval` now produces a stable `object_graph` baseline from v1 package onward
+- `security_decision_package_revision` now carries forward existing object graph bindings and can attach a new post-meeting conclusion
+- `security_record_post_meeting_conclusion` now records the standalone conclusion and immediately binds it into the revised package
+- `security_decision_verify_package` now validates:
+  - post-meeting conclusion binding consistency
+  - approval brief pairing consistency
+  - post-meeting conclusion completeness
+
+Verified commands for this updated state:
+
+- `cargo test --test security_post_meeting_conclusion_cli -- --nocapture`
+- `cargo test --test security_decision_package_revision_cli -- --nocapture`
+- `cargo test --test security_decision_verify_package_cli -- --nocapture`
+- `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+
+Important scope note:
+
+- do not re-open this line for generic refactoring
+- continue from the established package/object_graph/verify contract
+- treat `dispatch_security_committee_member_agent` as a temporary compile-safe placeholder on this branch, not as a completed committee capability
+
+If a future AI continues this security line, it should extend from the current contract instead of undoing it.

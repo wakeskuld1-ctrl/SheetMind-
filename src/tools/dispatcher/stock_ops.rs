@@ -10,8 +10,7 @@ use crate::ops::stock::security_analysis_fullstack::{
     security_analysis_fullstack, SecurityAnalysisFullstackRequest,
 };
 use crate::ops::stock::security_decision_committee::{
-    security_committee_member_agent, security_decision_committee,
-    SecurityCommitteeMemberAgentRequest, SecurityDecisionCommitteeRequest,
+    security_decision_committee, SecurityDecisionCommitteeRequest,
 };
 use crate::ops::stock::security_decision_evidence_bundle::{
     security_decision_evidence_bundle, SecurityDecisionEvidenceBundleRequest,
@@ -134,16 +133,12 @@ pub(super) fn dispatch_security_decision_committee(args: Value) -> ToolResponse 
     }
 }
 
-pub(super) fn dispatch_security_committee_member_agent(args: Value) -> ToolResponse {
-    let request = match serde_json::from_value::<SecurityCommitteeMemberAgentRequest>(args) {
-        Ok(request) => request,
-        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
-    };
-
-    match security_committee_member_agent(&request) {
-        Ok(result) => ToolResponse::ok(json!(result)),
-        Err(error) => ToolResponse::error(error.to_string()),
-    }
+pub(super) fn dispatch_security_committee_member_agent(_args: Value) -> ToolResponse {
+    // 2026-04-08 CST: 这里先保留 dispatcher 入口但返回明确错误，原因是当前隔离分支的 committee member agent 合同未完整随远端一起落地；
+    // 目的：先恢复证券 package/post-meeting 主线的可编译基线，避免这条非关键旁支继续阻塞当前 Task 11 执行。
+    ToolResponse::error(
+        "security_committee_member_agent is not available in this branch baseline".to_string(),
+    )
 }
 
 pub(super) fn dispatch_security_decision_submit_approval(args: Value) -> ToolResponse {

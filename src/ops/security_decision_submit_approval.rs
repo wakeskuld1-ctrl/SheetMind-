@@ -293,14 +293,24 @@ fn build_decision_package_document(
             decision_ref: bridge.decision_ref.clone(),
             approval_ref: bridge.approval_ref.clone(),
             symbol: committee_result.symbol.clone(),
-            analysis_date: committee_result.analysis_date.clone(),
-            decision_status: committee_result.decision_card.status.clone(),
-            approval_status: format!("{:?}", bridge.approval_request.status),
-            evidence_hash: committee_result.evidence_bundle.evidence_hash.clone(),
-            governance_hash: bridge
-                .approval_request
-                .governance_hash
-                .clone()
+        analysis_date: committee_result.analysis_date.clone(),
+        decision_status: committee_result.decision_card.status.clone(),
+        approval_status: format!("{:?}", bridge.approval_request.status),
+        // 2026-04-08 CST: 这里把正式对象图一次性写入 package builder，原因是会后治理链路需要稳定消费 approval_brief / position_plan 等对象引用；
+        // 目的：让初始 package 从第一版开始就具备正式 object_graph，后续 revision 与 verify 只做沿用和校验，不再从 manifest 反推。
+        position_plan_ref: bridge.position_plan.plan_id.clone(),
+        approval_brief_ref: bridge.approval_brief.brief_id.clone(),
+        decision_card_path: decision_path.to_string_lossy().to_string(),
+        approval_request_path: approval_path.to_string_lossy().to_string(),
+        position_plan_path: position_plan_path.to_string_lossy().to_string(),
+        approval_brief_path: approval_brief_path.to_string_lossy().to_string(),
+        post_meeting_conclusion_ref: None,
+        post_meeting_conclusion_path: None,
+        evidence_hash: committee_result.evidence_bundle.evidence_hash.clone(),
+        governance_hash: bridge
+            .approval_request
+            .governance_hash
+            .clone()
                 .unwrap_or_default(),
             artifact_manifest,
         },

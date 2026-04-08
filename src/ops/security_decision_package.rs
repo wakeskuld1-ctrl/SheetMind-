@@ -24,8 +24,29 @@ pub struct SecurityDecisionPackageDocument {
     pub symbol: String,
     pub analysis_date: String,
     pub package_status: String,
+    // 2026-04-08 CST: 这里新增显式对象图绑定块，原因是当前会后结论链路已经开始依赖 approval_brief 等正式对象的稳定引用；
+    // 目的：让 package 不只描述“有哪些工件”，还正式声明“这些工件对应哪些核心对象及其路径”，供 revision / verify / post-meeting 主线统一消费。
+    pub object_graph: SecurityDecisionPackageObjectGraph,
     pub artifact_manifest: Vec<SecurityDecisionPackageArtifact>,
     pub governance_binding: SecurityDecisionPackageGovernanceBinding,
+}
+
+// 2026-04-08 CST: 这里新增 package 对象图合同，原因是 artifact_manifest 只能表达文件登记，无法稳定表达对象之间的治理绑定；
+// 目的：把 decision / approval / position_plan / approval_brief 的正式引用收敛为一个统一锚点，避免调用方继续反推 artifact role。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityDecisionPackageObjectGraph {
+    pub decision_ref: String,
+    pub approval_ref: String,
+    pub position_plan_ref: String,
+    pub approval_brief_ref: String,
+    pub decision_card_path: String,
+    pub approval_request_path: String,
+    pub position_plan_path: String,
+    pub approval_brief_path: String,
+    // 2026-04-08 CST: 这里把会后结论锚点设计为可空，原因是初始 submit 阶段还没有 post_meeting_conclusion；
+    // 目的：允许 package 从 v1 开始就带稳定合同，同时在会后 revision 发生时再把结论正式挂进来。
+    pub post_meeting_conclusion_ref: Option<String>,
+    pub post_meeting_conclusion_path: Option<String>,
 }
 
 // 2026-04-02 CST: 这里定义审批包中的工件描述，原因是 package 需要引用而不是复制每个原始对象全文；
@@ -68,6 +89,18 @@ pub struct SecurityDecisionPackageBuildInput {
     pub analysis_date: String,
     pub decision_status: String,
     pub approval_status: String,
+    // 2026-04-08 CST: 这里补齐 object_graph 构建输入，原因是 submit/revision 都要把同一套正式对象引用写进 package；
+    // 目的：把对象图拼装收口到 builder，避免多个入口各自维护字段导致合同漂移。
+    pub position_plan_ref: String,
+    pub approval_brief_ref: String,
+    pub decision_card_path: String,
+    pub approval_request_path: String,
+    pub position_plan_path: String,
+    pub approval_brief_path: String,
+    // 2026-04-08 CST: 这里新增可选会后结论输入，原因是只有发生会后治理动作时 revision 才会拿到这组新对象；
+    // 目的：保持 builder 合同统一，不让 record/revision 在外部私自修改 package JSON。
+    pub post_meeting_conclusion_ref: Option<String>,
+    pub post_meeting_conclusion_path: Option<String>,
     pub evidence_hash: String,
     pub governance_hash: String,
     pub artifact_manifest: Vec<SecurityDecisionPackageArtifact>,
@@ -93,6 +126,18 @@ pub fn build_security_decision_package(
         symbol: input.symbol,
         analysis_date: input.analysis_date,
         package_status: derive_package_status(&input.decision_status, &input.approval_status),
+        object_graph: SecurityDecisionPackageObjectGraph {
+            decision_ref: input.decision_ref.clone(),
+            approval_ref: input.approval_ref.clone(),
+            position_plan_ref: input.position_plan_ref,
+            approval_brief_ref: input.approval_brief_ref,
+            decision_card_path: input.decision_card_path,
+            approval_request_path: input.approval_request_path,
+            position_plan_path: input.position_plan_path,
+            approval_brief_path: input.approval_brief_path,
+            post_meeting_conclusion_ref: input.post_meeting_conclusion_ref,
+            post_meeting_conclusion_path: input.post_meeting_conclusion_path,
+        },
         artifact_manifest: input.artifact_manifest,
         governance_binding: SecurityDecisionPackageGovernanceBinding {
             evidence_hash: input.evidence_hash,

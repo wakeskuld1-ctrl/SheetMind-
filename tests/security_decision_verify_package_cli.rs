@@ -248,6 +248,42 @@ fn security_decision_verify_package_accepts_signed_package_and_writes_report() {
 }
 
 #[test]
+fn security_decision_verify_package_accepts_recorded_post_meeting_conclusion() {
+    let (runtime_db_path, package_path, _) =
+        create_recorded_post_meeting_fixture("security_decision_verify_package_post_meeting_ok");
+
+    let verify_request = json!({
+        "tool": "security_decision_verify_package",
+        "args": {
+            "package_path": package_path,
+            "approval_brief_signing_key_secret": "brief-secret-for-tests"
+        }
+    });
+    let verify_output = run_cli_with_json_runtime_and_envs(
+        &verify_request.to_string(),
+        &runtime_db_path,
+        &[],
+    );
+
+    // 2026-04-08 CST: 这里补 Task 11 的会后结论 happy path 红灯，原因是 verify 目前还不知道 package 已经正式挂上 post_meeting_conclusion；
+    // 目的：锁定后续实现必须显式返回绑定一致、brief 配对一致、关键字段完整这三类校验结果。
+    assert_eq!(verify_output["status"], "ok");
+    assert_eq!(verify_output["data"]["package_valid"], true);
+    assert_eq!(
+        verify_output["data"]["governance_checks"]["post_meeting_conclusion_binding_consistent"],
+        true
+    );
+    assert_eq!(
+        verify_output["data"]["governance_checks"]["post_meeting_conclusion_brief_paired"],
+        true
+    );
+    assert_eq!(
+        verify_output["data"]["governance_checks"]["post_meeting_conclusion_complete"],
+        true
+    );
+}
+
+#[test]
 fn security_decision_verify_package_fails_after_approval_brief_is_tampered() {
     let runtime_db_path = create_test_runtime_db("security_decision_verify_package_tampered");
     let approval_root = runtime_db_path
@@ -387,6 +423,72 @@ fn security_decision_verify_package_fails_after_approval_brief_is_tampered() {
         .any(|item| item["artifact_role"] == "approval_brief" && item["matched"] == false));
 }
 
+#[test]
+fn security_decision_verify_package_fails_when_post_meeting_conclusion_is_tampered() {
+    let tamper_cases = [
+        (
+            "security_decision_verify_package_tampered_post_meeting_brief_ref",
+            "source_brief_ref",
+            Value::String("brief-tampered".to_string()),
+        ),
+        (
+            "security_decision_verify_package_tampered_post_meeting_source_package",
+            "source_package_path",
+            Value::String("tampered/package/path.json".to_string()),
+        ),
+        (
+            "security_decision_verify_package_tampered_post_meeting_disposition",
+            "final_disposition",
+            Value::String("unknown_disposition".to_string()),
+        ),
+    ];
+
+    for (fixture_name, field_name, tampered_value) in tamper_cases {
+        let (runtime_db_path, package_path, conclusion_path) =
+            create_recorded_post_meeting_fixture(fixture_name);
+        let mut conclusion: Value = serde_json::from_slice(
+            &fs::read(&conclusion_path).expect("post meeting conclusion should be readable"),
+        )
+        .expect("post meeting conclusion should be valid json");
+        conclusion[field_name] = tampered_value;
+        fs::write(
+            &conclusion_path,
+            serde_json::to_vec_pretty(&conclusion)
+                .expect("tampered post meeting conclusion should serialize"),
+        )
+        .expect("tampered post meeting conclusion should be written");
+
+        let verify_request = json!({
+            "tool": "security_decision_verify_package",
+            "args": {
+                "package_path": package_path,
+                "approval_brief_signing_key_secret": "brief-secret-for-tests"
+            }
+        });
+        let verify_output = run_cli_with_json_runtime_and_envs(
+            &verify_request.to_string(),
+            &runtime_db_path,
+            &[],
+        );
+
+        // 2026-04-08 CST: 这里补 Task 11 的篡改红灯，原因是会后结论进入 package 后，verify 必须能识别绑定漂移与字段失真；
+        // 目的：分别锁住 brief_ref、source_package_path、final_disposition 三条高风险篡改路径，防止“文件在但关系已坏”仍被放行。
+        assert_eq!(verify_output["status"], "ok");
+        assert_eq!(verify_output["data"]["package_valid"], false);
+        assert_eq!(
+            verify_output["data"]["recommended_action"],
+            "quarantine_and_rebuild"
+        );
+        assert!(
+            verify_output["data"]["issues"]
+                .as_array()
+                .expect("issues should be array")
+                .len()
+                >= 1
+        );
+    }
+}
+
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {
     let request = json!({
         "tool": "import_stock_price_history",
@@ -403,6 +505,121 @@ fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {
         &[],
     );
     assert_eq!(output["status"], "ok");
+}
+
+fn create_recorded_post_meeting_fixture(prefix: &str) -> (PathBuf, String, String) {
+    let runtime_db_path = create_test_runtime_db(prefix);
+    let approval_root = runtime_db_path
+        .parent()
+        .expect("runtime db should have parent")
+        .join("scenes_runtime");
+
+    let stock_csv = create_stock_history_csv(prefix, "stock.csv", &build_confirmed_breakout_rows(220, 88.0));
+    let market_csv = create_stock_history_csv(prefix, "market.csv", &build_confirmed_breakout_rows(220, 3200.0));
+    let sector_csv = create_stock_history_csv(prefix, "sector.csv", &build_confirmed_breakout_rows(220, 950.0));
+    import_history_csv(&runtime_db_path, &stock_csv, "601916.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "512800.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 200 OK",
+            r#"[
+                {
+                    "REPORT_DATE":"2025-12-31",
+                    "NOTICE_DATE":"2026-03-28",
+                    "TOTAL_OPERATE_INCOME":308227000000.0,
+                    "YSTZ":8.37,
+                    "PARENT_NETPROFIT":11117000000.0,
+                    "SJLTZ":9.31,
+                    "ROEJQ":14.8
+                }
+            ]"#,
+            "application/json",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "list":[
+                        {"notice_date":"2026-03-28","title":"2025年度报告","art_code":"AN202603281234567890","columns":[{"column_name":"定期报告"}]},
+                        {"notice_date":"2026-03-28","title":"2025年度利润分配预案公告","art_code":"AN202603281234567891","columns":[{"column_name":"公司公告"}]}
+                    ]
+                }
+            }"#,
+            "application/json",
+        ),
+    ]);
+
+    let submit_request = json!({
+        "tool": "security_decision_submit_approval",
+        "args": {
+            "symbol": "601916.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "a_share_bank",
+            "stop_loss_pct": 0.05,
+            "target_return_pct": 0.12,
+            "approval_runtime_root": approval_root.to_string_lossy(),
+            "created_at": "2026-04-08T18:00:00+08:00",
+            "approval_brief_signing_key_id": "brief_signing_key_20260408",
+            "approval_brief_signing_key_secret": "brief-secret-for-tests"
+        }
+    });
+    let submit_output = run_cli_with_json_runtime_and_envs(
+        &submit_request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    let package_path = submit_output["data"]["decision_package_path"]
+        .as_str()
+        .expect("decision package path should exist")
+        .to_string();
+    let record_request = json!({
+        "tool": "security_record_post_meeting_conclusion",
+        "args": {
+            "package_path": package_path,
+            "final_disposition": "approve",
+            "disposition_reason": "committee_adopted_majority",
+            "key_reasons": ["risk_cleared", "thesis_accepted"],
+            "required_follow_ups": ["track_post_approval_execution"],
+            "reviewer_notes": "committee accepted the majority view",
+            "reviewer": "pm_lead",
+            "reviewer_role": "PortfolioManager",
+            "revision_reason": "post_meeting_conclusion_recorded",
+            "reverify_after_revision": true,
+            "approval_brief_signing_key_secret": "brief-secret-for-tests"
+        }
+    });
+    let record_output = run_cli_with_json_runtime_and_envs(
+        &record_request.to_string(),
+        &runtime_db_path,
+        &[],
+    );
+    assert_eq!(record_output["status"], "ok");
+
+    (
+        runtime_db_path,
+        record_output["data"]["decision_package_path"]
+            .as_str()
+            .expect("revised package path should exist")
+            .to_string(),
+        record_output["data"]["post_meeting_conclusion_path"]
+            .as_str()
+            .expect("post meeting conclusion path should exist")
+            .to_string(),
+    )
 }
 
 fn build_confirmed_breakout_rows(day_count: usize, start_close: f64) -> Vec<String> {

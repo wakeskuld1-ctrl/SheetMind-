@@ -209,6 +209,11 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
             .as_str()
             .expect("approval events path should exist"),
     );
+    let approval_brief_path = PathBuf::from(
+        submit_output["data"]["approval_brief_path"]
+            .as_str()
+            .expect("approval brief path should exist"),
+    );
     let audit_log_path = PathBuf::from(
         submit_output["data"]["audit_log_path"]
             .as_str()
@@ -292,13 +297,67 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
     audit_lines.push_str(",\"decision_status\":\"Approved\",\"approval_status\":\"Approved\",\"reviewer\":\"pm_lead\",\"reviewer_role\":\"PortfolioManager\",\"approval_action\":\"Approve\",\"notes\":\"pm approved\",\"override_reason\":null,\"decision_version\":2,\"signature_key_id\":null,\"signature_algorithm\":null,\"signature_path\":null,\"signed_payload_sha256\":null,\"signed_contract_version\":null,\"prev_hash\":null,\"record_hash\":null}\n");
     fs::write(&audit_log_path, audit_lines).expect("audit log should be updated");
 
+    let decision_id = approval_request["decision_id"]
+        .as_str()
+        .expect("decision id should exist");
+    let post_meeting_conclusion_path = approval_root
+        .join("post_meeting_conclusions")
+        .join(format!("{decision_id}.json"));
+    if let Some(parent) = post_meeting_conclusion_path.parent() {
+        fs::create_dir_all(parent).expect("post meeting conclusion dir should exist");
+    }
+    let post_meeting_conclusion = json!({
+        "conclusion_id": format!("post-conclusion-{decision_id}"),
+        "contract_version": "security_post_meeting_conclusion.v1",
+        "document_type": "security_post_meeting_conclusion",
+        "generated_at": "2026-04-08T18:30:00+08:00",
+        "scene_name": "security_decision_committee",
+        "decision_id": decision_id,
+        "decision_ref": approval_request["decision_ref"],
+        "approval_ref": approval_request["approval_ref"],
+        "symbol": "601916.SH",
+        "analysis_date": "2026-04-02",
+        "source_package_path": package_path.to_string_lossy(),
+        "source_package_version": 1,
+        "source_brief_ref": format!("brief-{decision_id}"),
+        "final_disposition": "approve",
+        "disposition_reason": "committee_adopted_majority",
+        "key_reasons": ["risk_cleared", "thesis_accepted"],
+        "required_follow_ups": ["track_post_approval_execution"],
+        "reviewer_notes": "committee accepted the majority view",
+        "reviewer": "pm_lead",
+        "reviewer_role": "PortfolioManager",
+        "revision_reason": "post_meeting_conclusion_recorded",
+        "governance_binding": {
+            "decision_ref": approval_request["decision_ref"],
+            "approval_ref": approval_request["approval_ref"],
+            "decision_id": decision_id,
+            "source_package_path": package_path.to_string_lossy(),
+            "source_package_version": 1,
+            "binding_status": "bound_to_source_package"
+        },
+        "brief_pairing": {
+            "pre_meeting_brief_ref": format!("brief-{decision_id}"),
+            "pre_meeting_brief_path": approval_brief_path.to_string_lossy(),
+            "pairing_status": "paired_with_pre_meeting_brief",
+            "pairing_summary": "post meeting conclusion paired with approval brief"
+        }
+    });
+    fs::write(
+        &post_meeting_conclusion_path,
+        serde_json::to_vec_pretty(&post_meeting_conclusion)
+            .expect("post meeting conclusion should serialize"),
+    )
+    .expect("post meeting conclusion should be written");
+
     let revision_request = json!({
         "tool": "security_decision_package_revision",
         "args": {
             "package_path": package_path.to_string_lossy(),
             "revision_reason": "approval_event_applied",
             "reverify_after_revision": true,
-            "approval_brief_signing_key_secret": "brief-secret-for-tests"
+            "approval_brief_signing_key_secret": "brief-secret-for-tests",
+            "post_meeting_conclusion_path": post_meeting_conclusion_path.to_string_lossy()
         }
     });
     let revision_output = run_cli_with_json_runtime_and_envs(
@@ -355,6 +414,24 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
         .expect("artifact manifest should be array")
         .iter()
         .any(|artifact| artifact["artifact_role"] == "approval_events"));
+    // 2026-04-08 CST: 这里补 Task 11 的 revision 红灯，原因是当前 revision 即使看到了会后结论文件，也还不会把它正式挂入 package；
+    // 目的：锁定后续实现必须同时补齐 artifact_manifest 与 object_graph 两个正式锚点，避免只做松散文件落盘。
+    assert!(revised_package["artifact_manifest"]
+        .as_array()
+        .expect("artifact manifest should be array")
+        .iter()
+        .any(|artifact| {
+            artifact["artifact_role"] == "post_meeting_conclusion"
+                && artifact["present"] == true
+        }));
+    assert_eq!(
+        revised_package["object_graph"]["post_meeting_conclusion_ref"],
+        format!("post-conclusion-{decision_id}")
+    );
+    assert_eq!(
+        revised_package["object_graph"]["post_meeting_conclusion_path"],
+        post_meeting_conclusion_path.to_string_lossy().to_string()
+    );
 }
 
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {

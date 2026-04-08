@@ -244,6 +244,26 @@ fn security_record_post_meeting_conclusion_creates_conclusion_and_revises_packag
         .as_str()
         .expect("decision package path should exist")
         .contains("decision_packages"));
+
+    // 2026-04-08 CST: 这里先补 Task 11 的正式挂接红测，原因是当前最小 Green 只证明“会后结论能落盘并触发 revision”，
+    // 目的：把下一步必须达成的合同锁死为“新 package 要正式引用 post_meeting_conclusion”，避免这条链继续停留在松散文件状态。
+    let revised_package = &record_output["data"]["decision_package"];
+    assert!(revised_package["artifact_manifest"]
+        .as_array()
+        .expect("artifact manifest should be array")
+        .iter()
+        .any(|artifact| {
+            artifact["artifact_role"] == "post_meeting_conclusion"
+                && artifact["present"] == true
+        }));
+    assert_eq!(
+        revised_package["object_graph"]["post_meeting_conclusion_ref"],
+        record_output["data"]["post_meeting_conclusion"]["conclusion_id"]
+    );
+    assert_eq!(
+        revised_package["object_graph"]["post_meeting_conclusion_path"],
+        record_output["data"]["post_meeting_conclusion_path"]
+    );
 }
 
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {

@@ -119,6 +119,9 @@ pub fn security_record_post_meeting_conclusion(
         package_path: package_path.to_string_lossy().to_string(),
         revision_reason: revision_reason.clone(),
         reverify_after_revision: request.reverify_after_revision,
+        post_meeting_conclusion_path: Some(
+            post_meeting_conclusion_path.to_string_lossy().to_string(),
+        ),
         approval_brief_signing_key_secret: request.approval_brief_signing_key_secret.clone(),
         approval_brief_signing_key_secret_env: request
             .approval_brief_signing_key_secret_env

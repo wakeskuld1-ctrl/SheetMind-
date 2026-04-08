@@ -10,6 +10,7 @@ use crate::ops::stock::security_decision_package::{
     SecurityDecisionPackageArtifact, SecurityDecisionPackageBuildInput,
     SecurityDecisionPackageDocument,
 };
+use crate::ops::stock::security_post_meeting_conclusion::SecurityPostMeetingConclusion;
 use crate::ops::stock::security_decision_verify_package::{
     security_decision_verify_package, SecurityDecisionVerifyPackageRequest,
 };
@@ -23,6 +24,8 @@ pub struct SecurityDecisionPackageRevisionRequest {
     pub revision_reason: String,
     #[serde(default = "default_reverify_after_revision")]
     pub reverify_after_revision: bool,
+    #[serde(default)]
+    pub post_meeting_conclusion_path: Option<String>,
     #[serde(default)]
     pub approval_brief_signing_key_secret: Option<String>,
     #[serde(default)]
@@ -66,11 +69,38 @@ pub fn security_decision_package_revision(
     )
     .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
 
-    let updated_artifact_manifest = rebuild_artifact_manifest(&previous_package.artifact_manifest)?;
+    let post_meeting_conclusion = load_optional_post_meeting_conclusion(
+        request.post_meeting_conclusion_path.as_deref(),
+    )?;
+    let updated_artifact_manifest = rebuild_artifact_manifest(
+        &previous_package.artifact_manifest,
+        post_meeting_conclusion.as_ref(),
+        request.post_meeting_conclusion_path.as_deref(),
+    )?;
     let trigger_event_summary = infer_trigger_event_summary(&updated_artifact_manifest);
     let next_version = previous_package.package_version.saturating_add(1);
     let revised_package_path =
         resolve_revision_package_path(&previous_package_path, &previous_package.decision_id, next_version)?;
+    let post_meeting_conclusion_ref = post_meeting_conclusion
+        .as_ref()
+        .map(|conclusion| conclusion.conclusion_id.clone())
+        .or_else(|| {
+            previous_package
+                .object_graph
+                .post_meeting_conclusion_ref
+                .clone()
+        });
+    let post_meeting_conclusion_path = request
+        .post_meeting_conclusion_path
+        .as_ref()
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .or_else(|| {
+            previous_package
+                .object_graph
+                .post_meeting_conclusion_path
+                .clone()
+        });
 
     let approval_request_status =
         infer_approval_status(&updated_artifact_manifest).unwrap_or_else(|| "Pending".to_string());
@@ -88,6 +118,16 @@ pub fn security_decision_package_revision(
         analysis_date: previous_package.analysis_date.clone(),
         decision_status: previous_package.package_status.clone(),
         approval_status: approval_request_status,
+        // 2026-04-08 CST: 这里沿用上一版 package 的对象图绑定，原因是 revision 只应升级版本与工件哈希，不应破坏既有正式对象引用；
+        // 目的：确保 package 版本推进时 decision/approval/brief/plan 的治理锚点保持稳定，为后续会后结论挂接提供可靠基线。
+        position_plan_ref: previous_package.object_graph.position_plan_ref.clone(),
+        approval_brief_ref: previous_package.object_graph.approval_brief_ref.clone(),
+        decision_card_path: previous_package.object_graph.decision_card_path.clone(),
+        approval_request_path: previous_package.object_graph.approval_request_path.clone(),
+        position_plan_path: previous_package.object_graph.position_plan_path.clone(),
+        approval_brief_path: previous_package.object_graph.approval_brief_path.clone(),
+        post_meeting_conclusion_ref,
+        post_meeting_conclusion_path,
         evidence_hash: previous_package.governance_binding.evidence_hash.clone(),
         governance_hash: previous_package.governance_binding.governance_hash.clone(),
         artifact_manifest: updated_artifact_manifest,
@@ -124,6 +164,8 @@ pub fn security_decision_package_revision(
 
 fn rebuild_artifact_manifest(
     previous_artifacts: &[SecurityDecisionPackageArtifact],
+    post_meeting_conclusion: Option<&SecurityPostMeetingConclusion>,
+    post_meeting_conclusion_path: Option<&str>,
 ) -> Result<Vec<SecurityDecisionPackageArtifact>, SecurityDecisionPackageRevisionError> {
     let mut rebuilt = Vec::new();
     for artifact in previous_artifacts {
@@ -152,7 +194,56 @@ fn rebuild_artifact_manifest(
             present: true,
         });
     }
+    if let Some(artifact) =
+        build_post_meeting_conclusion_artifact(post_meeting_conclusion, post_meeting_conclusion_path)?
+    {
+        if let Some(existing) = rebuilt
+            .iter_mut()
+            .find(|item| item.artifact_role == "post_meeting_conclusion")
+        {
+            *existing = artifact;
+        } else {
+            rebuilt.push(artifact);
+        }
+    }
     Ok(rebuilt)
+}
+
+fn load_optional_post_meeting_conclusion(
+    path: Option<&str>,
+) -> Result<Option<SecurityPostMeetingConclusion>, SecurityDecisionPackageRevisionError> {
+    let Some(path) = path.map(str::trim).filter(|path| !path.is_empty()) else {
+        return Ok(None);
+    };
+    let payload = fs::read(path)
+        .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
+    let conclusion = serde_json::from_slice(&payload)
+        .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
+    Ok(Some(conclusion))
+}
+
+fn build_post_meeting_conclusion_artifact(
+    conclusion: Option<&SecurityPostMeetingConclusion>,
+    path: Option<&str>,
+) -> Result<Option<SecurityDecisionPackageArtifact>, SecurityDecisionPackageRevisionError> {
+    let Some(conclusion) = conclusion else {
+        return Ok(None);
+    };
+    let Some(path) = path.map(str::trim).filter(|path| !path.is_empty()) else {
+        return Ok(None);
+    };
+    let value = serde_json::to_value(conclusion)
+        .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
+    let sha256 = sha256_for_json_value(&value)
+        .map_err(SecurityDecisionPackageRevisionError::Revision)?;
+    Ok(Some(SecurityDecisionPackageArtifact {
+        artifact_role: "post_meeting_conclusion".to_string(),
+        path: path.to_string(),
+        sha256,
+        contract_version: conclusion.contract_version.clone(),
+        required: false,
+        present: true,
+    }))
 }
 
 fn compute_manifest_compatible_sha256(

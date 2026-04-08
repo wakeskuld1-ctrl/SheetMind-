@@ -3031,3 +3031,40 @@
 ### 关闭项
 - 已完成本轮 Task 3 上传前的 handoff 文档补齐。
 - 已完成本轮 Task 3 上传前的 execution note 补齐。
+## 2026-04-08
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\security_decision_package.rs`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\security_decision_submit_approval.rs`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\security_decision_package_revision.rs`，补齐正式 `object_graph` 合同，并把 `post_meeting_conclusion_ref/path` 作为可选锚点写入 package builder。原因是当前证券治理线已经进入会后结论正式挂接阶段；目的是让 package 从 v1 到 revision 都有稳定对象图，不再靠临时路径反推关系。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\security_record_post_meeting_conclusion.rs`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\ops\security_decision_verify_package.rs`，让 record tool 在生成会后结论后立即透传路径给 revision，并在 verify 中新增 `post_meeting_conclusion_binding_consistent / post_meeting_conclusion_brief_paired / post_meeting_conclusion_complete` 三项校验。原因是这轮目标不是只落盘 JSON，而是完成正式合同绑定和治理校验；目的是把会后结论纳入 package 主线而不是继续游离在外围文件层。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\security_post_meeting_conclusion_cli.rs`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\security_decision_package_revision_cli.rs`、`C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\tests\security_decision_verify_package_cli.rs`，先补红灯再做 Green，覆盖 package 挂接、revision 挂接、verify happy path 和三类篡改路径。原因是用户要求按 TDD 推进；目的是让后续 AI 无法绕过正式合同继续做松散修补。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\src\tools\dispatcher\stock_ops.rs`，把 `dispatch_security_committee_member_agent` 暂时收敛为显式 unavailable 错误。原因是当前干净分支缺失完整 committee member agent 合同，已不属于本轮关键路径；目的是先恢复证券治理主线可编译基线，避免旁支继续阻塞 Task 11。
+- 追加 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-security-post-meeting-conclusion.md` 与 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md` 的交接更新，明确这次不是重构，而是在既定证券治理线内完成正式挂接。原因是用户多次强调后续 AI 不要重复回头改架构；目的是把这次达成的边界和范围固化进交接材料。
+### 修改原因
+- 当前远端承接分支处于“调用方已经前进、底层合同未带全”的半提交状态，导致会后结论测试先死在编译层而不是业务断言层，所以本轮必须先补基线，再完成正式挂接与校验。
+- 用户已经明确要求沿既定证券治理架构继续推进，不要每次接手都回头重构，因此这轮只做 package / object_graph / verify 正式化，不扩散到委员会体系重写。
+### 方案还差什么?
+- [ ] 后续如果要恢复 `security_committee_member_agent`，应在完整 committee 合同到位后单独开任务，不要把当前临时 dispatcher 兜底当作正式能力完成。
+- [ ] 如果证券治理线继续推进，可在当前正式合同之上补 `approval_brief` 侧的更强 pairing 元数据或后续执行对象，但不要回退到“只写独立文件不进 package”的旧路径。
+### 潜在问题
+- [ ] `dispatch_security_committee_member_agent` 当前是有意保留的 compile-safe placeholder，若后续有人直接调用该 dispatcher，会收到 unavailable 错误；这不是回归，而是本轮有意识隔离旁支的结果。
+- [ ] 当前全量回归仍保留仓库既有 `dead_code` warnings，本轮没有处理这些历史噪音；如果后续要清理 warnings，应与本轮证券治理合同改动分开执行。
+### 关闭项
+- 已完成 `cargo test --test security_post_meeting_conclusion_cli -- --nocapture`，结果为 `2 passed`。
+- 已完成 `cargo test --test security_decision_package_revision_cli -- --nocapture`，结果为 `2 passed`。
+- 已完成 `cargo test --test security_decision_verify_package_cli -- --nocapture`，结果为 `5 passed`。
+- 已完成 `cargo test --test security_decision_submit_approval_cli -- --nocapture`，结果为 `4 passed`。
+## 2026-04-08
+### 修改内容
+- 更新 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\execution-notes-2026-04-08-security-post-meeting-conclusion.md`，把前半段旧描述明确标记为 Task 11 之前的历史快照，并指向后文的最新完成状态。原因是当前文件同时保留了“未完成”与“已完成”两种时间点信息；目的是避免后续 AI 先读到旧限制后误判任务仍停留在最小 Green 阶段。
+- 更新 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-security-post-meeting-package-binding\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，把第 19 节明确标记为 Task 11 前快照，并声明第 20 节是当前证券治理合同基线。原因是交接手册原本前后两节存在时间语义重叠；目的是把“历史背景”和“当前状态”拆清楚，防止新 AI 接手时重复回退讨论。
+### 修改原因
+- 用户批准方案 B，要求不仅保留文档，还要把交接口径统一并整理提交面，因此这轮需要先解决 handoff 文档的前后冲突，再判断是否可以直接提交。
+- 本轮不新增业务逻辑，只做文档收尾与交接清口径，避免把已经完成的 Task 11 又描述回“尚未正式挂接”的旧状态。
+### 方案还差什么?
+- [ ] 仍需复查 `git status --short --branch`，确认当前工作区只剩 Task 11 相关改动与计划文档。
+- [ ] 仍需给出两份 `docs/plans/2026-04-08-security-post-meeting-package-binding-*.md` 是否应纳入本次提交的明确结论。
+### 潜在问题
+- [ ] 第 19 节和执行记录前半段虽然已改成“历史快照”，但文件中仍保留旧阶段的测试结果作为背景资料；后续 AI 如果只截取局部文本而不看说明，仍可能误读，因此提交说明里也应再次强调“以最新更新段落为准”。
+- [ ] 当前 worktree 与远端跟踪分支名称不同，后续如果直接推送前不核对 upstream，可能让人误以为这些更新已经在 `codex/foundation-navigation-kernel` 分支正文里。
+### 关闭项
+- 已完成 Task 11 相关 handoff 文档的口径统一。
+- 已完成本轮文档收尾的任务日志追加。

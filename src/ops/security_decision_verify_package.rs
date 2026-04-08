@@ -14,6 +14,7 @@ use crate::ops::stock::security_decision_approval_bridge::{
 use crate::ops::stock::security_decision_package::{
     sha256_for_bytes, SecurityDecisionPackageArtifact, SecurityDecisionPackageDocument,
 };
+use crate::ops::stock::security_post_meeting_conclusion::SecurityPostMeetingConclusion;
 
 // 2026-04-02 CST: 这里定义证券审批包校验请求，原因是 P0-5 需要一个正式 Tool 来执行 package 路径、签名 secret 和报告落盘策略；
 // 目的：把 verify 所需的最小输入参数收口到稳定合同，避免调用方手工拼接内部校验细节。
@@ -84,6 +85,11 @@ pub struct SecurityDecisionPackageGovernanceCheck {
     pub approval_ref_matched: bool,
     pub evidence_hash_matched: bool,
     pub governance_hash_matched: bool,
+    // 2026-04-08 CST: 这里新增会后结论校验位，原因是 Task 11 已经把 post_meeting_conclusion 正式挂进 package；
+    // 目的：让 verify 能明确区分“绑定一致”“brief 配对一致”“关键字段完整”三种治理语义，而不是只停留在文件存在性层面。
+    pub post_meeting_conclusion_binding_consistent: bool,
+    pub post_meeting_conclusion_brief_paired: bool,
+    pub post_meeting_conclusion_complete: bool,
 }
 
 // 2026-04-02 CST: 这里定义校验错误边界，原因是 verify 阶段既可能失败在路径解析，也可能失败在落盘；
@@ -314,6 +320,8 @@ fn build_governance_checks(
         load_optional_json::<PersistedApprovalRequest>(artifacts, "approval_request")?;
     let approval_brief =
         load_optional_json::<SecurityDecisionApprovalBrief>(artifacts, "approval_brief")?;
+    let post_meeting_conclusion =
+        load_optional_json::<SecurityPostMeetingConclusion>(artifacts, "post_meeting_conclusion")?;
 
     let decision_ref_matched = decision_card
         .as_ref()
@@ -370,12 +378,119 @@ fn build_governance_checks(
         issues.push("governance governance_hash mismatch across package artifacts".to_string());
     }
 
+    let has_post_meeting_binding = package
+        .object_graph
+        .post_meeting_conclusion_ref
+        .as_ref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+        || package
+            .object_graph
+            .post_meeting_conclusion_path
+            .as_ref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false)
+        || artifact_is_present(artifacts, "post_meeting_conclusion");
+
+    let post_meeting_conclusion_binding_consistent = if !has_post_meeting_binding {
+        true
+    } else {
+        post_meeting_conclusion
+            .as_ref()
+            .map(|conclusion| {
+                package
+                    .object_graph
+                    .post_meeting_conclusion_ref
+                    .as_ref()
+                    .map(|value| value == &conclusion.conclusion_id)
+                    .unwrap_or(false)
+                    && package
+                        .object_graph
+                        .post_meeting_conclusion_path
+                        .as_ref()
+                        .map(|value| value == &find_artifact_path(artifacts, "post_meeting_conclusion"))
+                        .unwrap_or(false)
+                    && conclusion.decision_ref == package.decision_ref
+                    && conclusion.approval_ref == package.approval_ref
+                    && conclusion.governance_binding.decision_ref == package.decision_ref
+                    && conclusion.governance_binding.approval_ref == package.approval_ref
+            })
+            .unwrap_or(false)
+    };
+    if !post_meeting_conclusion_binding_consistent {
+        issues.push("post_meeting_conclusion binding mismatch across package artifacts".to_string());
+    }
+
+    let post_meeting_conclusion_brief_paired = if !has_post_meeting_binding {
+        true
+    } else {
+        post_meeting_conclusion
+            .as_ref()
+            .map(|conclusion| {
+                conclusion.source_brief_ref == package.object_graph.approval_brief_ref
+                    && conclusion.brief_pairing.pre_meeting_brief_ref
+                        == package.object_graph.approval_brief_ref
+                    && conclusion.brief_pairing.pre_meeting_brief_path
+                        == package.object_graph.approval_brief_path
+            })
+            .unwrap_or(false)
+    };
+    if !post_meeting_conclusion_brief_paired {
+        issues.push("post_meeting_conclusion brief pairing mismatch".to_string());
+    }
+
+    let post_meeting_conclusion_complete = if !has_post_meeting_binding {
+        true
+    } else {
+        post_meeting_conclusion
+            .as_ref()
+            .map(|conclusion| {
+                !conclusion.conclusion_id.trim().is_empty()
+                    && !conclusion.source_package_path.trim().is_empty()
+                    && !conclusion.source_brief_ref.trim().is_empty()
+                    && !conclusion.decision_ref.trim().is_empty()
+                    && !conclusion.approval_ref.trim().is_empty()
+                    && !conclusion.governance_binding.source_package_path.trim().is_empty()
+                    && !conclusion.brief_pairing.pre_meeting_brief_ref.trim().is_empty()
+                    && !conclusion.brief_pairing.pre_meeting_brief_path.trim().is_empty()
+                    && supported_post_meeting_disposition(&conclusion.final_disposition)
+            })
+            .unwrap_or(false)
+    };
+    if !post_meeting_conclusion_complete {
+        issues.push("post_meeting_conclusion formal contract is incomplete".to_string());
+    }
+
     Ok(SecurityDecisionPackageGovernanceCheck {
         decision_ref_matched,
         approval_ref_matched,
         evidence_hash_matched,
         governance_hash_matched,
+        post_meeting_conclusion_binding_consistent,
+        post_meeting_conclusion_brief_paired,
+        post_meeting_conclusion_complete,
     })
+}
+
+fn artifact_is_present(artifacts: &[SecurityDecisionPackageArtifact], artifact_role: &str) -> bool {
+    artifacts
+        .iter()
+        .any(|artifact| artifact.artifact_role == artifact_role && artifact.present)
+}
+
+fn find_artifact_path(artifacts: &[SecurityDecisionPackageArtifact], artifact_role: &str) -> String {
+    artifacts
+        .iter()
+        .find(|artifact| artifact.artifact_role == artifact_role && artifact.present)
+        .map(|artifact| artifact.path.clone())
+        .unwrap_or_default()
+}
+
+fn supported_post_meeting_disposition(value: &str) -> bool {
+    matches!(
+        value.trim(),
+        "approve" | "reject" | "needs_more_evidence" | "approve_with_override"
+    )
 }
 
 fn load_optional_json<T: for<'de> Deserialize<'de>>(
