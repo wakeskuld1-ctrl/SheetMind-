@@ -2,6 +2,9 @@ use std::collections::BTreeSet;
 
 use crate::ops::foundation::knowledge_graph_store::KnowledgeGraphStore;
 use crate::ops::foundation::knowledge_record::EvidenceRef;
+use crate::ops::foundation::metadata_registry::{
+    MetadataFieldTarget, MetadataRegistry, MetadataRegistryError,
+};
 use crate::ops::foundation::roaming_engine::CandidateScope;
 
 // 2026-04-07 CST: 这里定义 retrieval hit，原因是 Task 7 需要把“命中了哪个节点、分数是多少、证据来自哪里”
@@ -20,6 +23,7 @@ pub struct RetrievalHit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetrievalEngineError {
     NoEvidenceFound { question: String },
+    InvalidMetadataConstraint(MetadataRegistryError),
 }
 
 // 2026-04-07 CST: 这里保留 retrieval engine 为无状态执行器，原因是当前 Task 7 只需要在给定问题、
@@ -54,6 +58,75 @@ impl RetrievalEngine {
             let Some(node) = graph_store.node(node_id) else {
                 continue;
             };
+
+            // 2026-04-09 CST: 这里先在评分前应用 MetadataConstraint，原因是 metadata 是候选证据收敛条件，
+            // 不应等命中完成后再做结果裁剪，否则会混淆“没有证据”与“证据被约束排除”的阶段语义。
+            // 目的：确保 RetrievalEngine 真正工作在 metadata 收敛后的候选节点集合上。
+            if !scope.metadata_scope.matches(node) {
+                continue;
+            }
+
+            let score = overlap_score(&question_tokens, &node.title, &node.body);
+            if score == 0 {
+                continue;
+            }
+
+            hits.push(RetrievalHit {
+                node_id: node.id.clone(),
+                score,
+                evidence_refs: node.evidence_refs.clone(),
+            });
+        }
+
+        hits.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then_with(|| left.node_id.cmp(&right.node_id))
+        });
+
+        if hits.is_empty() {
+            return Err(RetrievalEngineError::NoEvidenceFound {
+                question: question.to_string(),
+            });
+        }
+
+        Ok(hits)
+    }
+
+    // 2026-04-09 CST: 这里补带 metadata registry 的 retrieval 入口，原因是字段目录阶段需要让 retrieval 显式知道
+    // 哪些约束字段应该作用于 node，而不是把 concept-only 字段也拿来过滤节点。
+    // 目的：让 node-level metadata 检索正式切到字段注册表驱动的标准语义。
+    pub fn retrieve_with_metadata_registry(
+        &self,
+        question: &str,
+        scope: &CandidateScope,
+        graph_store: &KnowledgeGraphStore,
+        metadata_registry: &MetadataRegistry,
+    ) -> Result<Vec<RetrievalHit>, RetrievalEngineError> {
+        let question_tokens = tokenize(question);
+        // 2026-04-09 CST: 这里先对 node-target 约束做 registry 校验，原因是 registry 模式的目标不是“静默跳过非法字段”，
+        // 而是把字段治理问题显式暴露出来。
+        // 目的：让 retrieval 在开始打分前就区分“约束非法”和“合法但没有命中证据”。
+        let applicable_constraints = scope
+            .metadata_scope
+            .constraints_for_registered_target(metadata_registry, MetadataFieldTarget::Node)
+            .map_err(RetrievalEngineError::InvalidMetadataConstraint)?;
+        let concept_id_refs: Vec<&str> = scope.concept_ids.iter().map(String::as_str).collect();
+        let scoped_node_ids = graph_store.node_ids_for_concepts(&concept_id_refs);
+        let mut hits = Vec::new();
+
+        for node_id in scoped_node_ids {
+            let Some(node) = graph_store.node(node_id) else {
+                continue;
+            };
+
+            if !applicable_constraints
+                .iter()
+                .all(|constraint| constraint.matches_metadata(&node.metadata))
+            {
+                continue;
+            }
 
             let score = overlap_score(&question_tokens, &node.title, &node.body);
             if score == 0 {

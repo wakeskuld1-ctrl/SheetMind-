@@ -111,6 +111,21 @@ pub mod ontology_store;
 // 目的：让知识图谱数据模型先有稳定命名空间，后续不会污染现有 Excel/分析能力模块。
 #[path = "foundation/knowledge_record.rs"]
 pub mod knowledge_record;
+// 2026-04-09 CST: 这里挂接 MetadataConstraint 标准模型，原因是方案B第一阶段已经确认 metadata 要作为 foundation 通用能力正式入链，
+// 但当前范围只收敛到 NavigationRequest -> Retrieval，不扩展到 roaming 语义。
+// 目的：让 metadata 约束以一等模块对外暴露，避免调用方继续走临时字段或业务化私有接口。
+#[path = "foundation/metadata_constraint.rs"]
+pub mod metadata_constraint;
+// 2026-04-09 CST: 这里挂接 metadata scope resolver，原因是方案B已经进入 concept-level metadata 收敛阶段，
+// 需要一个独立于 pipeline / roaming 的通用模块来承接 concept ids 过滤语义。
+// 目的：把 metadata-aware concept 收敛固化为 foundation 标准能力模块，而不是临时散落实现。
+#[path = "foundation/metadata_scope_resolver.rs"]
+pub mod metadata_scope_resolver;
+// 2026-04-09 CST: 这里挂接 metadata registry，原因是方案B第一阶段要把字段名、适用目标与支持操作符从隐式推断
+// 升级成显式注册的标准能力。
+// 目的：为后续通用元数据管理、本体元数据治理与字段审计提供统一目录模块。
+#[path = "foundation/metadata_registry.rs"]
+pub mod metadata_registry;
 // 2026-04-07 CST: 这里挂接 knowledge graph store，原因是图谱存储查询与 record 定义不是同一职责。
 // 目的：后续可以先做纯内存查询，再无痛替换为其他存储实现。
 #[path = "foundation/knowledge_graph_store.rs"]
@@ -131,3 +146,8 @@ pub mod retrieval_engine;
 // 目的：为后续统一输出导航路径、命中结果和证据引用提供单独落点。
 #[path = "foundation/evidence_assembler.rs"]
 pub mod evidence_assembler;
+// 2026-04-09 CST: 这里挂接 navigation pipeline，原因是 foundation 已经具备 route、roam、retrieve、assemble
+// 四段能力，但还缺少正式的统一入口模块。
+// 目的：把“问题到证据”的主线编排明确收敛在 foundation 内核中，而不是散落在测试或未来业务层里。
+#[path = "foundation/navigation_pipeline.rs"]
+pub mod navigation_pipeline;

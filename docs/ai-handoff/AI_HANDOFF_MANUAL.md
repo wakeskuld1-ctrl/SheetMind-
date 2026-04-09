@@ -190,8 +190,52 @@ The following directions have already been discussed and rejected for the curren
 - Foundation code must remain business-agnostic.
 - Domain-specific objects must only appear as upper-layer adapters or examples.
 - The architecture must prefer ontology + roaming + retrieval over domain-specific shortcut logic.
+- Metadata field management must prefer an explicit registry instead of implicit key discovery.
+- Metadata fields must declare whether they act on concept scope, node scope, or both.
+- When registry mode is enabled, unregistered metadata fields must fail fast instead of being silently ignored.
+- When registry mode is enabled, operators unsupported by the registered field contract must fail fast instead of degrading into empty results.
+- Metadata field definitions should carry governance attributes such as group, description, applies-to reason, and deprecation state.
+- Metadata registry governance quality should be inspectable through a structured validation summary instead of ad-hoc manual review.
+- Metadata field governance may also carry compatibility metadata such as aliases, replacement targets, and compatibility notes.
+- Metadata registry should be able to summarize compatibility chains and alias mappings without changing runtime execution semantics.
+- Metadata registry should expose canonical field resolution outputs so direct hits and alias hits can converge to the same catalog-level field view.
+- Metadata registry should support batch field normalization with stable input-order preservation and explicit unknown-field retention.
+- Metadata registry batch normalization may expose lightweight batch summaries such as direct-hit, alias-hit, unresolved, and deprecated counts without changing runtime execution semantics.
+- Metadata registry batch normalization may expose structured unknown-field lists that preserve input order and duplicate unresolved entries for audit-friendly catalog review.
+- Metadata registry batch normalization may expose canonical-field aggregation views that group only resolved inputs, keep canonical first-seen order, and leave unknown fields to explicit unknown-field reporting.
+- Metadata registry may expose a unified audit/export view that bundles governance summary, compatibility summary, batch normalization detail, unknown-field reporting, and canonical aggregation as directory-level outputs without changing runtime execution semantics.
+- Metadata registry governance should explicitly report alias conflicts, replacement-chain cycles, and ambiguous shared replacement targets instead of leaving them as implicit catalog behavior.
 - Retrieval accuracy, retrieval efficiency, and vectorization efficiency remain high priorities.
 - Foundation work must avoid accidental spread into application-side files.
+- The repository mainline must be described through foundation and generic capabilities, not through domain adapter progress.
+
+## 11A. Mainline Directory Guardrails
+
+The current mainline directory rule is:
+
+1. `src/ops/foundation/` is reserved for the business-agnostic navigation kernel.
+2. Generic reusable capabilities belong to runtime/tooling/table-analysis-report lines, not to domain-specific workflow files.
+3. Domain-specific tracks belong to adapter-side lines and must not redefine project identity.
+
+For current practical classification:
+
+- Mainline foundation scope:
+  - ontology
+  - roaming
+  - retrieval
+  - evidence assembly
+- Mainline generic scope:
+  - reusable runtime
+  - reusable tooling
+  - reusable table / analysis / report capability
+- Adapter-side scope:
+  - `security_*`
+  - `stock_*`
+  - approval workflow objects
+  - committee workflow objects
+  - scorecard / refit / training workflow objects
+
+If a future AI sees active `security_*` work in the repository, it must interpret that line as a domain adapter track, not as a foundation architecture change.
 
 ## 12. GitHub Handoff Rules
 
@@ -272,6 +316,13 @@ It must not absorb:
 - stock analysis workflow logic
 - GUI interaction flow logic
 - dispatcher-side application orchestration
+- scorecard, refit, or training workflow logic
+
+Future AI sessions must also preserve this wording:
+
+- `security_*` is an adapter-side domain track.
+- `security_*` is not the current project mainline.
+- domain progress must not be written as foundation delivery progress.
 
 If the repo is dirty, stage and commit only the files belonging to this foundation line.
 
@@ -293,7 +344,7 @@ Before moving on, re-read:
 
 ## 19. Parallel Security Governance Track Status (2026-04-08)
 
-There is an active parallel security decision workflow line in this repository. It is not part of the foundation navigation kernel, but future AI sessions must not ignore it when working on the stock governance path.
+There is an active parallel security decision workflow line in this repository. It is not part of the foundation navigation kernel and it does not redefine the project mainline. Future AI sessions may continue it only as an adapter-side domain track when explicitly asked.
 
 The current confirmed status on branch `codex/foundation-navigation-kernel` is:
 
@@ -324,6 +375,12 @@ Important limitation:
 - Task 3 is not fully closed yet
 - the revised package does not yet formally carry `post_meeting_conclusion` inside `object_graph` or `artifact_manifest`
 - verify has not yet been extended to enforce post-meeting conclusion binding and integrity
+
+Important classification rule:
+
+- do not present the security governance line as the current repository mainline
+- do not describe security scorecard or approval progress as foundation delivery progress
+- if mainline guidance and domain-track progress appear to conflict, mainline guidance wins
 
 If a future AI continues the security governance line, read the security-specific handoff first:
 

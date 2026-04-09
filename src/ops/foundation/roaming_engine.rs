@@ -1,5 +1,8 @@
 use std::collections::VecDeque;
 
+use crate::ops::foundation::metadata_constraint::MetadataScope;
+use crate::ops::foundation::metadata_registry::{MetadataRegistry, MetadataRegistryError};
+use crate::ops::foundation::metadata_scope_resolver::MetadataScopeResolver;
 use crate::ops::foundation::ontology_schema::OntologyRelationType;
 use crate::ops::foundation::ontology_store::OntologyStore;
 
@@ -12,6 +15,10 @@ pub struct RoamingPlan {
     pub allowed_relation_types: Vec<OntologyRelationType>,
     pub max_depth: usize,
     pub max_concepts: usize,
+    // 2026-04-09 CST: 这里把 metadata scope 提升为 RoamingPlan 的标准组成部分，原因是方案B第二阶段要求
+    // roam 与 retrieve 共享同一套通用 scope 输入，而不是让 metadata 只停留在 retrieval 私有参数里。
+    // 目的：先让 metadata 正式进入 plan/scope 合同，为后续真正的元数据收敛与解释能力留出稳定入口。
+    pub metadata_scope: MetadataScope,
 }
 
 impl RoamingPlan {
@@ -24,6 +31,7 @@ impl RoamingPlan {
             allowed_relation_types: Vec::new(),
             max_depth: 0,
             max_concepts: usize::MAX,
+            metadata_scope: MetadataScope::new(),
         }
     }
 
@@ -53,6 +61,14 @@ impl RoamingPlan {
         self.max_concepts = max_concepts;
         self
     }
+
+    // 2026-04-09 CST: 这里补 metadata scope 链式配置，原因是 NavigationPipeline 需要把请求里的通用 metadata 约束
+    // 注入到 roaming 计划里，形成正式的共享 scope 输入。
+    // 目的：避免 metadata 继续以额外参数形态绕开 plan/scope 合同。
+    pub fn with_metadata_scope(mut self, metadata_scope: MetadataScope) -> Self {
+        self.metadata_scope = metadata_scope;
+        self
+    }
 }
 
 // 2026-04-07 CST: 这里定义漫游步骤，原因是后续 evidence assembly 需要知道
@@ -73,6 +89,10 @@ pub struct RoamingStep {
 pub struct CandidateScope {
     pub concept_ids: Vec<String>,
     pub path: Vec<RoamingStep>,
+    // 2026-04-09 CST: 这里把 metadata scope 保留到 CandidateScope，原因是 retrieval 第二阶段要只消费 scope，
+    // 不再单独接收 metadata 参数。
+    // 目的：让 route 之后的主线围绕统一 scope 合同运行。
+    pub metadata_scope: MetadataScope,
 }
 
 // 2026-04-07 CST: 这里定义漫游错误，原因是没有有效种子概念时继续漫游没有意义，
@@ -81,6 +101,7 @@ pub struct CandidateScope {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RoamingEngineError {
     NoSeedConcepts,
+    InvalidMetadataConstraint(MetadataRegistryError),
 }
 
 // 2026-04-07 CST: 这里把 roaming engine 设计成只依赖 ontology store 的受控扩展器，
@@ -89,6 +110,7 @@ pub enum RoamingEngineError {
 #[derive(Debug, Clone)]
 pub struct RoamingEngine {
     ontology_store: OntologyStore,
+    metadata_registry: MetadataRegistry,
 }
 
 impl RoamingEngine {
@@ -96,22 +118,67 @@ impl RoamingEngine {
     // ontology store，后续即使扩展策略变化，也能保持调用方式稳定。
     // 目的：把 Task 6 的依赖边界固定在 ontology store，而不是散落的工具函数。
     pub fn new(ontology_store: OntologyStore) -> Self {
-        Self { ontology_store }
+        Self {
+            ontology_store,
+            metadata_registry: MetadataRegistry::new(),
+        }
+    }
+
+    // 2026-04-09 CST: 这里补带 metadata registry 的构造器，原因是字段目录阶段需要让 roaming 显式知道哪些字段作用于 concept，
+    // 否则它仍然只能靠实际 metadata key 猜。
+    // 目的：在不破坏旧调用方式的前提下，让主线可以逐步切到显式字段注册模式。
+    pub fn new_with_metadata_registry(
+        ontology_store: OntologyStore,
+        metadata_registry: MetadataRegistry,
+    ) -> Self {
+        Self {
+            ontology_store,
+            metadata_registry,
+        }
+    }
+
+    // 2026-04-09 CST: 这里补 ontology store 只读访问器，原因是 pipeline 新增 metadata-aware concept 收敛后仍要复用 roaming 已持有的 ontology，
+    // 没必要再额外维护第二份 store。
+    // 目的：保持 pipeline 和 roaming 使用同一份 ontology 视图，避免 concept 过滤语义分叉。
+    pub fn ontology_store(&self) -> &OntologyStore {
+        &self.ontology_store
     }
 
     // 2026-04-07 CST: 这里实现受限 BFS 漫游入口，原因是当前 foundation 主线需要
     // 在关系白名单、深度预算和概念数预算下，从种子概念稳定扩展出候选概念范围。
     // 目的：用最小可用算法把 route 与 retrieval 之间的 candidate scope 补起来。
     pub fn roam(&self, plan: RoamingPlan) -> Result<CandidateScope, RoamingEngineError> {
+        let RoamingPlan {
+            seed_concept_ids,
+            allowed_relation_types,
+            max_depth,
+            max_concepts,
+            metadata_scope,
+        } = plan;
+        let filtered_seed_concept_ids = if self.metadata_registry.is_empty() {
+            MetadataScopeResolver::constrain_concept_ids(
+                &self.ontology_store,
+                seed_concept_ids.as_slice(),
+                &metadata_scope,
+            )
+        } else {
+            MetadataScopeResolver::constrain_concept_ids_with_registry(
+                &self.ontology_store,
+                seed_concept_ids.as_slice(),
+                &metadata_scope,
+                &self.metadata_registry,
+            )
+            .map_err(RoamingEngineError::InvalidMetadataConstraint)?
+        };
         let mut concept_ids = Vec::new();
         let mut queue = VecDeque::new();
 
-        for seed_concept_id in plan.seed_concept_ids {
+        for seed_concept_id in filtered_seed_concept_ids {
             if self.ontology_store.concept(&seed_concept_id).is_none() {
                 continue;
             }
 
-            if concept_ids.len() >= plan.max_concepts {
+            if concept_ids.len() >= max_concepts {
                 break;
             }
 
@@ -131,44 +198,67 @@ impl RoamingEngine {
         let mut path = Vec::new();
 
         while let Some((current_concept_id, current_depth)) = queue.pop_front() {
-            if current_depth >= plan.max_depth {
+            if current_depth >= max_depth {
                 continue;
             }
 
-            if concept_ids.len() >= plan.max_concepts {
+            if concept_ids.len() >= max_concepts {
                 break;
             }
 
-            for relation_type in &plan.allowed_relation_types {
+            for relation_type in &allowed_relation_types {
                 let neighbors = self
                     .ontology_store
                     .related_concepts(&current_concept_id, std::slice::from_ref(relation_type));
+                let neighbor_ids = neighbors
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>();
+                let constrained_neighbors = if self.metadata_registry.is_empty() {
+                    MetadataScopeResolver::constrain_concept_ids(
+                        &self.ontology_store,
+                        &neighbor_ids,
+                        &metadata_scope,
+                    )
+                } else {
+                    MetadataScopeResolver::constrain_concept_ids_with_registry(
+                        &self.ontology_store,
+                        &neighbor_ids,
+                        &metadata_scope,
+                        &self.metadata_registry,
+                    )
+                    .map_err(RoamingEngineError::InvalidMetadataConstraint)?
+                };
 
-                for neighbor_concept_id in neighbors {
-                    if concept_ids.len() >= plan.max_concepts {
+                for neighbor_concept_id in constrained_neighbors {
+                    if concept_ids.len() >= max_concepts {
                         break;
                     }
 
                     if concept_ids
                         .iter()
-                        .any(|concept_id| concept_id == neighbor_concept_id)
+                        .any(|concept_id| concept_id == &neighbor_concept_id)
                     {
                         continue;
                     }
 
                     let next_depth = current_depth + 1;
-                    concept_ids.push(neighbor_concept_id.to_string());
+                    concept_ids.push(neighbor_concept_id.clone());
                     path.push(RoamingStep {
                         from_concept_id: current_concept_id.clone(),
-                        to_concept_id: neighbor_concept_id.to_string(),
+                        to_concept_id: neighbor_concept_id.clone(),
                         relation_type: relation_type.clone(),
                         depth: next_depth,
                     });
-                    queue.push_back((neighbor_concept_id.to_string(), next_depth));
+                    queue.push_back((neighbor_concept_id, next_depth));
                 }
             }
         }
 
-        Ok(CandidateScope { concept_ids, path })
+        Ok(CandidateScope {
+            concept_ids,
+            path,
+            metadata_scope,
+        })
     }
 }

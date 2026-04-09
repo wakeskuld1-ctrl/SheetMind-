@@ -1,6 +1,7 @@
 use excel_skill::ops::foundation::capability_router::CapabilityRoute;
 use excel_skill::ops::foundation::evidence_assembler::{EvidenceAssembler, NavigationEvidence};
 use excel_skill::ops::foundation::knowledge_record::EvidenceRef;
+use excel_skill::ops::foundation::metadata_constraint::MetadataScope;
 use excel_skill::ops::foundation::ontology_schema::OntologyRelationType;
 use excel_skill::ops::foundation::retrieval_engine::RetrievalHit;
 use excel_skill::ops::foundation::roaming_engine::{CandidateScope, RoamingStep};
@@ -45,6 +46,10 @@ fn sample_assembler() -> EvidenceAssembler {
 fn sample_route() -> CapabilityRoute {
     CapabilityRoute {
         matched_concept_ids: vec!["revenue".to_string()],
+        // 2026-04-09 CST: 这里补 matched_terms，原因是 CapabilityRoute 当前正式合同已经包含命中短语，
+        // 测试样本也必须跟随主线结构保持一致。
+        // 目的：避免 assembler 测试继续依赖过时的 route 结构。
+        matched_terms: vec!["sales".to_string()],
     }
 }
 
@@ -60,6 +65,10 @@ fn sample_scope() -> CandidateScope {
             relation_type: OntologyRelationType::DependsOn,
             depth: 1,
         }],
+        // 2026-04-09 CST: 这里补空 metadata scope，原因是方案B第二阶段会把 metadata 提升为 CandidateScope 标准组成部分，
+        // 即使 assembler 当前不消费它，也需要样本先对齐新的通用结构。
+        // 目的：避免后续 CandidateScope 扩展后，assembler 测试继续依赖过时结构定义。
+        metadata_scope: MetadataScope::new(),
     }
 }
 

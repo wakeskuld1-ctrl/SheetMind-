@@ -39,6 +39,12 @@
 3. foundation 导航内核
 4. 交付、交接、验证体系
 
+这里再补一条硬边界：
+
+- `security_*`、`stock_*`、审批链、committee、scorecard、training 这类内容，即使存在于仓库中，也只应理解为业务适配层或并行领域轨道；
+- 它们不是当前项目主线，不代表 foundation 范围已经改变；
+- 任何 AI 接手时，都必须先按通用能力主线理解仓库，再决定是否进入某个业务域分支。
+
 ## 已确认的架构原则
 
 ### 1. 默认按现有架构继续推进
@@ -58,6 +64,16 @@ retrieval 只是候选域内的执行阶段，不是整个系统的起点。
 ### 4. Rust 是产品主线
 
 仓库里可能还保留历史 Python 相关内容，但当前产品开发主线是 Rust / EXE，不要把 Python 重新混回主交付链路。
+
+### 5. 目录边界先于业务进展
+
+当前应这样理解目录边界：
+
+- `src/ops/foundation/`：只承载 ontology、roaming、retrieval、evidence 这类通用导航内核
+- 通用 runtime / tooling / table / analysis / report：属于可复用标准能力
+- `security_*`、`stock_*` 等：属于业务适配层，不属于 foundation 主线
+
+如果看到大量证券相关文件，不要自动推断“当前项目主线是证券业务化”；默认判断应当仍然是“foundation-first，业务域为上层适配”。
 
 ## 开工前必须遵守
 
