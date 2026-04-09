@@ -159,7 +159,7 @@ fn build_evidence_bundle(
         integrated_conclusion,
     } = analysis;
 
-    let analysis_date = technical_context.stock_analysis.as_of_date.clone();
+    let analysis_date = technical_context.stock_analysis.analysis_date.clone();
     let data_gaps = collect_data_gaps(&fundamental_context, &disclosure_context);
     let risk_notes = collect_risk_notes(
         &technical_context,

@@ -681,3 +681,76 @@ foundation 当前是独立的通用能力内核，不应误判成证券主链的
 - 本轮在 repository audit 基础上新增 4 项 hygiene 子能力：`MissingEvidenceRef`、`DuplicateEvidenceRefWithinNode`、`WeakLocator` 原因分类、`WeakSourceRef` 原因分类。
 - 当前 repository-level evidence hygiene 已累计 7 项子能力：`MissingEvidenceRef`、`DuplicateEvidenceRefWithinNode`、`DuplicateEvidenceRef`、`WeakLocator(Blank/TooShort)`、`WeakSourceRef(Blank/TooShort/MissingNamespace)`。
 - 当前默认下一步：继续 foundation 主线，优先补更细的 locator/source_ref 结构规则与审计报告分级；不要误判为已经进入 Migration Executor。
+## 2026-04-10 条件复核中枢正式收口
+<!-- 2026-04-10 CST: 追加条件复核中枢 handoff。原因：Task 1-5 已把 security_condition_review 正式接入 package、execution 和 review 主链，但主 handoff 还没有收进这层最新事实。目的：统一后续 AI 对“投中层做到哪了、怎么验证、接下来先看什么”的口径。 -->
+
+- “投中监控中枢”在当前证券主链里的正式名称改为“条件复核中枢”。
+- 当前实现明确不依赖实时行情流，边界固定为四类触发：
+  - `manual_review`
+  - `end_of_day_review`
+  - `event_review`
+  - `data_staleness_review`
+- 当前正式 Tool 是 `security_condition_review`，已经进入：
+  - `src/tools/catalog.rs`
+  - `src/tools/dispatcher.rs`
+  - `src/tools/dispatcher/stock_ops.rs`
+- 当前最小动作分流已经固定：
+  - `manual_review -> keep_plan`
+  - `end_of_day_review -> update_position_plan`
+  - `event_review -> reopen_committee`
+  - `data_staleness_review -> reopen_research`
+  - 若摘要命中 `冻结 / 停牌 / 止损 / 重大负面`，强制升级为 `freeze_execution`
+
+### 当前正式主链口径
+
+- 当前证券主链已经从“投前决策 -> 执行/复盘”扩成：
+  - `投前决策 -> 投中条件复核 -> 执行事实 -> 投后复盘`
+- `security_decision_package` 当前已经正式承载：
+  - `condition_review_ref`
+  - `condition_review_digest`
+- `security_decision_verify_package` 当前已经正式校验：
+  - 是否存在 `condition_review` 绑定
+  - `condition_review_ref` 与 digest 是否一致
+  - `condition_review` 是否与 `decision_ref / approval_ref / position_plan_ref / symbol / analysis_date` 同源
+- `security_decision_package_revision` 当前已经会继承既有 `condition_review` 锚点，不会在 revision 时把这层绑定丢掉。
+- `security_execution_record` 当前已经支持可选挂接：
+  - `condition_review_ref`
+  - `condition_review_trigger_type`
+  - `condition_review_follow_up_action`
+  - `condition_review_summary`
+- `security_post_trade_review` 当前已经能继续读取最近一次条件复核，并输出：
+  - `condition_review_ref`
+  - `condition_review_trigger_type`
+  - `condition_review_follow_up_action`
+  - `condition_review_summary`
+  - `condition_review_interpretation`
+
+### 当前验证清单
+
+- 当前证券主链默认最小验证清单应更新为 8 条，而不是旧文档里残留的 `security_decision_package_cli`：
+  1. `cargo test --test security_committee_vote_cli -- --nocapture`
+  2. `cargo test --test security_condition_review_cli -- --nocapture`
+  3. `cargo test --test security_decision_verify_package_cli -- --nocapture`
+  4. `cargo test --test security_decision_package_revision_cli -- --nocapture`
+  5. `cargo test --test security_execution_record_cli -- --nocapture`
+  6. `cargo test --test security_post_trade_review_cli -- --nocapture`
+  7. `cargo test --test security_scorecard_training_cli -- --nocapture`
+  8. `cargo test --tests --no-run`
+- 这 8 条的默认解释是：
+  - 1 检查投决会与七席执行链没有断。
+  - 2 检查投中条件复核层已经是正式 CLI Tool。
+  - 3 和 4 检查 package 治理链、绑定校验与 revision 修补链没有断。
+  - 5 和 6 检查执行/复盘层已经吸收条件复核。
+  - 7 检查评分卡训练主链没有断。
+  - 8 检查全量测试目标至少还能成功编译。
+
+### 已知边界与后续默认顺序
+
+- 当前 `condition_review_id` 仍采用 `symbol + analysis_date + trigger_type` 稳定规则；如果未来同日同类触发需要多次复核，后续要补版本号或序号策略。
+- 当前 execution/review 层优先支持“显式 ref + 可选 document”输入；还没有实现“只给 ref 就自动回仓储反查复核文档”。
+- 2026-04-10 这轮 fresh 验证里，`security_scorecard_training_cli` 仍然失败；这不是条件复核中枢本轮引入的文档问题，但它意味着当前“默认最小验证清单”还不是全绿状态。
+- 当前不建议把这层误读成实时监控系统；它是“条件复核中枢”，不是秒级监控中台。
+- 后续如果继续往下做，默认优先顺序应是：
+  1. 按 ref 回读条件复核历史文档
+  2. 为同日多次复核补版本策略
+  3. 再考虑把条件复核结果进一步装订进更完整的 decision package 审计资产

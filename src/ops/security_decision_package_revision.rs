@@ -96,6 +96,10 @@ pub fn security_decision_package_revision(
         position_plan_ref: previous_package.object_graph.position_plan_ref.clone(),
         approval_brief_ref: previous_package.object_graph.approval_brief_ref.clone(),
         scorecard_ref: previous_package.object_graph.scorecard_ref.clone(),
+        // 2026-04-10 CST: 这里沿用上一版 package 的 condition_review 锚点，原因是 Task 4 要让投中复核进入正式 package 修订链；
+        // 目的：保证 revision 只更新版本与 manifest，不丢失已经绑定的复核引用和复核摘要，便于后续追责与复盘。
+        condition_review_ref: previous_package.object_graph.condition_review_ref.clone(),
+        condition_review_digest: previous_package.condition_review_digest.clone(),
         decision_card_path: previous_package.object_graph.decision_card_path.clone(),
         approval_request_path: previous_package.object_graph.approval_request_path.clone(),
         position_plan_path: previous_package.object_graph.position_plan_path.clone(),

@@ -87,6 +87,8 @@ pub struct SecurityDecisionPackageGovernanceCheck {
     pub evidence_hash_matched: bool,
     pub governance_hash_matched: bool,
     pub object_graph_consistent: bool,
+    pub condition_review_binding_present: bool,
+    pub condition_review_binding_consistent: bool,
     pub scorecard_binding_consistent: bool,
     pub scorecard_complete: bool,
     pub scorecard_action_aligned: bool,
@@ -462,6 +464,48 @@ fn build_governance_checks(
 
     // 2026-04-09 CST: 这里新增评分卡绑定一致性校验，原因是评分卡已正式进入 package object graph 与 artifact manifest；
     // 目的：确保 scorecard 的 ref/path/approval 链接与 package 主锚点一致，而不是仅仅文件存在就算通过。
+    // 2026-04-10 CST: 这里新增 condition_review 正式绑定校验，原因是 Task 4 要把投中条件复核纳入 decision package 正式治理链；
+    // 目的：确保 package 一旦声明 condition_review_ref，就必须和 digest、decision_ref、approval_ref、position_plan_ref 等主锚点保持一致，避免复核摘要漂移。
+    let condition_review_binding_present = package
+        .object_graph
+        .condition_review_ref
+        .as_ref()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+        || package.condition_review_digest.is_some();
+    let condition_review_binding_consistent = if !condition_review_binding_present {
+        true
+    } else {
+        package
+            .object_graph
+            .condition_review_ref
+            .as_ref()
+            .zip(package.condition_review_digest.as_ref())
+            .map(|(condition_review_ref, digest)| {
+                !condition_review_ref.trim().is_empty()
+                    && !digest.condition_review_ref.trim().is_empty()
+                    && !digest.generated_at.trim().is_empty()
+                    && !digest.review_trigger_type.trim().is_empty()
+                    && !digest.recommended_follow_up_action.trim().is_empty()
+                    && !digest.decision_ref.trim().is_empty()
+                    && !digest.approval_ref.trim().is_empty()
+                    && !digest.position_plan_ref.trim().is_empty()
+                    && !digest.symbol.trim().is_empty()
+                    && !digest.analysis_date.trim().is_empty()
+                    && !digest.review_summary.trim().is_empty()
+                    && digest.condition_review_ref == *condition_review_ref
+                    && digest.decision_ref == package.decision_ref
+                    && digest.approval_ref == package.approval_ref
+                    && digest.position_plan_ref == package.object_graph.position_plan_ref
+                    && digest.symbol == package.symbol
+                    && digest.analysis_date == package.analysis_date
+            })
+            .unwrap_or(false)
+    };
+    if condition_review_binding_present && !condition_review_binding_consistent {
+        issues.push("condition_review binding mismatch or incomplete across package fields".to_string());
+    }
+
     let scorecard_binding_consistent = scorecard
         .as_ref()
         .map(|scorecard| {
@@ -568,6 +612,8 @@ fn build_governance_checks(
         evidence_hash_matched,
         governance_hash_matched,
         object_graph_consistent,
+        condition_review_binding_present,
+        condition_review_binding_consistent,
         scorecard_binding_consistent,
         scorecard_complete,
         scorecard_action_aligned,

@@ -30,7 +30,12 @@ pub struct TechnicalConsultationBasicRequest {
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct TechnicalConsultationBasicResult {
     pub symbol: String,
-    pub as_of_date: String,
+    // 2026-04-08 CST: 这里把对外日期字段统一改为 analysis_date，原因是证券主链公共合同已经要求分析输出统一使用 analysis_date；
+    // 目的：消除 as_of_date / analysis_date 双口径并避免后续 briefing、committee、post-trade review 再做字段兼容。
+    pub analysis_date: String,
+    // 2026-04-08 CST: 这里补齐 evidence_version，原因是技术咨询结果已经进入证券主链证据链，后续审批、复盘都需要稳定引用；
+    // 目的：让 technical_consultation_basic 也能像 briefing / committee 一样输出可审计的事实版本标识。
+    pub evidence_version: String,
     pub history_row_count: usize,
     pub trend_bias: String,
     pub trend_strength: String,
@@ -419,10 +424,20 @@ fn build_consultation_result(
         .last()
         .map(|row| row.trade_date.clone())
         .unwrap_or_default();
+    // 2026-04-08 CST: 这里统一以行情窗口终点作为 analysis_date，原因是方案 C 已明确 technical_consultation_basic 对外不再暴露 as_of_date；
+    // 目的：保证技术咨询、简报、投决、投后复盘引用的是同一份分析日期口径。
+    let analysis_date = end_date.clone();
+    // 2026-04-08 CST: 这里补齐 technical_consultation_basic 的证据版本号，原因是外层合同已经开始要求 evidence_version；
+    // 目的：让后续 decision package / post_trade_review 可以稳定回指这次技术分析事实底稿。
+    let evidence_version = format!(
+        "technical-consultation-basic:{}:{}:v1",
+        request.symbol, analysis_date
+    );
 
     return TechnicalConsultationBasicResult {
         symbol: request.symbol.clone(),
-        as_of_date: end_date.clone(),
+        analysis_date,
+        evidence_version,
         history_row_count: rows.len(),
         trend_bias,
         trend_strength,
