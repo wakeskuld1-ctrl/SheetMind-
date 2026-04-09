@@ -1,85 +1,126 @@
 ---
 name: security-analysis-v1
-description: 当用户要求股票、ETF、指数、行业或综合证券分析时使用。默认先走项目内的 `security_decision_briefing` 统一入口，按当前交易日期锚定分析，并用中文输出可执行结论。
+description: Use when users ask for stock, ETF, index, sector, market, or integrated securities analysis through this project's Rust tool chain, especially when the analysis must prioritize this project's own Tool outputs, anchor to the current trading date, and present an actionable Chinese conclusion without fabricating unavailable market data.
 ---
 
 # 证券分析 Skill V1
 
 ## Overview
 
-这个 Skill 负责把证券分析请求统一路由到项目内已经实现的 Rust Tool 主链，并把结构化结果翻译成可执行的中文结论。
+这个 Skill 负责把用户的证券分析请求路由到项目内的证券分析 Tool 主链，并把结果翻译成可执行的中文结论。
 
-从 2026-04-02 起，默认统一入口是：
-- `security_decision_briefing`
+它不负责手工发明数据，不负责绕开项目 Tool 主链，也不负责在缺少数据时臆测结论。
 
-适用原则：
-- 普通咨询场景：先拿 `security_decision_briefing`，再做解释。
-- 投决会 / 委员会场景：先拿 `security_decision_briefing`，只基于其中的 `committee_payload` 调用 `security_committee_vote`。
-- `technical_consultation_basic`、`security_analysis_contextual`、`security_analysis_fullstack`、`security_analysis_resonance` 仍然存在，但默认只作为 briefing 的底层事实源，而不是面向最终用户的优先入口。
+核心原则只有五条：
 
-## 核心门禁
+1. 优先使用项目内已经实现的证券分析 Tool 主链，不要退化成泛化股评。
+2. 分析基准日只能锚定当前日期；如果当前日期没有可用收盘数据，则只能退到前一个交易日。
+3. 每次输出都必须显式写明实际采用的分析日期，不能混用不同日期的数据。
+4. 如果信息面、财报、公告等外部免费源暂时不可用，可以降级，但必须说明降级范围。
+5. 结论必须区分“Tool 已证实的结果”和“基于结果作出的推断”，不能把推断伪装成事实。
 
-1. 默认先走 `security_decision_briefing`，不要绕过统一入口手工拼技术面、财报面、公告面或共振面。
-2. 只要任务进入“投决、委员会、表决、是否通过、是否批准、委员意见”这类语义，必须升级为：
-   `security_decision_briefing -> security_committee_vote`
-3. 禁止把 `technical_consultation_basic`、`security_analysis_contextual`、`security_analysis_fullstack`、`security_analysis_resonance` 的原始输出直接当成最终投决依据。
-4. 禁止手工再拼一份与 `committee_payload` 不一致的第二套事实包。
-5. 必须区分“Tool 已提供的事实”和“基于事实做出的判断”，不能把推断伪装成事实。
-6. 分析日期必须显式写明；如果当前日期没有有效收盘数据，只能回退到最近一个有效交易日，并明确说明。
-7. 如公开信息源临时不可用，可以降级，但必须说明降级范围，不能虚构缺失数据。
+<!-- 2026-04-01 CST: 新增证券分析专用 Skill，原因是用户明确要求把证券分析规则写进项目 Skill，而不是停留在口头记忆；目的 是把“当前日期优先、无当日数据则退前一交易日、必须显式写明分析日期”的规则固化为后续 AI 可复用的项目约束。 -->
+## 日期锚定规则
 
-## 路由优先级
+- 所有证券分析默认以“当前日期”作为分析锚点。
+- 如果当前日期已经收盘，优先使用当前日期收盘数据。
+- 如果当前日期不是交易日，或当前日期的有效收盘数据尚不可用，才允许退到前一个交易日。
+- 不允许为了凑分析而混用更早日期的数据，除非输出中明确标注“实际分析日期”且说明原因。
+- 输出中必须出现类似“按 2026-04-01 收盘分析”或“当前日期无有效收盘，退至 2026-03-31 收盘分析”的明确日期声明。
+- 如果无法确认当前日期或前一个交易日的可靠收盘数据，就要明确说“当前无法核实”，不能编造价格。
 
-- 默认综合证券分析：`security_decision_briefing`
-- 纯技术面调试 / 指标排查：`technical_consultation_basic`
-- 环境层调试：`security_analysis_contextual`
-- 信息面调试：`security_analysis_fullstack`
-- 共振层调试：`security_analysis_resonance`
-- 正式投决会表决：`security_committee_vote`
+<!-- 2026-04-01 CST: 新增主链路约束，原因是用户多次强调证券分析要优先走我们自己的 Tool 和产品链路；目的是防止后续协作者回到人工拼凑资讯或泛泛点评。 -->
+## 主链路约束
 
-## 标准流程
+- 个股技术面优先使用项目内 `technical_consultation_basic`。
+- 综合环境分析优先使用项目内 `security_analysis_contextual`。
+- 全面证券分析优先使用项目内 `security_analysis_fullstack`。
+- 不要把信息面语义回灌到底层技术 Tool。
+- 不要在 Tool 已有结构化结论时，再手工改写成与 Tool 相冲突的口径。
 
-### 普通咨询
+<!-- 2026-04-01 CST: 新增免费数据约束，原因是用户明确要求不要用大模型抓数据、不要用 Token；目的是把“免费公开源 + 可降级”写成规则。 -->
+## 数据源约束
 
-1. 调用 `security_decision_briefing`
-2. 明确写出 `analysis_date`
-3. 先引用 `summary`
-4. 再按 `technical_brief / fundamental_brief / resonance_brief` 展开证据
-5. 最后引用 `execution_plan` 给出执行建议与风险边界
+- 允许使用免费、公开、无需 Token 的行情与披露数据源。
+- 不要使用大模型去抓取行情数据本身。
+- 如果外部公开源失败，允许返回 unavailable 或降级分析，但必须说明是哪一块不可用。
+- 免费源返回互相冲突时，优先使用可核验、可重复访问、字段更完整的来源。
 
-### 投决会 / 委员会
+## 适用场景
 
-1. 调用 `security_decision_briefing`
-2. 读取 `committee_payload`
-3. 调用 `security_committee_vote`
-4. 只基于 vote 结果输出最终表决结论、条件、分歧和 warnings
-5. 如需解释票面原因，只能回溯到同一份 briefing / payload，不能手工补第二套事实
+当用户提出这些需求时使用本 Skill：
 
-## 输出要求
+- “帮我分析这只股票什么时候回本”
+- “顺丰什么时候到 50 元”
+- “这只 ETF 还有没有回本可能”
+- “把大盘、行业、财报、公告一起分析”
+- “按当前收盘重新算一遍”
 
-每次尽量按以下顺序输出：
+不要在这些场景外使用：
+
+- Excel 表头、清洗、聚合等表处理工作
+- 统计建模、回归、聚类
+- 与证券无关的一般性闲聊判断
+
+## 分析流程
+
+### 1. 先锁定分析日期
+
+1. 读取当前日期。
+2. 先查当前日期是否存在可靠收盘数据。
+3. 如果没有，再退到前一个交易日。
+4. 在结果第一段明确写出实际分析日期。
+
+### 2. 再锁定分析层级
+
+- 只问单证券技术面：优先走 `technical_consultation_basic`
+- 问个股 + 大盘 + 板块环境：优先走 `security_analysis_contextual`
+- 问技术面 + 财报 + 公告 + 行业：优先走 `security_analysis_fullstack`
+
+### 3. 最后再组织结论
+
+- 先给结论，再给证据。
+- 先说当前处于什么结构，再说达到目标价还差多少。
+- 如果问题是“什么时候回本/到价”，要给出时间窗口，而不是只给方向判断。
+- 如果涉及分红，要把“价格回本”和“总回报回本”分开说。
+
+## 输出格式建议
+
+每次尽量保持四段：
 
 1. 实际分析日期
 2. 直接结论
 3. 关键证据
-4. 风险与情景路径
+4. 情景路径或风险提示
 
-如果走的是 `security_decision_briefing`：
-- 优先引用 `summary`
-- 技术证据来自 `technical_brief`
-- 基本面证据来自 `fundamental_brief`
-- 共振证据来自 `resonance_brief`
-- 执行建议来自 `execution_plan`
+## 常见错误
 
-如果走的是 `security_committee_vote`：
-- 优先引用 `final_decision / final_action / final_confidence`
-- 风险边界来自 `conditions / warnings`
-- 分歧来自 `key_disagreements`
-- 票面结构来自 `votes`
+### 错误 1：拿不到当天数据，就直接用更早日期但不说明
 
-## 禁止事项
+正确做法：只能退到前一个交易日，并且显式写明实际分析日期。
 
-- 不要把 `security_analysis_fullstack` 或 `security_analysis_resonance` 的原始输出直接当成最终用户默认答复。
-- 不要手工再拼一套与 `committee_payload` 不一致的投决事实底稿。
-- 不要混用不同分析日期的数据。
-- 不要在数据缺失时自行脑补价格、财报或公告内容。
+### 错误 2：项目内 Tool 已经有结构化结论，却回退成泛泛股评
+
+正确做法：优先复用 Tool 主链结果，再补充必要解释。
+
+### 错误 3：把外部信息面和技术面混成一个未标注来源的结论
+
+正确做法：区分 Tool 结果、外部事实、基于事实的推断。
+
+### 错误 4：ETF 只看指数，不看汇率、溢价、分红特征
+
+正确做法：跨境 ETF 至少要同时说明标的指数、汇率和场内溢价风险；如果无分红，也要明确写出。
+
+## Quick Reference
+
+- 日期优先级：当前日期 -> 前一个交易日
+- 日期规则：必须显式写明实际分析日期
+- 个股技术：`technical_consultation_basic`
+- 环境综合：`security_analysis_contextual`
+- 全栈综合：`security_analysis_fullstack`
+
+## 最终原则
+
+- 先锁日期，再下结论。
+- 先走主链，再做解释。
+- 能确认的就明确写；不能确认的就明确说不能确认。

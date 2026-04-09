@@ -204,28 +204,6 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
             .as_str()
             .expect("decision package path should exist"),
     );
-    let mut original_package: Value = serde_json::from_slice(
-        &fs::read(&package_path).expect("original package should be readable"),
-    )
-    .expect("original package should be valid json");
-    // 2026-04-10 CST: 这里先把 condition review 绑定注入 v1 package 红测，原因是 Task 4 要求 revision 不能在版本升级时丢失已存在的投中复核锚点；
-    // 目的：确保 package 从 v1 升到 v2 后，condition_review_ref 与 digest 仍然沿正式主链保留，而不是被 revision 静默丢弃。
-    attach_condition_review_binding(
-        &mut original_package,
-        ConditionReviewBindingFixture {
-            condition_review_ref: "condition-review:601916.SH:2026-04-02:manual_review:v1",
-            generated_at: "2026-04-10T09:30:00Z",
-            review_trigger_type: "manual_review",
-            recommended_follow_up_action: "keep_plan",
-            review_summary: "manual review confirms the package can keep the existing plan",
-        },
-    );
-    fs::write(
-        &package_path,
-        serde_json::to_vec_pretty(&original_package).expect("original package should serialize"),
-    )
-    .expect("original package with condition review should be written");
-
     let approval_request_path = PathBuf::from(
         submit_output["data"]["approval_request_path"]
             .as_str()
@@ -423,77 +401,13 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
         revised_package["object_graph"]["position_plan_path"],
         revised_approval_request["position_plan_binding"]["position_plan_path"]
     );
-    assert_eq!(
-        revised_package["object_graph"]["condition_review_ref"],
-        "condition-review:601916.SH:2026-04-02:manual_review:v1"
-    );
-    assert_eq!(
-        revised_package["condition_review_digest"]["recommended_follow_up_action"],
-        "keep_plan"
-    );
-    assert_eq!(
-        revised_package["condition_review_digest"]["decision_ref"],
-        revision_output["data"]["decision_package"]["decision_ref"]
-    );
     assert!(
         revised_package["artifact_manifest"]
             .as_array()
             .expect("artifact manifest should be array")
             .iter()
             .any(|artifact| artifact["artifact_role"] == "approval_events")
-        );
-}
-
-#[derive(Clone, Copy)]
-struct ConditionReviewBindingFixture<'a> {
-    condition_review_ref: &'a str,
-    generated_at: &'a str,
-    review_trigger_type: &'a str,
-    recommended_follow_up_action: &'a str,
-    review_summary: &'a str,
-}
-
-// 2026-04-10 CST: 这里统一封装 revision 测试用的 condition review 绑定写入，原因是 Task 4 需要证明 package v1 上已有的复核锚点能稳定穿过 revision；
-// 目的：把注入字段收口到单点，避免后续继续补更多 revision 场景时重复手拼 digest 合同。
-fn attach_condition_review_binding(
-    package_json: &mut Value,
-    fixture: ConditionReviewBindingFixture<'_>,
-) {
-    let decision_ref = package_json["decision_ref"]
-        .as_str()
-        .expect("decision_ref should exist")
-        .to_string();
-    let approval_ref = package_json["approval_ref"]
-        .as_str()
-        .expect("approval_ref should exist")
-        .to_string();
-    let symbol = package_json["symbol"]
-        .as_str()
-        .expect("symbol should exist")
-        .to_string();
-    let analysis_date = package_json["analysis_date"]
-        .as_str()
-        .expect("analysis_date should exist")
-        .to_string();
-    let position_plan_ref = package_json["object_graph"]["position_plan_ref"]
-        .as_str()
-        .expect("position_plan_ref should exist")
-        .to_string();
-
-    package_json["object_graph"]["condition_review_ref"] =
-        Value::String(fixture.condition_review_ref.to_string());
-    package_json["condition_review_digest"] = json!({
-        "condition_review_ref": fixture.condition_review_ref,
-        "generated_at": fixture.generated_at,
-        "review_trigger_type": fixture.review_trigger_type,
-        "recommended_follow_up_action": fixture.recommended_follow_up_action,
-        "decision_ref": decision_ref,
-        "approval_ref": approval_ref,
-        "position_plan_ref": position_plan_ref,
-        "symbol": symbol,
-        "analysis_date": analysis_date,
-        "review_summary": fixture.review_summary
-    });
+    );
 }
 
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {

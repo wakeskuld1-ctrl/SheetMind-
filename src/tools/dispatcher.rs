@@ -80,9 +80,6 @@ mod workbook_io;
 // 2026-03-22: 杩欓噷闆嗕腑鍒嗗彂 Tool 璇锋眰锛岀洰鐨勬槸璁?CLI 鍙礋璐?JSON 鏀跺彂锛岃€屾妸鍏蜂綋鑳藉姏涓嬫矇鍒板悇鑷搷浣滃眰銆?
 pub fn dispatch(request: ToolRequest) -> ToolResponse {
     match request.tool.as_str() {
-        // 2026-04-02 CST: 这里把 `tool_catalog` 作为正式 dispatcher 分支收口，原因是当前 CLI / GUI / 测试都已经把目录查询视为可显式调用的标准 Tool；
-        // 目的：让“空输入兜底”和“显式 `tool_catalog` 请求”稳定复用同一份目录响应，避免目录发现链只在默认入口可用而在正式路由上漂移。
-        "tool_catalog" => ToolResponse::tool_catalog(),
         // 2026-03-25: 鏉╂瑩鍣烽弫鐗堝祦鐏炴墧顥呴梽鍛€瑰﹤鎮庨崝鐔诲厴鐟曚浇妞傞梿鍡氬敶娑擃厽鏋冩稉锟芥惔鏃堢秼閸欏倹鏆熼幍锟界痪?compose/report/chart 閻ㄥ嫭鏆熺紒鍕剁礉閻╊喚娈戦弰顖濐唨璇ユ牸鐞涘本鍎撮惄顔捐厬缂佹挻鐎幒銉ュ弳鐞涘本鏆熼敍宀勫暱閸欏倹鏆熺拠锟?
         "open_workbook" => workbook_io::dispatch_open_workbook(request.args),
         // 2026-03-22: 杩欓噷鎺ュ叆鐙珛 list_sheets 鍏ュ彛锛岀洰鐨勬槸鎶婂伐浣滅翱缁撴瀯鎺㈡煡浠?open_workbook 涓樉寮忔媶鎴愭爣鍑?I/O Tool銆?
@@ -150,80 +147,6 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         // 目的：让 CLI / Skill 直接消费完整证券分析结果，而不是在外层继续拼财报和公告抓取。
         "security_analysis_fullstack" => {
             stock_ops::dispatch_security_analysis_fullstack(request.args)
-        }
-        // 2026-04-02 CST: 这里把统一 briefing Tool 接入主 dispatcher，原因是 stock 侧已经有稳定 assembler，需要正式开放到 CLI / Skill 主链；
-        // 目的：让上层不再手工拼接 technical/fullstack/resonance，而是直接消费单一 security_decision_briefing 入口。
-        "security_decision_briefing" => {
-            stock_ops::dispatch_security_decision_briefing(request.args)
-        }
-        // 2026-04-08 CST: 这里接入 security_position_plan_record 分发分支，原因是证券主链已进入“仓位计划正式化”阶段；
-        // 目的：让 position_plan 不再只停留在 briefing 顶层，而是能通过正式 Tool 主链升级成后续调仓与复盘可引用对象。
-        "security_position_plan_record" => {
-            stock_ops::dispatch_security_position_plan_record(request.args)
-        }
-        // 2026-04-08 CST: 这里接入 security_record_position_adjustment 分发分支，原因是证券主链已从计划对象推进到执行事件对象，
-        // 目的：让同一 position_plan_ref 下的实际调仓动作可以沿正式 dispatcher 主链被发现、校验和记录。
-        "security_record_position_adjustment" => {
-            stock_ops::dispatch_security_record_position_adjustment(request.args)
-        }
-        // 2026-04-02 CST: 这里接入 security_committee_vote 分发分支，原因是正式投决会已经进入可调用实现阶段，
-        // 目的：让 CLI / Skill 可以沿统一 dispatcher 主链直接消费 committee payload 并获得结构化投票结果。
-        "security_committee_vote" => stock_ops::dispatch_security_committee_vote(request.args),
-        // 2026-04-10 CST: 这里接入 security_condition_review 分发分支，原因是条件复核中枢已经完成最小合同与规则实现；
-        // 目的：让人工/收盘/事件/数据过期四类复核触发都能沿正式 CLI dispatcher 主链被调用和审计。
-        "security_condition_review" => {
-            stock_ops::dispatch_security_condition_review(request.args)
-        }
-        // 2026-04-10 CST: 这里接入 execution/review 两个正式分发分支，原因是 Task 5 要把条件复核继续挂到执行与投后复盘主链；
-        // 目的：让 CLI / Skill 能沿统一 stock dispatcher 直接消费 execution_record 与 post_trade_review，而不是落到 unsupported。
-        "security_execution_record" => {
-            stock_ops::dispatch_security_execution_record(request.args)
-        }
-        "security_post_trade_review" => {
-            stock_ops::dispatch_security_post_trade_review(request.args)
-        }
-        // 2026-04-08 CST: 这里补内部席位 agent 的 dispatcher 分支，原因是七席委员会要用子进程级 seat tool 证明成员独立执行；
-        // 目的：让父进程仍通过正式 CLI 主入口拉起子进程，而不是在投决会内部再维护第二套隐藏调用协议。
-        // 2026-04-02 CST：这里接入共振平台 Tool 家族，原因是方案 3 已确认先把“因子注册、序列落库、事件落库、共振分析”做成正式平台入口；
-        // 目的：让 CLI / Skill 能沿现有主分发链直接使用共振研究与分析能力，而不是回到脚本式临时流程。
-        "register_resonance_factor" => stock_ops::dispatch_register_resonance_factor(request.args),
-        "append_resonance_factor_series" => {
-            stock_ops::dispatch_append_resonance_factor_series(request.args)
-        }
-        "append_resonance_event_tags" => {
-            stock_ops::dispatch_append_resonance_event_tags(request.args)
-        }
-        "sync_template_resonance_factors" => {
-            stock_ops::dispatch_sync_template_resonance_factors(request.args)
-        }
-        "bootstrap_resonance_template_factors" => {
-            stock_ops::dispatch_bootstrap_resonance_template_factors(request.args)
-        }
-        "evaluate_security_resonance" => {
-            stock_ops::dispatch_evaluate_security_resonance(request.args)
-        }
-        "security_analysis_resonance" => {
-            stock_ops::dispatch_security_analysis_resonance(request.args)
-        }
-        // 2026-04-02 CST: 这里先接入 research snapshot 主入口，原因是方案C第一批实现要先打通“完整信号快照落库”闭环，
-        // 目的：让后续 outcome backfill 和 analog study 都能建立在同一条已落库的 snapshot 主链之上。
-        "record_security_signal_snapshot" => {
-            stock_ops::dispatch_record_security_signal_snapshot(request.args)
-        }
-        // 2026-04-02 CST: 这里接入 forward returns 回填入口，原因是研究平台第二步要把 snapshot 之后的收益路径沉淀成正式研究结果，
-        // 目的：让 analog study 与 briefing 后续直接读取持久化的 outcomes，而不是临时重算。
-        "backfill_security_signal_outcomes" => {
-            stock_ops::dispatch_backfill_security_signal_outcomes(request.args)
-        }
-        // 2026-04-02 CST: 这里接入历史相似研究分发分支，原因是银行体系 analog study 已进入正式平台建设阶段，
-        // 需要从统一 dispatcher 暴露出来；目的：让 CLI / Skill / briefing 同走一条可发现、可持久化的研究主链。
-        "study_security_signal_analogs" => {
-            stock_ops::dispatch_study_security_signal_analogs(request.args)
-        }
-        // 2026-04-02 CST: 这里接入历史研究摘要读取分支，原因是咨询与投决都要读取同一份 historical digest；
-        // 目的：避免 briefing、committee 或外层 Agent 各自重算历史样本统计，造成口径分叉。
-        "signal_outcome_research_summary" => {
-            stock_ops::dispatch_signal_outcome_research_summary(request.args)
         }
         // 2026-03-31 CST: 这里把股票历史导入 Tool 切到 stock dispatcher，原因是股票历史导入属于股票业务域而不是通用分析域。
         // 目的：把 “CSV -> SQLite” 明确收口到 stock 模块，和 foundation 底座入口隔离开。

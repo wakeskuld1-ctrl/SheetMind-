@@ -357,10 +357,6 @@ fn build_decision_package_document(
             position_plan_path: position_plan_path.to_string_lossy().to_string(),
             approval_brief_path: approval_brief_path.to_string_lossy().to_string(),
             scorecard_path: scorecard_path.to_string_lossy().to_string(),
-            // 2026-04-10 CST: 这里显式把初始 package 的 condition review 绑定置空，原因是 submit_approval 生成的是投前提交包，
-            // 目的：明确“条件复核锚点会在投中阶段后续挂入”，避免 builder 侧把缺省状态误解成脏值或历史残留。
-            condition_review_ref: None,
-            condition_review_digest: None,
             evidence_hash: committee_result.evidence_bundle.evidence_hash.clone(),
             governance_hash: bridge
                 .approval_request
