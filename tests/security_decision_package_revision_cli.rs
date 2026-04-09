@@ -1,7 +1,7 @@
 mod common;
 
 use chrono::{Duration, NaiveDate};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
@@ -10,9 +10,11 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::common::{create_test_runtime_db, run_cli_with_json, run_cli_with_json_runtime_and_envs};
+use crate::common::{
+    create_test_runtime_db, run_cli_with_json, run_cli_with_json_runtime_and_envs,
+};
 
-// 2026-04-02 CST: 这里新增 package revision 测试夹具，原因是 P0-6 的核心是“审批包跟着审批动作生成新版本”； 
+// 2026-04-02 CST: 这里新增 package revision 测试夹具，原因是 P0-6 的核心是“审批包跟着审批动作生成新版本”；
 // 目的：把 v1 package -> 更新审批工件 -> 生成 v2 package 的最小闭环锁进独立测试。
 fn create_stock_history_csv(prefix: &str, file_name: &str, rows: &[String]) -> PathBuf {
     let unique_suffix = SystemTime::now()
@@ -23,7 +25,8 @@ fn create_stock_history_csv(prefix: &str, file_name: &str, rows: &[String]) -> P
         .join("runtime_fixtures")
         .join("security_decision_package_revision")
         .join(format!("{prefix}_{unique_suffix}"));
-    fs::create_dir_all(&fixture_dir).expect("security decision package revision fixture dir should exist");
+    fs::create_dir_all(&fixture_dir)
+        .expect("security decision package revision fixture dir should exist");
 
     let csv_path = fixture_dir.join(file_name);
     fs::write(&csv_path, rows.join("\n"))
@@ -98,11 +101,13 @@ fn tool_catalog_includes_security_decision_package_revision() {
 
     // 2026-04-02 CST: 这里先锁住 revision Tool 的可发现性，原因是审批包版本化如果不进 catalog，就无法成为正式主链能力；
     // 目的：确保 CLI / Skill / 后续自动化都能稳定发现“生成下一个 package 版本”的入口。
-    assert!(output["data"]["tool_catalog"]
-        .as_array()
-        .expect("tool catalog should be an array")
-        .iter()
-        .any(|tool| tool == "security_decision_package_revision"));
+    assert!(
+        output["data"]["tool_catalog"]
+            .as_array()
+            .expect("tool catalog should be an array")
+            .iter()
+            .any(|tool| tool == "security_decision_package_revision")
+    );
 }
 
 #[test]
@@ -209,15 +214,15 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
             .as_str()
             .expect("approval events path should exist"),
     );
-    let approval_brief_path = PathBuf::from(
-        submit_output["data"]["approval_brief_path"]
-            .as_str()
-            .expect("approval brief path should exist"),
-    );
     let audit_log_path = PathBuf::from(
         submit_output["data"]["audit_log_path"]
             .as_str()
             .expect("audit log path should exist"),
+    );
+    let approval_brief_path = PathBuf::from(
+        submit_output["data"]["approval_brief_path"]
+            .as_str()
+            .expect("approval brief path should exist"),
     );
 
     let mut approval_request: Value = serde_json::from_slice(
@@ -274,7 +279,8 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
     )
     .expect("approval events should be updated");
 
-    let mut audit_lines = fs::read_to_string(&audit_log_path).expect("audit log should be readable");
+    let mut audit_lines =
+        fs::read_to_string(&audit_log_path).expect("audit log should be readable");
     audit_lines.push_str(
         "{\"event_type\":\"approval_action_applied\",\"timestamp\":\"2026-04-02T18:22:00+08:00\",\"decision_id\":\"");
     audit_lines.push_str(
@@ -360,11 +366,8 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
             "post_meeting_conclusion_path": post_meeting_conclusion_path.to_string_lossy()
         }
     });
-    let revision_output = run_cli_with_json_runtime_and_envs(
-        &revision_request.to_string(),
-        &runtime_db_path,
-        &[],
-    );
+    let revision_output =
+        run_cli_with_json_runtime_and_envs(&revision_request.to_string(), &runtime_db_path, &[]);
 
     // 2026-04-02 CST: 这里锁住审批动作后的 v2 package 主路径，原因是 P0-6 的目标就是让审批包开始具备正式版本史；
     // 目的：确保更新后的审批工件会驱动新 package 版本生成，并且能带上前版本引用、触发摘要和新的 verification report。
@@ -382,14 +385,54 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
         revision_output["data"]["decision_package"]["package_status"],
         "approved_bundle_ready"
     );
-    assert!(revision_output["data"]["trigger_event_summary"]
-        .as_str()
-        .expect("trigger event summary should exist")
-        .contains("pm_lead"));
-    assert!(revision_output["data"]["verification_report_path"]
-        .as_str()
-        .expect("verification report path should exist")
-        .contains("decision_packages_verification"));
+    // 2026-04-08 CST: 这里补充 v2 package 对象图断言，原因是 Task 1 新增的正式对象图不能只存在于 v1 初始包里；
+    // 目的：确保 revision 之后的 package 仍保留 position_plan / approval_brief 的正式引用，不会在版本化时退回隐式关系。
+    assert_eq!(
+        revision_output["data"]["decision_package"]["object_graph"]["position_plan_ref"],
+        submit_output["data"]["position_plan"]["plan_id"]
+    );
+    assert_eq!(
+        revision_output["data"]["decision_package"]["object_graph"]["approval_brief_ref"],
+        submit_output["data"]["approval_brief"]["brief_id"]
+    );
+    // 2026-04-08 CST: 这里补 revision 后 approval_request 续绑断言，原因是 Task 2 不只要求 v1 package 在提交时挂上 binding，还要求版本化后这条链不丢失；
+    // 目的：确保审批状态更新生成 v2 package 时，approval_request 里的 position_plan_binding 仍然和 object_graph / position_plan 指向同一正式对象。
+    let revised_approval_request: Value = serde_json::from_slice(
+        &fs::read(&approval_request_path).expect("revised approval request should be readable"),
+    )
+    .expect("revised approval request should be valid json");
+    assert_eq!(
+        revised_approval_request["position_plan_binding"]["position_plan_ref"],
+        submit_output["data"]["position_plan"]["plan_id"]
+    );
+    assert_eq!(
+        revised_approval_request["position_plan_binding"]["position_plan_path"],
+        submit_output["data"]["position_plan_path"]
+    );
+    assert_eq!(
+        revised_approval_request["position_plan_binding"]["position_plan_contract_version"],
+        "security_position_plan.v2"
+    );
+    assert_eq!(
+        revision_output["data"]["decision_package"]["object_graph"]["position_plan_ref"],
+        revised_approval_request["position_plan_binding"]["position_plan_ref"]
+    );
+    assert_eq!(
+        revision_output["data"]["decision_package"]["object_graph"]["position_plan_path"],
+        revised_approval_request["position_plan_binding"]["position_plan_path"]
+    );
+    assert!(
+        revision_output["data"]["trigger_event_summary"]
+            .as_str()
+            .expect("trigger event summary should exist")
+            .contains("pm_lead")
+    );
+    assert!(
+        revision_output["data"]["verification_report_path"]
+            .as_str()
+            .expect("verification report path should exist")
+            .contains("decision_packages_verification")
+    );
 
     let revised_package_path = PathBuf::from(
         revision_output["data"]["decision_package_path"]
@@ -409,21 +452,43 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
         package_path.to_string_lossy().to_string()
     );
     assert_eq!(revised_package["package_status"], "approved_bundle_ready");
-    assert!(revised_package["artifact_manifest"]
-        .as_array()
-        .expect("artifact manifest should be array")
-        .iter()
-        .any(|artifact| artifact["artifact_role"] == "approval_events"));
-    // 2026-04-08 CST: 这里补 Task 11 的 revision 红灯，原因是当前 revision 即使看到了会后结论文件，也还不会把它正式挂入 package；
-    // 目的：锁定后续实现必须同时补齐 artifact_manifest 与 object_graph 两个正式锚点，避免只做松散文件落盘。
-    assert!(revised_package["artifact_manifest"]
-        .as_array()
-        .expect("artifact manifest should be array")
-        .iter()
-        .any(|artifact| {
-            artifact["artifact_role"] == "post_meeting_conclusion"
-                && artifact["present"] == true
-        }));
+    assert_eq!(
+        revised_package["object_graph"]["position_plan_ref"],
+        revised_approval_request["position_plan_binding"]["position_plan_ref"]
+    );
+    assert_eq!(
+        revised_package["object_graph"]["position_plan_path"],
+        revised_approval_request["position_plan_binding"]["position_plan_path"]
+    );
+    // 2026-04-09 CST: 这里补上 scorecard 正式引用断言，原因是 foundation 合并后 revision 新包需要同时保留评分卡治理链；
+    // 目的：确保 package 版本化时不会只延续旧的 position_plan/brief 引用，而丢失新并入的 scorecard 正式锚点。 [2026-04-09 CST]
+    assert_eq!(
+        revised_package["object_graph"]["scorecard_ref"],
+        submit_output["data"]["scorecard"]["scorecard_id"]
+    );
+    assert_eq!(
+        revised_package["object_graph"]["scorecard_path"],
+        submit_output["data"]["scorecard_path"]
+    );
+    assert!(
+        revised_package["artifact_manifest"]
+            .as_array()
+            .expect("artifact manifest should be array")
+            .iter()
+            .any(|artifact| artifact["artifact_role"] == "approval_events")
+    );
+    // 2026-04-09 CST: 这里补上 post_meeting_conclusion 正式挂接断言，原因是 scorecard 主线并入后仍要保证会后结论链不被冲掉；
+    // 目的：锁定 revision 新包同时具备 scorecard 与 post_meeting_conclusion 两条正式治理链，避免退化成单链路。 [2026-04-09 CST]
+    assert!(
+        revised_package["artifact_manifest"]
+            .as_array()
+            .expect("artifact manifest should be array")
+            .iter()
+            .any(|artifact| {
+                artifact["artifact_role"] == "post_meeting_conclusion"
+                    && artifact["present"] == true
+            })
+    );
     assert_eq!(
         revised_package["object_graph"]["post_meeting_conclusion_ref"],
         format!("post-conclusion-{decision_id}")

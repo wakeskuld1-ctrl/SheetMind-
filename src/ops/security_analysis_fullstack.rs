@@ -3,8 +3,8 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::ops::stock::security_analysis_contextual::{
-    security_analysis_contextual, SecurityAnalysisContextualError,
-    SecurityAnalysisContextualRequest, SecurityAnalysisContextualResult,
+    SecurityAnalysisContextualError, SecurityAnalysisContextualRequest,
+    SecurityAnalysisContextualResult, security_analysis_contextual,
 };
 
 const DEFAULT_DISCLOSURE_LIMIT: usize = 8;
@@ -32,7 +32,7 @@ pub struct SecurityAnalysisFullstackRequest {
 
 // 2026-04-01 CST: 这里定义 fullstack 总 Tool 结果，原因是产品主链需要稳定消费“技术 + 财报 + 公告 + 行业 + 综合结论”统一合同；
 // 目的：避免 Skill / GUI / 其他 AI 继续在外层手工拼多个 Tool 返回，降低产品接线复杂度。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityAnalysisFullstackResult {
     pub symbol: String,
     pub technical_context: SecurityAnalysisContextualResult,
@@ -44,7 +44,7 @@ pub struct SecurityAnalysisFullstackResult {
 
 // 2026-04-01 CST: 这里定义财报快照合同，原因是首版信息面先收口到“最近报告期 + 核心增长指标 + 风险提示”；
 // 目的：先交付可消费的财报层，而不是一次性把全部财务表做成重型数据仓接口。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct FundamentalContext {
     pub status: String,
     pub source: String,
@@ -59,7 +59,7 @@ pub struct FundamentalContext {
 
 // 2026-04-01 CST: 这里拆独立财报指标结构，原因是首版产品最需要的是少量高价值指标，而不是整张财报明细；
 // 目的：给后续 GUI 和策略层保留稳定字段，不把 narrative 文案当成唯一数据来源。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct FundamentalMetrics {
     pub revenue: Option<f64>,
     pub revenue_yoy_pct: Option<f64>,
@@ -70,7 +70,7 @@ pub struct FundamentalMetrics {
 
 // 2026-04-01 CST: 这里定义公告摘要合同，原因是首版公告面重点是“最近披露了什么、有没有明显风险关键词”；
 // 目的：先把公告层做成稳定摘要入口，而不是引入大模型做自由文本总结。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DisclosureContext {
     pub status: String,
     pub source: String,
@@ -83,7 +83,7 @@ pub struct DisclosureContext {
 
 // 2026-04-01 CST: 这里定义单条公告对象，原因是产品后续需要展示时间线和点击跳转能力；
 // 目的：把最近公告列表固化成结构化数组，避免只有一段模糊摘要。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DisclosureAnnouncement {
     pub published_at: String,
     pub title: String,
@@ -93,7 +93,7 @@ pub struct DisclosureAnnouncement {
 
 // 2026-04-01 CST: 这里定义行业上下文，原因是行业层首版先沿用 sector proxy 技术结论，但要给上层稳定的独立消费字段；
 // 目的：把“行业环境”从 technical_context 的深层嵌套里提炼出来，便于后续继续叠加行业景气数据。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct IndustryContext {
     pub sector_symbol: String,
     pub proxy_bias: String,
@@ -104,7 +104,7 @@ pub struct IndustryContext {
 
 // 2026-04-01 CST: 这里定义总综合结论，原因是产品真正需要的是最终 stance，而不是调用方自己重新读完所有子结果再拼判断；
 // 目的：把技术面与信息面冲突/共振关系收敛成统一 headline + rationale + risk_flags。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct IntegratedConclusion {
     pub stance: String,
     pub headline: String,

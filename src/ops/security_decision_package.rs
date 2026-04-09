@@ -39,10 +39,16 @@ pub struct SecurityDecisionPackageObjectGraph {
     pub approval_ref: String,
     pub position_plan_ref: String,
     pub approval_brief_ref: String,
+    // 2026-04-09 CST: 这里把 scorecard 正式纳入 object_graph，原因是评分卡已经进入 package/verify 主链，不能再只靠 artifact_role 间接识别；
+    // 目的：让 revision、verify、后续治理都能稳定引用同一份 scorecard 正式对象，而不是每次重新猜测路径。 [2026-04-09 CST]
+    pub scorecard_ref: String,
     pub decision_card_path: String,
     pub approval_request_path: String,
     pub position_plan_path: String,
     pub approval_brief_path: String,
+    // 2026-04-09 CST: 这里补 scorecard_path，原因是 scorecard 与 plan/brief 一样需要成为正式对象图的一部分；
+    // 目的：把 scorecard 的路径锚点显式固化进 package 合同，供 verify 精确比对而不是事后推导。 [2026-04-09 CST]
+    pub scorecard_path: String,
     // 2026-04-08 CST: 这里把会后结论锚点设计为可空，原因是初始 submit 阶段还没有 post_meeting_conclusion；
     // 目的：允许 package 从 v1 开始就带稳定合同，同时在会后 revision 发生时再把结论正式挂进来。
     pub post_meeting_conclusion_ref: Option<String>,
@@ -93,10 +99,16 @@ pub struct SecurityDecisionPackageBuildInput {
     // 目的：把对象图拼装收口到 builder，避免多个入口各自维护字段导致合同漂移。
     pub position_plan_ref: String,
     pub approval_brief_ref: String,
+    // 2026-04-09 CST: 这里给 builder 补 scorecard_ref，原因是 submit/revision 现在都需要显式保留评分卡锚点；
+    // 目的：确保 package builder 一次性组装完整对象图，避免 submit 与 revision 各自漏字段。 [2026-04-09 CST]
+    pub scorecard_ref: String,
     pub decision_card_path: String,
     pub approval_request_path: String,
     pub position_plan_path: String,
     pub approval_brief_path: String,
+    // 2026-04-09 CST: 这里给 builder 补 scorecard_path，原因是 verify 现在要校验评分卡路径与 manifest 是否一致；
+    // 目的：让 scorecard 和其余正式对象一样，统一通过 builder 落进 package 合同。 [2026-04-09 CST]
+    pub scorecard_path: String,
     // 2026-04-08 CST: 这里新增可选会后结论输入，原因是只有发生会后治理动作时 revision 才会拿到这组新对象；
     // 目的：保持 builder 合同统一，不让 record/revision 在外部私自修改 package JSON。
     pub post_meeting_conclusion_ref: Option<String>,
@@ -131,10 +143,12 @@ pub fn build_security_decision_package(
             approval_ref: input.approval_ref.clone(),
             position_plan_ref: input.position_plan_ref,
             approval_brief_ref: input.approval_brief_ref,
+            scorecard_ref: input.scorecard_ref,
             decision_card_path: input.decision_card_path,
             approval_request_path: input.approval_request_path,
             position_plan_path: input.position_plan_path,
             approval_brief_path: input.approval_brief_path,
+            scorecard_path: input.scorecard_path,
             post_meeting_conclusion_ref: input.post_meeting_conclusion_ref,
             post_meeting_conclusion_path: input.post_meeting_conclusion_path,
         },

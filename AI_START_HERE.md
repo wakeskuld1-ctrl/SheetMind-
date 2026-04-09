@@ -2,74 +2,89 @@
 
 ## 文件目的
 
-- 创建时间：2026-03-28
-- 创建原因：减少文档分散，让任何新接手本项目的 AI 在最短时间内进入同一套仓库级上下文。
-- 创建目的：把入口压缩成“一份总计划 + 三份动态记录”。
+这是一份给新 AI / 新工程师的最短入口。
 
-## 先读这 1 份总计划
+目标只有两个：
 
-1. `docs/plans/2026-03-28-first-phase-implementation-plan.md`
+1. 用最短时间进入当前真实主线
+2. 避免一接手就被历史材料和旧标题带偏
 
-## 再读这 3 份动态记录
+## 当前项目是什么
 
-1. `task_plan.md`
-2. `progress.md`
-3. `findings.md`
+当前仓库应理解为：
+
+- `SheetMind / Excel_Skill`
+- Rust-first
+- EXE / CLI-first
+- foundation-first
+
+不要把它再理解成旧的 `TradingAgents` GitHub 首页项目。
+
+## 必读顺序
+
+请按下面顺序阅读：
+
+1. [README.md](./README.md)
+2. [docs/ai-memory/project-baseline.md](./docs/ai-memory/project-baseline.md)
+3. [docs/ai-handoff/AI_HANDOFF_MANUAL.md](./docs/ai-handoff/AI_HANDOFF_MANUAL.md)
+4. [docs/execution-notes-2026-04-07-foundation-navigation-kernel.md](./docs/execution-notes-2026-04-07-foundation-navigation-kernel.md)
+5. [docs/architecture/repo-and-branch-governance.md](./docs/architecture/repo-and-branch-governance.md)
 
 ## 当前主线
 
-当前主线不是继续无序加功能，而是先把主仓做成清晰的数据分析底座：
+当前主线不是继续无序叠业务，而是先把通用底座做稳：
 
-1. 明确主仓边界
-2. 统一算子协议
-3. 建立语义层初版
-4. 让交接与继续开发形成闭环
+1. Rust 基础能力
+2. Excel / 表处理 / 分析 / 报表
+3. foundation 导航内核
+4. 交付、交接、验证体系
 
-## 架构冻结原则
+这里再补一条硬边界：
 
-本轮已经把 Python `TradingAgents` 侧的主干调用链收口为：
+- `security_*`、`stock_*`、审批链、committee、scorecard、training 这类内容，即使存在于仓库中，也只应理解为业务适配层或并行领域轨道；
+- 它们不是当前项目主线，不代表 foundation 范围已经改变；
+- 任何 AI 接手时，都必须先按通用能力主线理解仓库，再决定是否进入某个业务域分支。
 
-`dispatch -> registry -> router -> provider`
+## 已确认的架构原则
 
-后续默认规则：
+### 1. 默认按现有架构继续推进
 
-1. 新能力优先沿现有架构扩展，不要再随意改骨架。
-2. `interface.py` 视为兼容 facade，非必要不要重新变回真实装配入口。
-3. `dispatch.py`、`registry.py`、`router.py` 是当前默认主链，新增 Tool / Provider / 运行时逻辑优先接到这条链上。
-4. 只有在出现明确证据表明现有架构无法承载目标需求、且无法通过局部扩展解决时，才允许再次发起骨架级重构。
-5. 如果必须重构，先说明为什么现有架构不够、给出替代方案和影响范围，并得到批准后再动手。
+这轮已经定好的结构，后续默认沿着它扩展，不要每次接手都重新重构。
 
-一句话原则：
+### 2. foundation 顺序固定
 
-`这次架构调整之后，后续默认按现有架构继续开发，非必要不重构。`
+当前 foundation 主线顺序固定为：
+
+`ontology-lite -> roaming -> retrieval -> evidence assembly`
+
+### 3. retrieval 不是系统入口
+
+retrieval 只是候选域内的执行阶段，不是整个系统的起点。
+
+### 4. Rust 是产品主线
+
+仓库里可能还保留历史 Python 相关内容，但当前产品开发主线是 Rust / EXE，不要把 Python 重新混回主交付链路。
+
+### 5. 目录边界先于业务进展
+
+当前应这样理解目录边界：
+
+- `src/ops/foundation/`：只承载 ontology、roaming、retrieval、evidence 这类通用导航内核
+- 通用 runtime / tooling / table / analysis / report：属于可复用标准能力
+- `security_*`、`stock_*` 等：属于业务适配层，不属于 foundation 主线
+
+如果看到大量证券相关文件，不要自动推断“当前项目主线是证券业务化”；默认判断应当仍然是“foundation-first，业务域为上层适配”。
 
 ## 开工前必须遵守
 
-1. 用中文响应。
-2. 修改前先描述方案，给出多个方案并等待批准。
-3. 遇到 Bug 先写复现测试，再修复。
-4. 判断改动属于核心层还是扩展层。
-5. 不要为了单个场景破坏主仓长期边界。
+1. 用中文沟通
+2. 修改前先给方案，等批准再动
+3. 遇到 Bug 先补复现测试再修
+4. 不要为单个场景破坏长期边界
+5. 每次任务完成后补 `.trae/CHANGELOG_TASK.md`
 
-## 默认工作顺序
+## 当前最重要的提醒
 
-1. 先读总计划。
-2. 再读动态记录。
-3. 先给方案，再开工。
-4. 采用 TDD 或最小可验证步骤推进。
-5. 完成后更新 `progress.md`、`findings.md` 和 `.trae/CHANGELOG_TASK.md`。
+如果你只记一句话，请记这个：
 
-## 当前最重要的判断标准
-
-如果一段能力：
-
-- 可以跨场景复用
-- 不依赖特定行业规则
-
-则优先考虑进入主仓核心层；否则优先考虑放到扩展层。
-
-## 如果你只剩 30 秒
-
-至少记住这句话：
-
-`主仓 = 通用底座；场景 = 扩展项目；先收边界，再扩能力。`
+`先守住边界，再补能力；先沿现有架构推进，非必要不重构。`

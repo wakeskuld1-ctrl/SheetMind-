@@ -4,13 +4,19 @@ use crate::ops::stock::security_decision_committee::SecurityDecisionCommitteeRes
 
 // 2026-04-02 CST: 这里定义证券仓位计划，原因是审批对象需要从“是否可做”继续落到“准备怎么做”；
 // 目的：把执行方案独立成正式对象，后续投中管理、复盘和再审批都围绕同一对象演进。
+// 2026-04-08 CST: 这里补入合同头、审批绑定和 reduce_plan，原因是 Task 2 要把仓位计划升级成正式可审批对象；
+// 目的：让 approval_request、package、verify 和后续执行层都能围绕统一合同消费 position_plan，而不是继续把它当作临时附属输出。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SecurityPositionPlan {
+    pub contract_version: String,
+    pub document_type: String,
     pub plan_id: String,
+    pub decision_id: String,
     pub decision_ref: String,
     pub approval_ref: String,
     pub symbol: String,
     pub analysis_date: String,
+    pub plan_direction: String,
     pub plan_status: String,
     pub risk_budget_pct: f64,
     pub suggested_gross_pct: f64,
@@ -18,10 +24,12 @@ pub struct SecurityPositionPlan {
     pub max_gross_pct: f64,
     pub entry_plan: PositionEntryPlan,
     pub add_plan: PositionAddPlan,
+    pub reduce_plan: PositionReducePlan,
     pub stop_loss_plan: PositionStopLossPlan,
     pub take_profit_plan: PositionTakeProfitPlan,
     pub cancel_conditions: Vec<String>,
     pub sizing_rationale: Vec<String>,
+    pub approval_binding: SecurityPositionPlanApprovalBinding,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,6 +49,14 @@ pub struct PositionAddPlan {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PositionReducePlan {
+    pub allow_reduce: bool,
+    pub trigger_condition: String,
+    pub target_gross_pct: f64,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PositionStopLossPlan {
     pub stop_loss_pct: f64,
     pub hard_stop_condition: String,
@@ -55,10 +71,22 @@ pub struct PositionTakeProfitPlan {
     pub notes: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SecurityPositionPlanApprovalBinding {
+    pub decision_ref: String,
+    pub approval_ref: String,
+    pub approval_request_ref: String,
+    pub package_scope: String,
+    pub binding_status: String,
+}
+
 // 2026-04-02 CST: 这里定义仓位计划生成输入，原因是执行计划除了 committee 结果，还必须拿到当前审批锚点；
 // 目的：确保 position_plan 从第一版起就正式绑定 decision_ref / approval_ref，而不是游离在审批对象之外。
+// 2026-04-08 CST: 这里补入 decision_id，原因是 Task 2 要让仓位计划能被审批链和版本链直接定位；
+// 目的：避免后续 approval_request / revision / review 再从外部反推这份仓位计划属于哪次决议。
 #[derive(Debug, Clone, PartialEq)]
 pub struct SecurityPositionPlanBuildInput {
+    pub decision_id: String,
     pub decision_ref: String,
     pub approval_ref: String,
 }
@@ -94,6 +122,15 @@ pub fn build_security_position_plan(
     let stop_loss_pct = parse_percent(&committee.decision_card.downside_risk).unwrap_or(0.05);
     let (first_target_pct, second_target_pct) =
         parse_percent_range(&committee.decision_card.expected_return_range);
+    let allow_reduce = plan_status != "blocked";
+    let reduce_target_gross_pct = if plan_status == "blocked" {
+        0.0
+    } else if plan_status == "probe_only" {
+        0.0
+    } else {
+        starter
+    };
+    let plan_direction = normalize_plan_direction(&committee.decision_card.exposure_side);
 
     let cancel_conditions = if plan_status == "blocked" {
         vec![
@@ -128,11 +165,15 @@ pub fn build_security_position_plan(
     };
 
     SecurityPositionPlan {
+        contract_version: "security_position_plan.v2".to_string(),
+        document_type: "security_position_plan".to_string(),
         plan_id: format!("plan-{}", committee.decision_card.decision_id),
+        decision_id: input.decision_id.clone(),
         decision_ref: input.decision_ref.clone(),
         approval_ref: input.approval_ref.clone(),
         symbol: committee.symbol.clone(),
         analysis_date: committee.analysis_date.clone(),
+        plan_direction,
         plan_status: plan_status.to_string(),
         risk_budget_pct: risk_budget,
         suggested_gross_pct: suggested,
@@ -168,6 +209,20 @@ pub fn build_security_position_plan(
                 "补证据或风险解除前禁止加仓".to_string()
             },
         },
+        reduce_plan: PositionReducePlan {
+            allow_reduce,
+            trigger_condition: if allow_reduce {
+                "达到第一目标位或市场环境转弱时允许主动减仓".to_string()
+            } else {
+                "当前无持仓可减".to_string()
+            },
+            target_gross_pct: reduce_target_gross_pct,
+            notes: if allow_reduce {
+                "减仓规则用于把仓位降回更稳健区间，避免只定义加仓而不定义收缩。".to_string()
+            } else {
+                "blocked 状态下不生成减仓动作。".to_string()
+            },
+        },
         stop_loss_plan: PositionStopLossPlan {
             stop_loss_pct,
             hard_stop_condition: if plan_status == "blocked" {
@@ -189,11 +244,33 @@ pub fn build_security_position_plan(
         },
         cancel_conditions,
         sizing_rationale,
+        approval_binding: SecurityPositionPlanApprovalBinding {
+            decision_ref: input.decision_ref.clone(),
+            approval_ref: input.approval_ref.clone(),
+            approval_request_ref: input.approval_ref.clone(),
+            package_scope: "security_decision_submit_approval".to_string(),
+            binding_status: "bound_to_approval_request".to_string(),
+        },
+    }
+}
+
+fn normalize_plan_direction(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "long" => "Long".to_string(),
+        "short" => "Short".to_string(),
+        "hedge" => "Hedge".to_string(),
+        "neutral" => "NoTrade".to_string(),
+        _ => "NoTrade".to_string(),
     }
 }
 
 fn parse_percent(value: &str) -> Option<f64> {
-    value.trim().trim_end_matches('%').parse::<f64>().ok().map(|v| v / 100.0)
+    value
+        .trim()
+        .trim_end_matches('%')
+        .parse::<f64>()
+        .ok()
+        .map(|v| v / 100.0)
 }
 
 fn parse_percent_range(value: &str) -> (f64, f64) {

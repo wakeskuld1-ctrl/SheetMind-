@@ -8,17 +8,21 @@ use thiserror::Error;
 
 use crate::ops::stock::security_approval_brief_signature::sign_security_approval_brief_document;
 use crate::ops::stock::security_decision_approval_bridge::{
-    bridge_security_decision_to_approval, PersistedDecisionAuditRecord,
-    SecurityDecisionApprovalBridgeOptions,
-};
-use crate::ops::stock::security_decision_package::{
-    build_security_decision_package, sha256_for_bytes, sha256_for_json_value,
-    SecurityDecisionPackageArtifact, SecurityDecisionPackageBuildInput,
-    SecurityDecisionPackageDocument,
+    PersistedApprovalPositionPlanBinding, PersistedDecisionAuditRecord,
+    SecurityDecisionApprovalBridgeOptions, bridge_security_decision_to_approval,
 };
 use crate::ops::stock::security_decision_committee::{
-    security_decision_committee, SecurityDecisionCommitteeError, SecurityDecisionCommitteeRequest,
-    SecurityDecisionCommitteeResult,
+    SecurityDecisionCommitteeError, SecurityDecisionCommitteeRequest,
+    SecurityDecisionCommitteeResult, security_decision_committee,
+};
+use crate::ops::stock::security_decision_package::{
+    SecurityDecisionPackageArtifact, SecurityDecisionPackageBuildInput,
+    SecurityDecisionPackageDocument, build_security_decision_package, sha256_for_bytes,
+    sha256_for_json_value,
+};
+use crate::ops::stock::security_scorecard::{
+    SecurityScorecardBuildInput, SecurityScorecardDocument, SecurityScorecardError,
+    build_security_scorecard,
 };
 
 // 2026-04-02 CST: 这里定义证券审批提交请求，原因是“提交到审批主线”除了投决参数，还需要审批运行时路径与治理默认值；
@@ -62,6 +66,8 @@ pub struct SecurityDecisionSubmitApprovalRequest {
     pub approval_brief_signing_key_secret: Option<String>,
     #[serde(default)]
     pub approval_brief_signing_key_secret_env: Option<String>,
+    #[serde(default)]
+    pub scorecard_model_path: Option<String>,
 }
 
 // 2026-04-02 CST: 这里定义证券审批提交结果，原因是调用方不仅需要看到 committee 结果，还需要知道具体写到了哪些审批工件；
@@ -74,6 +80,7 @@ pub struct SecurityDecisionSubmitApprovalResult {
     pub approval_brief: serde_json::Value,
     pub approval_request: serde_json::Value,
     pub position_plan: serde_json::Value,
+    pub scorecard: serde_json::Value,
     pub decision_package: serde_json::Value,
     pub approval_brief_path: String,
     pub approval_brief_signature_path: Option<String>,
@@ -81,6 +88,7 @@ pub struct SecurityDecisionSubmitApprovalResult {
     pub approval_request_path: String,
     pub approval_events_path: String,
     pub position_plan_path: String,
+    pub scorecard_path: String,
     pub decision_package_path: String,
     pub audit_log_path: String,
 }
@@ -93,6 +101,8 @@ pub enum SecurityDecisionSubmitApprovalError {
     Committee(#[from] SecurityDecisionCommitteeError),
     #[error("证券审批提交落盘失败: {0}")]
     Persist(String),
+    #[error("证券评分卡构建失败: {0}")]
+    Scorecard(#[from] SecurityScorecardError),
 }
 
 // 2026-04-02 CST: 这里实现证券审批提交总入口，原因是 P0-1 要让证券投决对象第一次正式进入审批主线；
@@ -114,7 +124,7 @@ pub fn security_decision_submit_approval(
         min_risk_reward_ratio: request.min_risk_reward_ratio,
     };
     let committee_result = security_decision_committee(&committee_request)?;
-    let bridge = bridge_security_decision_to_approval(
+    let mut bridge = bridge_security_decision_to_approval(
         &committee_result,
         &SecurityDecisionApprovalBridgeOptions {
             scene_name: request.scene_name.clone(),
@@ -140,6 +150,9 @@ pub fn security_decision_submit_approval(
     let approval_brief_path = runtime_root
         .join("approval_briefs")
         .join(format!("{}.json", bridge.decision_card.decision_id));
+    let scorecard_path = runtime_root
+        .join("scorecards")
+        .join(format!("{}.json", bridge.decision_card.decision_id));
     let decision_package_path = runtime_root
         .join("decision_packages")
         .join(format!("{}.json", bridge.decision_card.decision_id));
@@ -147,13 +160,34 @@ pub fn security_decision_submit_approval(
         .join("audit_log")
         .join(format!("{}.jsonl", bridge.decision_card.decision_id));
 
+    // 2026-04-08 CST: 这里在 submit 阶段补齐 approval_request 对仓位计划的正式绑定，原因是 Task 2 需要把 position_plan 真正挂进审批链；
+    // 目的：让 approval_request 在落盘时就带上 plan 的 ref、路径、合同版本、摘要和方向，而不是事后再从 package 推断。
+    bridge.approval_request.position_plan_binding = Some(build_position_plan_binding(
+        &bridge.position_plan,
+        &position_plan_path,
+    )?);
+    let scorecard = build_security_scorecard(
+        &committee_result,
+        &SecurityScorecardBuildInput {
+            generated_at: request.created_at.clone(),
+            decision_id: bridge.decision_card.decision_id.clone(),
+            decision_ref: bridge.decision_ref.clone(),
+            approval_ref: bridge.approval_ref.clone(),
+            scorecard_model_path: request.scorecard_model_path.clone(),
+        },
+    )?;
+
     persist_json(&decision_path, &bridge.decision_card)?;
     persist_json(&approval_path, &bridge.approval_request)?;
     persist_json(&approval_events_path, &bridge.approval_events)?;
     persist_json(&position_plan_path, &bridge.position_plan)?;
     persist_json(&approval_brief_path, &bridge.approval_brief)?;
-    let approval_brief_signature_path =
-        maybe_persist_approval_brief_signature(&approval_brief_path, request, &bridge.approval_brief)?;
+    persist_json(&scorecard_path, &scorecard)?;
+    let approval_brief_signature_path = maybe_persist_approval_brief_signature(
+        &approval_brief_path,
+        request,
+        &bridge.approval_brief,
+    )?;
     persist_audit_record(&audit_log_path, &bridge.audit_record)?;
     let approval_brief_signature_value =
         load_optional_json_file(approval_brief_signature_path.as_deref())?;
@@ -166,6 +200,8 @@ pub fn security_decision_submit_approval(
         &approval_events_path,
         &position_plan_path,
         &approval_brief_path,
+        &scorecard_path,
+        &scorecard,
         &audit_log_path,
         approval_brief_signature_path.as_deref(),
         approval_brief_signature_value.as_ref(),
@@ -182,6 +218,8 @@ pub fn security_decision_submit_approval(
             .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
         position_plan: serde_json::to_value(&bridge.position_plan)
             .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
+        scorecard: serde_json::to_value(&scorecard)
+            .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
         decision_package: serde_json::to_value(&decision_package)
             .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
         approval_brief_path: approval_brief_path.to_string_lossy().to_string(),
@@ -190,6 +228,7 @@ pub fn security_decision_submit_approval(
         approval_request_path: approval_path.to_string_lossy().to_string(),
         approval_events_path: approval_events_path.to_string_lossy().to_string(),
         position_plan_path: position_plan_path.to_string_lossy().to_string(),
+        scorecard_path: scorecard_path.to_string_lossy().to_string(),
         decision_package_path: decision_package_path.to_string_lossy().to_string(),
         audit_log_path: audit_log_path.to_string_lossy().to_string(),
     })
@@ -206,6 +245,8 @@ fn build_decision_package_document(
     approval_events_path: &Path,
     position_plan_path: &Path,
     approval_brief_path: &Path,
+    scorecard_path: &Path,
+    scorecard: &SecurityScorecardDocument,
     audit_log_path: &Path,
     approval_brief_signature_path: Option<&str>,
     approval_brief_signature_value: Option<&Value>,
@@ -219,6 +260,8 @@ fn build_decision_package_document(
     let position_plan_value = serde_json::to_value(&bridge.position_plan)
         .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
     let approval_brief_value = serde_json::to_value(&bridge.approval_brief)
+        .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
+    let scorecard_value = serde_json::to_value(scorecard)
         .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
     let audit_payload = fs::read(audit_log_path)
         .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
@@ -251,7 +294,7 @@ fn build_decision_package_document(
         build_package_artifact(
             "position_plan",
             position_plan_path,
-            "security_position_plan.v1",
+            "security_position_plan.v2",
             true,
             Some(&position_plan_value),
             None,
@@ -262,6 +305,14 @@ fn build_decision_package_document(
             "security_approval_brief.v1",
             true,
             Some(&approval_brief_value),
+            None,
+        )?,
+        build_package_artifact(
+            "security_scorecard",
+            scorecard_path,
+            "security_scorecard.v1",
+            true,
+            Some(&scorecard_value),
             None,
         )?,
         build_package_artifact(
@@ -293,24 +344,28 @@ fn build_decision_package_document(
             decision_ref: bridge.decision_ref.clone(),
             approval_ref: bridge.approval_ref.clone(),
             symbol: committee_result.symbol.clone(),
-        analysis_date: committee_result.analysis_date.clone(),
-        decision_status: committee_result.decision_card.status.clone(),
-        approval_status: format!("{:?}", bridge.approval_request.status),
-        // 2026-04-08 CST: 这里把正式对象图一次性写入 package builder，原因是会后治理链路需要稳定消费 approval_brief / position_plan 等对象引用；
-        // 目的：让初始 package 从第一版开始就具备正式 object_graph，后续 revision 与 verify 只做沿用和校验，不再从 manifest 反推。
-        position_plan_ref: bridge.position_plan.plan_id.clone(),
-        approval_brief_ref: bridge.approval_brief.brief_id.clone(),
-        decision_card_path: decision_path.to_string_lossy().to_string(),
-        approval_request_path: approval_path.to_string_lossy().to_string(),
-        position_plan_path: position_plan_path.to_string_lossy().to_string(),
-        approval_brief_path: approval_brief_path.to_string_lossy().to_string(),
-        post_meeting_conclusion_ref: None,
-        post_meeting_conclusion_path: None,
-        evidence_hash: committee_result.evidence_bundle.evidence_hash.clone(),
-        governance_hash: bridge
-            .approval_request
-            .governance_hash
-            .clone()
+            analysis_date: committee_result.analysis_date.clone(),
+            decision_status: committee_result.decision_card.status.clone(),
+            approval_status: format!("{:?}", bridge.approval_request.status),
+            // 2026-04-08 CST: 这里把正式对象图一次性写入 package builder，原因是 Task 1 需要让 package 显式表达对象之间的稳定引用；
+            // 目的：让后续 verify / revision 都消费统一的 object_graph，而不是继续从 artifact role 反推对象关系。
+            position_plan_ref: bridge.position_plan.plan_id.clone(),
+            approval_brief_ref: bridge.approval_brief.brief_id.clone(),
+            scorecard_ref: scorecard.scorecard_id.clone(),
+            decision_card_path: decision_path.to_string_lossy().to_string(),
+            approval_request_path: approval_path.to_string_lossy().to_string(),
+            position_plan_path: position_plan_path.to_string_lossy().to_string(),
+            approval_brief_path: approval_brief_path.to_string_lossy().to_string(),
+            scorecard_path: scorecard_path.to_string_lossy().to_string(),
+            // 2026-04-09 CST: 这里在初始 submit 时显式写入空的 post-meeting 锚点，原因是 revision/verify 现在会统一读取 object_graph；
+            // 目的：保证 v1 package 合同从第一版起字段齐全，只是会后结论尚未产生。 [2026-04-09 CST]
+            post_meeting_conclusion_ref: None,
+            post_meeting_conclusion_path: None,
+            evidence_hash: committee_result.evidence_bundle.evidence_hash.clone(),
+            governance_hash: bridge
+                .approval_request
+                .governance_hash
+                .clone()
                 .unwrap_or_default(),
             artifact_manifest,
         },
@@ -344,6 +399,30 @@ fn load_optional_json_file(
     let value = serde_json::from_slice(&payload)
         .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
     Ok(Some(value))
+}
+
+fn build_position_plan_binding(
+    position_plan: &crate::ops::stock::security_position_plan::SecurityPositionPlan,
+    position_plan_path: &Path,
+) -> Result<PersistedApprovalPositionPlanBinding, SecurityDecisionSubmitApprovalError> {
+    let position_plan_value = serde_json::to_value(position_plan)
+        .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
+    let position_plan_sha256 = sha256_for_json_value(&position_plan_value)
+        .map_err(SecurityDecisionSubmitApprovalError::Persist)?;
+    Ok(PersistedApprovalPositionPlanBinding {
+        position_plan_ref: position_plan.plan_id.clone(),
+        position_plan_path: position_plan_path.to_string_lossy().to_string(),
+        position_plan_contract_version: position_plan.contract_version.clone(),
+        position_plan_sha256,
+        plan_status: position_plan.plan_status.clone(),
+        plan_direction: position_plan.plan_direction.clone(),
+        gross_limit_summary: format!(
+            "suggested {:.2}% / starter {:.2}% / max {:.2}%",
+            position_plan.suggested_gross_pct * 100.0,
+            position_plan.starter_gross_pct * 100.0,
+            position_plan.max_gross_pct * 100.0
+        ),
+    })
 }
 
 fn maybe_persist_approval_brief_signature(

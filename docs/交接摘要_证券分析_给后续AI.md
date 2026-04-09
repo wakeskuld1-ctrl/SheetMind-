@@ -300,3 +300,27 @@
   - 再读 `docs/plans/2026-04-08-security-post-meeting-conclusion-plan.md`
   - 再读 `docs/execution-notes-2026-04-08-security-post-meeting-conclusion.md`
   - 然后从 `tests/security_post_meeting_conclusion_cli.rs` 开始补下一轮红测
+## 14. 2026-04-09 Scorecard Verify 护栏补齐
+
+<!-- 2026-04-09 CST: 这里追加 scorecard verify 护栏交接，原因是本轮虽然没有继续改 submit_approval 主链，但已经把评分卡正式接入后的验真边界补到了测试层；目的是让后续 AI 明确知道 scorecard 不只是“能生成”，而是“引用、完整性、动作语义”都已有显式回归约束。 -->
+
+- 本轮新增的确认点：
+  - `security_decision_verify_package` 的 happy path 现在显式断言
+    - `governance_checks.scorecard_binding_consistent == true`
+    - `governance_checks.scorecard_complete == true`
+    - `governance_checks.scorecard_action_aligned == true`
+  - 新增篡改回归：
+    - `security_decision_verify_package_fails_after_scorecard_action_is_tampered`
+    - 通过篡改 `scorecard.recommendation_action / exposure_side`，锁定 verify 必须返回
+      - `package_valid = false`
+      - `governance_checks.scorecard_action_aligned = false`
+- 本轮实际修改文件：
+  - `tests/security_decision_verify_package_cli.rs`
+- 本轮验证命令：
+  - `cargo test --test security_decision_verify_package_cli security_decision_verify_package_accepts_signed_package_and_writes_report -- --nocapture`
+  - `cargo test --test security_decision_verify_package_cli security_decision_verify_package_fails_after_scorecard_action_is_tampered -- --nocapture`
+  - `cargo test --test security_decision_verify_package_cli -- --nocapture`
+  - `cargo test --test security_scorecard_cli -- --nocapture`
+- 这轮形成的新记忆点：
+  - `security_scorecard` 进入正式治理链后，不能只验证“文件存在”和“hash 匹配”
+  - 还必须显式验证它和 `decision_card` 的动作语义一致，否则会把评分卡漂移误放行进后续审批/复盘

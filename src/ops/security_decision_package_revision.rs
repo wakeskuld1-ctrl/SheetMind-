@@ -122,10 +122,14 @@ pub fn security_decision_package_revision(
         // 目的：确保 package 版本推进时 decision/approval/brief/plan 的治理锚点保持稳定，为后续会后结论挂接提供可靠基线。
         position_plan_ref: previous_package.object_graph.position_plan_ref.clone(),
         approval_brief_ref: previous_package.object_graph.approval_brief_ref.clone(),
+        // 2026-04-09 CST: 这里沿用上一版 package 的 scorecard 锚点，原因是 revision 不应丢失 foundation 分支新增的评分卡治理链；
+        // 目的：确保审批包升版时，scorecard 与 plan/brief 一样被视为稳定正式对象引用。 [2026-04-09 CST]
+        scorecard_ref: previous_package.object_graph.scorecard_ref.clone(),
         decision_card_path: previous_package.object_graph.decision_card_path.clone(),
         approval_request_path: previous_package.object_graph.approval_request_path.clone(),
         position_plan_path: previous_package.object_graph.position_plan_path.clone(),
         approval_brief_path: previous_package.object_graph.approval_brief_path.clone(),
+        scorecard_path: previous_package.object_graph.scorecard_path.clone(),
         post_meeting_conclusion_ref,
         post_meeting_conclusion_path,
         evidence_hash: previous_package.governance_binding.evidence_hash.clone(),

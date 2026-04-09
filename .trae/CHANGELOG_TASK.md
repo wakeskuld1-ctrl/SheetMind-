@@ -3353,3 +3353,158 @@
 - 已完成 `cargo test --test retrieval_engine_unit absolute_large_range -- --nocapture`，结果为 `1 passed`。
 - 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `29 passed`。
 - 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集 `48 passed`。
+## 2026-04-09
+### 修改内容
+- 修改 `D:\Rust\Excel_Skill\tests\security_decision_verify_package_cli.rs`，在 signed package happy path 中补充 `scorecard_binding_consistent / scorecard_complete / scorecard_action_aligned` 三项治理断言。原因是 `security_scorecard` 已经进入正式 package / verify 主链；目的：把评分卡的“引用一致性、合同完整性、动作语义一致性”正式锁进回归测试，而不是只验证文件存在。
+- 新增 `security_decision_verify_package_fails_after_scorecard_action_is_tampered()` 回归测试，通过篡改 `scorecard.recommendation_action` 与 `scorecard.exposure_side` 验证 `verify` 会返回 `package_valid = false` 且 `scorecard_action_aligned = false`。原因是需要防止评分卡在不改 decision_card 的情况下单独漂移；目的：把 scorecard 纳入正式防篡改护栏。
+- 更新 `D:\Rust\Excel_Skill\docs\交接摘要_证券分析_给后续AI.md`，补充 2026-04-09 的 scorecard verify 护栏交接。原因是后续 AI 需要明确知道 scorecard 已有 verify 侧护栏；目的：避免重复排查“评分卡是否已验真”的上下文成本。
+### 修改原因
+- 用户已批准沿方案 B 继续推进，需要把“评分卡正式对象”从“已接上 submit_approval/package”进一步推进到“verify 明确验真、篡改可打回”的状态。
+- 这轮没有再扩张新的产品能力边界，重点是为既有主链补治理级回归护栏，确保后续继续做评分卡模型化、投决复盘或审批包审计时，有稳定的底线约束。
+### 方案还差什么?
+- [ ] 还没有补“仅篡改 `scorecard_path` / `scorecard_ref` 但不改 scorecard 内容”的独立失败测试；如果后续要把引用漂移与内容漂移拆得更细，建议继续补这条回归。
+- [ ] 还没有把 scorecard 护栏同步扩展到 package revision 之后的再校验场景；后续如推进 revision 后 scorecard 漂移治理，可以补 `revision -> verify` 一体化回归。
+### 潜在问题
+- [ ] 当前新增的 scorecard 篡改测试会同时触发 `hash_checks` 失败与 `scorecard_action_aligned` 失败；这对防线是足够的，但如果后续要精确区分“内容被改写”和“治理绑定漂移”，还需要更细粒度的测试夹具。
+- [ ] 仓库当前仍保留既有 `dispatcher` 未使用 warning，以及 `tests/security_scorecard_cli.rs` 的既有 unused import warning；这不是本轮引入的问题，但如果后续要收 CI 噪声，建议单独立项处理。
+### 关闭项
+- 已完成 `cargo test --test security_decision_verify_package_cli security_decision_verify_package_accepts_signed_package_and_writes_report -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test security_decision_verify_package_cli security_decision_verify_package_fails_after_scorecard_action_is_tampered -- --nocapture`，结果为 `1 passed`。
+- 已完成 `cargo test --test security_decision_verify_package_cli -- --nocapture`，结果为 `7 passed`。
+- 已完成 `cargo test --test security_scorecard_cli -- --nocapture`，结果为 `1 passed`。
+## 2026-04-09
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\docs\plans\2026-04-09-master-balance-scorecard-system-design.md`，正式定义“大平衡计分卡系统”的三线隔离边界、五层结构、八组因子、多期限子卡、多目标头、正式对象合同、回算口径与训练治理规则。
+- 新增 `D:\Rust\Excel_Skill\docs\plans\2026-04-09-master-balance-scorecard-system-plan.md`，把后续实现拆成 `Task 1 ~ Task 10`，覆盖三线对象落地、特征快照、未来标签回填、训练入口、总卡汇总、package 挂接、verify 治理、promotion 晋级与阶段回归。
+### 修改原因
+- 用户明确要求把原有“综合计分卡”升级为“可训练、可回算、可调系数、可审计”的正式系统，并强调 `量化计分卡线 / 投委会线 / 主席裁决线` 必须严格分离，不能再把数学评分直接当成正式投资建议。
+- 这轮先冻结正式设计与实施边界，是为了在进入代码实现前先把训练逻辑、artifact 产物、回算口径、晋级规则和治理关系讲清楚，避免后续开发时再次把计分卡、投委会和主席决议混成一条线。
+### 方案还差什么?
+- [ ] 还没有开始执行 `Task 1`，当前仅完成准实施规格版文档，三线对象的正式代码隔离还未落地。
+- [ ] 训练流水线、快照冻结、标签回填、artifact 注册、champion/challenger 晋级都还停留在设计层，尚未进入 TDD 实装。
+### 潜在问题
+- [ ] 如果后续实现阶段没有继续坚持“线上只消费已发布 artifact、线下单独重估”的原则，系统很容易重新退化成“分析时临场改权重”的不可审计状态。
+- [ ] 现有仓库里已经存在 scorecard / committee / package 的增量实现，后续接入时需要特别小心语义漂移，避免旧字段继续承担“正式决议”含义。
+### 关闭项
+- 已完成大平衡计分卡系统正式设计文档落盘。
+- 已完成大平衡计分卡系统实施计划文档落盘。
+- 本轮未进入代码实现阶段，未运行新增实现类测试。
+## 2026-04-09
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\src\ops\security_chair_resolution.rs` 与 `D:\Rust\Excel_Skill\tests\security_chair_resolution_cli.rs`，正式落地主席裁决对象和独立 Tool，输出 `committee_result / scorecard / chair_resolution` 三条线，并把主席线定义为唯一正式最终动作出口。
+- 修改 `D:\Rust\Excel_Skill\src\ops\security_decision_committee.rs`、`D:\Rust\Excel_Skill\src\ops\security_scorecard.rs`、`D:\Rust\Excel_Skill\src\ops\stock.rs`、`D:\Rust\Excel_Skill\src\ops\mod.rs`、`D:\Rust\Excel_Skill\src\tools\catalog.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher\stock_ops.rs`，把主席线正式挂入 stock 主链，同时给 scorecard 增加 `quant_signal / quant_stance`，给 committee 增加 `committee_session_ref`。
+- 新增 `D:\Rust\Excel_Skill\src\ops\security_feature_snapshot.rs` 与 `D:\Rust\Excel_Skill\tests\security_feature_snapshot_cli.rs`，正式落地 `feature_snapshot` 对象和独立 Tool，输出 `snapshot_id / raw_features_json / group_features_json / data_quality_flags / snapshot_hash`。
+- 修改 `D:\Rust\Excel_Skill\src\ops\security_decision_evidence_bundle.rs`，新增统一的证据包到原子特征种子映射，供 `feature_snapshot` 复用，避免后续 scorecard / training / replay 各自重复拼字段。
+- 修改 `D:\Rust\Excel_Skill\tests\security_decision_committee_cli.rs`，把两条过时的 `direction = long` 断言收敛为“`direction` 与 `exposure_side` 一致、动作字段存在”的一致性断言，避免非方向专测继续绑旧语义。
+### 修改原因
+- 用户已批准 `方案B`，要求直接执行 `Task 1 + Task 2`：先把三线对象正式隔离，再把训练底座里的特征快照落地。
+- 这轮的关键目标不是继续扩展审批链，而是先把“主席正式裁决对象”和“特征快照对象”做成真正可调用、可测试、可回放的正式能力，为后续 `forward_outcome / training / refit` 铺底。
+### 方案还差什么?
+- [ ] 还没有进入 `Task 3`，未来标签回填 `forward_outcome` 还未实现。
+- [ ] 训练入口、artifact 注册、promotion 晋级和总卡汇总仍未开始，当前只完成了三线隔离里的主席线和训练底座里的快照层。
+### 潜在问题
+- [ ] `security_chair_resolution` 当前仍是最小主席实现，正式 package / verify 还没有接入 `chair_resolution_ref`，后续进入 Task 7/8 时需要补齐对象图治理。
+- [ ] `security_feature_snapshot` 当前先落了固定 8 组因子壳，其中 `V/Q/X` 仍是 `not_populated_v1` 占位，后续训练前需要逐步补成真实可回算特征。
+### 关闭项
+- 已完成 `security_chair_resolution_cli` 红测 -> 最小实现 -> 绿测。
+- 已完成 `security_feature_snapshot_cli` 红测 -> 最小实现 -> 绿测。
+- 已完成 `security_decision_committee_cli` 相关旧回归修正并复跑通过。
+- 已完成 `security_scorecard_cli` 回归验证通过。
+
+## 2026-04-09
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\src\ops\security_forward_outcome.rs` 与 `D:\Rust\Excel_Skill\tests\security_forward_outcome_cli.rs`，按 Task 3 正式落地 `forward_outcome` 最小合同：输出绑定 `snapshot` 的 `5/10/20/30/60/180` 多期限标签，覆盖 `forward_return / max_drawdown / max_runup / positive_return / hit_upside_first / hit_stop_first / label_definition_version`。
+- 修改 `D:\Rust\Excel_Skill\src\runtime\stock_history_store.rs`，新增 `load_forward_rows()` 统一收口“按 symbol + as_of_date 之后读取未来窗口历史”的 SQLite 查询，避免标签层和后续训练层各自拼 SQL。
+- 修改 `D:\Rust\Excel_Skill\src\ops\stock.rs`、`D:\Rust\Excel_Skill\src\ops\mod.rs`、`D:\Rust\Excel_Skill\src\tools\catalog.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher\stock_ops.rs`，把 `security_forward_outcome` 正式挂入 stock 主链、兼容导出、tool catalog 与 dispatcher。
+- 已执行 `cargo test --test security_forward_outcome_cli -- --nocapture`、`cargo test --test security_feature_snapshot_cli -- --nocapture`、`cargo test --test security_chair_resolution_cli -- --nocapture`、`cargo test --test security_decision_committee_cli -- --nocapture`，确认 Task 3 新增能力与相邻主链回归均通过。
+### 修改原因
+- 用户已批准按方案 B 进入 Task 3，本轮目标是把“未来标签回填”从口头设计推进成正式对象与正式 Tool，并且显式绑定到 `feature_snapshot`，为后续训练、回算与复盘主链铺底。
+- 这轮优先收敛的是“标签对象边界 + 数据读取口径 + CLI/dispatcher 暴露”，不是训练入口本身；如果不先把 `forward_outcome` 做成稳定合同，后续 Task 4/5 很容易在训练层反复返工字段与取数逻辑。
+### 方案还差什么?
+- [ ] 当前 `forward_outcome` 仍是 Task 3 的最小正式实现，尚未补入 `risk_adjusted_bucket / path_quality_bucket` 等更完整标签字段；后续如需继续落地，需要先补红测再扩展合同。
+- [ ] 当前 `security_forward_outcome` 通过即时重建 `feature_snapshot` 绑定 `snapshot_id`，但还没有单独的 snapshot 持久化/回读层；后续进入训练流水线时，可以再决定是否把 snapshot 与 outcome 做正式落盘注册。
+### 潜在问题
+- [ ] 当前 `max_drawdown / max_runup` 使用的是收盘路径口径，而 `hit_upside_first / hit_stop_first` 使用日线 `high/low` 事件近似；如果后续要改成更细粒度盘中顺序逻辑，必须版本化标签定义，不能直接改现口径。
+- [ ] 当前同一日同时触发止盈和止损时保守返回 `false / false`，这是为了避免在仅有日线数据时伪造先后顺序；若后续业务要改判定规则，也必须先补失败测试。
+- [ ] 仓库当前仍有大量既有脏改动与测试运行产生的未跟踪夹具目录，本轮未清理这些并行噪声；后续正式提交前仍需严格按主题筛选 stage 范围。
+### 关闭项
+- 已完成 `security_forward_outcome_cli` 红测 -> 最小实现 -> 绿测。
+- 已完成 `security_forward_outcome` 接入 stock 主链、catalog 与 dispatcher。
+- 已完成 Task 3 对 `feature_snapshot / chair_resolution / decision_committee` 相邻主链的最小回归验证。
+## 2026-04-09
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\src\ops\security_scorecard_model_registry.rs`，正式落地 `SecurityScorecardModelRegistry` 与 `SecurityScorecardCandidateArtifactInput` 合同，并在登记时对 candidate artifact 执行路径校验与 `sha256` 摘要计算。
+- 新增 `D:\Rust\Excel_Skill\src\ops\security_scorecard_refit_run.rs`，正式落地 `SecurityScorecardRefitRequest / SecurityScorecardRefitRun / SecurityScorecardRefitResult`，补上最小 `security_scorecard_refit` 主链入口，实现 `refit_run + model_registry` 的磁盘持久化。
+- 修改 `D:\Rust\Excel_Skill\src\ops\stock.rs`、`D:\Rust\Excel_Skill\src\ops\mod.rs`、`D:\Rust\Excel_Skill\src\tools\catalog.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher\stock_ops.rs`，把 `security_scorecard_refit` 正式接入证券主链模块导出、tool catalog 与 dispatcher 路由。
+- 新增 `D:\Rust\Excel_Skill\tests\security_scorecard_refit_cli.rs`，按 TDD 先写红测再转绿，锁定 `security_scorecard_refit` 的可发现性、`refit_run` 正式对象、candidate artifact 注册、`train/valid/test` 窗口落盘与持久化路径合同。
+- 已执行 `cargo test --test security_scorecard_refit_cli -- --nocapture` 与 `cargo test --test security_forward_outcome_cli -- --nocapture`，结果均为通过。
+### 修改原因
+- 用户批准按方案 B 推进 Task 4，目标是先把“离线重估主对象 + 模型注册表”做成最小正式实现，而不是提前把 Task 5 的训练逻辑混进来。
+- 如果这一步不先把 `refit_run` 和 `model_registry` 做成正式对象，后续训练入口、artifact 发布、champion/challenger 比较都会继续依赖外层脚本拼对象，治理边界会反复漂移。
+### 方案还差什么?
+- [ ] 当前 `security_scorecard_refit` 仍是 Task 4 的最小正式实现，只支持单个 candidate artifact 的正式登记；后续进入 Task 5 时，需要把真实训练输出自动填充进这套合同。
+- [ ] 目前 `comparison_to_champion_json / promotion_decision` 只做了预留字段，尚未进入正式比较和晋级规则，这部分仍属于后续 promotion 任务范围。
+### 潜在问题
+- [ ] 当前默认输出根目录仍沿用现有 `.sheetmind_scenes_runtime` 收敛路径；如果后续要把训练发布链独立到专门 runtime 根，需要先补路径合同测试再调整。
+- [ ] `security_scorecard_refit` 目前按调用参数信任 `market_scope / instrument_scope / feature_set_version / label_definition_version`，尚未对 artifact 内容做更深一致性校验；如果后续要升级为强校验，需要先补失败测试。
+- [ ] 仓库当前仍存在既有 `dispatcher` unused warnings，这不是 Task 4 引入的新问题，但正式收口阶段如果要压 warnings，需要单独立项处理，不能在本任务里顺手混改。
+### 关闭项
+- 已完成 `security_scorecard_refit_cli` 红测 -> 最小实现 -> 绿测。
+- 已完成 `security_scorecard_refit` 接入 stock 主链、tool catalog 与 dispatcher。
+- 已完成 Task 4 对相邻 `security_forward_outcome` 主链的最小回归验证。
+## 2026-04-09
+### 修改内容
+- 新增 `D:\Rust\Excel_Skill\src\ops\security_scorecard_training.rs`，先把 `security_scorecard_training` 的最小正式入口接到证券主链，覆盖样本采样、最小分箱、WOE 编码、logistic 拟合、artifact 落盘以及复用 `refit_run / model_registry` 的接线。
+- 修改 `D:\Rust\Excel_Skill\src\ops\stock.rs`、`D:\Rust\Excel_Skill\src\ops\mod.rs`、`D:\Rust\Excel_Skill\src\tools\catalog.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher.rs`、`D:\Rust\Excel_Skill\src\tools\dispatcher\stock_ops.rs`，把 `security_scorecard_training` 正式挂进 stock 模块、tool catalog 与 dispatcher。
+- 新增 `D:\Rust\Excel_Skill\tests\security_scorecard_training_cli.rs`，按 TDD 先锁 `tool_catalog` 可发现性，再锁训练入口需要同时返回 `artifact_path / refit_run / model_registry` 的契约。
+- 为了排查训练失败原因，补跑了定向验证并确认训练入口已经能编译、能被 catalog 发现，但端到端训练测试仍未转绿。
+### 修改原因
+- 用户要求继续推进 Task 5，并且这轮最终要直接推送到 GitHub，因此需要先把已经开始的训练入口骨架和失败上下文完整保留下来，避免下一个 AI 重新摸索。
+- 这轮的重点不是把训练系统一次做完，而是先把正式入口、路径约定和测试契约固定住，让后续修复可以沿着明确的主链继续收敛。
+### 方案还差什么?
+- [ ] `cargo test --test security_scorecard_training_cli -- --nocapture` 目前仍未通过，端到端训练链还需要继续调试到绿测。
+- [ ] 训练样本筛选虽然已经补了“至少 200 条历史”的过滤，但当前失败原因还没有完全收敛到最终可提交状态，后续需要继续抓真实错误并修正。
+- [ ] 这轮只做了 `direction_head` 的最小训练闭环，尚未进入更完整的特征扩展、walk-forward、promotion 或 champion/challenger 治理。
+### 潜在问题
+- [ ] 当前仓库工作区本来就混有大量并行改动，这次推送会按当前分支现状整体提交；后续继续开发时仍要注意不要把 `.excel_skill_runtime`、`tests/runtime_fixtures/local_memory` 之类的临时产物误收进新的提交。
+- [ ] 训练入口当前使用的是最小 WOE + logistic 实现，主要目标是打通治理链，不代表系数或分箱已经达到最终稳定版本；后续如果要正式消费模型，必须继续补回算和重估。
+### 关闭项
+- 已完成 `security_scorecard_training` 的正式入口接线。
+- 已完成 `security_scorecard_training_cli` 的红测与 catalog 绿测。
+- 已完成这轮推送前的任务日志补充。
+## 2026-04-09
+### 修改内容
+- 在 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-merge-review\tests\retrieval_engine_unit.rs` 中补齐 `CandidateScope.metadata_scope` 的默认夹具构造，原因是 foundation merge 后 `CandidateScope` 已升级为统一 scope 合同；目的是让 retrieval 单测继续覆盖真实检索语义，而不是被结构升级误伤。
+- 在 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-merge-review\tests\navigation_pipeline_integration.rs` 中修正 3 条 metadata 相关集成测试的 `hits/citations` 顺序断言，原因是这几组样本在文本分数与来源层级相同后，会继续落到 `locator_priority` tie-break，实际应由更具体的 `sheet:revenue/A1:B12` 排在前面；目的是把 route 保序与 retrieval 排序合同明确拆开。
+- 清理 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-merge-review\.trae\CHANGELOG_TASK.md` 中残留的 merge marker，并补记这轮 foundation merge 收口日志，原因是 handoff 文档里仍有旧冲突痕迹；目的是避免后续 AI 再把任务日志误判成未解决冲突。
+### 修改原因
+- 用户已批准继续按方案 A 收口 foundation 合并，所以这轮优先目标不是继续扩新能力，而是把业务双链路与 foundation metadata 主线都稳定合到同一 worktree 上，并用真实回归确认站稳。
+- 本轮通过系统化排查确认：真正失败点不是 metadata 路由或 roaming，而是测试夹具和排序断言没有跟上合并后的统一 scope 合同与 retrieval tie-break 规则。
+### 方案还差什么
+- [ ] 仍需决定本次合并范围内哪些新增 runtime fixture 目录应该纳入最终提交，哪些只是测试运行产物，应在正式提交前再做一次主题化筛选。
+- [ ] 仍需继续补 AI handoff 与 README 的最后收口说明，明确这次 foundation merge 已经通过最小回归集，但主仓还有并行改动未统一提交。
+### 潜在问题
+- [ ] 当前仓库仍存在大量并行新增文件与未跟踪测试产物；如果后续直接整仓提交而不做范围筛选，容易把不属于本次 foundation 收口主题的内容一并带入。
+- [ ] 当前 `cargo test` 全绿但依旧保留既有 `dead_code` warnings，这不是本轮引入的问题；如果后续要压 warnings，需要单独立项，不建议和 foundation merge 收口混做。
+### 关闭项
+- 已完成 `cargo test --test retrieval_engine_unit -- --nocapture`，结果为 `29 passed`。
+- 已完成 `cargo test --test navigation_pipeline_integration -- --nocapture`，结果为 `20 passed`。
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`，结果为 foundation 最小回归集全部通过。
+## 2026-04-09
+### 修改内容
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-merge-review\docs\execution-notes-2026-04-09-foundation-merge-review.md`，补记本轮 `foundation + security` 组合回归、runtime 噪声清理结果，以及“隐式依赖本地 SQLite / 退化训练样本”这两类真实暴露出来的测试卫生问题。修改原因是这次已经进入最终版本一致性收口；修改目的是把 fresh 验证证据与问题定性沉淀成 durable note，避免下个 AI 再凭印象重复排查。
+- 修改 `C:\Users\wakes\.codex\worktrees\Excel_Skill\codex-foundation-merge-review\docs\ai-handoff\AI_HANDOFF_MANUAL.md`，在 `12A. Version Consistency Closeout Rule` 下补记本轮 full regression 通过与 fixture hygiene 结论。修改原因是用户明确要求把“这应该是最后一次处理版本不一致问题”写进 handoff；修改目的是让后续 AI 先把类似红灯看作夹具/样本卫生问题，而不是默认再次发起架构或分支重收口。
+- 通过 `git clean -fd -- tests/runtime_fixtures/local_memory tests/runtime_fixtures/security_chair_resolution tests/runtime_fixtures/security_decision_committee tests/runtime_fixtures/security_decision_evidence_bundle tests/runtime_fixtures/security_decision_package_revision tests/runtime_fixtures/security_decision_submit_approval tests/runtime_fixtures/security_decision_verify_package tests/runtime_fixtures/security_feature_snapshot tests/runtime_fixtures/security_forward_outcome tests/runtime_fixtures/security_post_meeting_conclusion tests/runtime_fixtures/security_scorecard tests/runtime_fixtures/security_scorecard_refit tests/runtime_fixtures/security_scorecard_training` 清理本轮测试新生成的未跟踪 runtime 目录。修改原因是 `git status` 里混入了大量测试运行噪声；修改目的是把剩余脏状态收敛到真实跟踪改动，避免误把 runtime 产物带入提交。
+### 修改原因
+- 用户这轮已经批准按方案 B 做最后一次版本一致性收口，所以当前目标不是继续扩功能，而是把“验证结果、问题定性、清理边界、后续禁止默认重开版本收口”一次性写全。
+- 本轮 fresh 组合回归已经证明当前分支的主要风险不再是 merge 冲突，而是测试夹具曾经偷偷依赖未跟踪 runtime 状态；这类经验如果不写入 handoff，后续 AI 很容易再次误判。
+### 方案还差什么?
+- [ ] 仍需完成本轮 `git add / commit / push`，把这次 closeout 文档、测试修复与相关跟踪改动正式推到远端分支。
+- [ ] 推送前仍需最后复查一次 `git status --short`，确认没有新的未跟踪 runtime 目录被重新生成。
+### 潜在问题
+- [ ] 当前分支本来就包含大量已跟踪的 foundation/security 变更与 fixture 目录，这些不是本轮 `git clean` 的目标；如果后续补跑测试，再次出现新的 `?? tests/runtime_fixtures/...` 目录，仍需按“只删未跟踪 runtime 噪声”的规则处理。
+- [ ] 组合回归虽然全绿，但 `src/tools/dispatcher.rs` 里现有 `dead_code` warnings 仍然存在；这不是本轮 closeout 新引入的问题，如要治理应单独立项，不要和版本一致性收口混做。
+### 关闭项
+- 已完成 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration --test security_chair_resolution_cli --test security_decision_committee_cli --test security_decision_evidence_bundle_cli --test security_decision_package_revision_cli --test security_decision_submit_approval_cli --test security_decision_verify_package_cli --test security_feature_snapshot_cli --test security_forward_outcome_cli --test security_post_meeting_conclusion_cli --test security_scorecard_cli --test security_scorecard_refit_cli --test security_scorecard_training_cli -- --nocapture`，结果为 `全部通过`。
+- 已完成本轮未跟踪 runtime 目录清理，当前剩余脏状态以真实跟踪改动为主。
+- 已完成这轮版本一致性 closeout 的 handoff 与 execution note 补记。

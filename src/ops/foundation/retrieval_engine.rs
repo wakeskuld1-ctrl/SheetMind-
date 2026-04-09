@@ -1,6 +1,10 @@
 use std::collections::{BTreeSet, HashSet};
 
 use crate::ops::foundation::knowledge_graph_store::KnowledgeGraphStore;
+use crate::ops::foundation::metadata_constraint::MetadataConstraint;
+use crate::ops::foundation::metadata_registry::{
+    MetadataFieldTarget, MetadataRegistry, MetadataRegistryError,
+};
 use crate::ops::foundation::knowledge_record::{EvidenceRef, KnowledgeNode};
 use crate::ops::foundation::roaming_engine::CandidateScope;
 
@@ -60,6 +64,7 @@ pub enum RetrievalHygieneFlag {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetrievalEngineError {
     NoEvidenceFound { question: String },
+    InvalidMetadataConstraint(MetadataRegistryError),
 }
 
 // 2026-04-07 CST: 这里保留 retrieval engine 为无状态执行器，原因是 Task 7 只需要在给定问题、
@@ -109,17 +114,92 @@ impl RetrievalEngine {
         scope: &CandidateScope,
         graph_store: &KnowledgeGraphStore,
     ) -> Result<RetrievalExecution, RetrievalEngineError> {
+        let concept_id_refs: Vec<&str> = scope.concept_ids.iter().map(String::as_str).collect();
+        let scoped_node_ids = graph_store.node_ids_for_concepts(&concept_id_refs);
+        let applicable_constraints =
+            collect_applicable_node_constraints(scope, graph_store, &scoped_node_ids);
+
+        self.retrieve_with_constraints(
+            question,
+            scope,
+            graph_store,
+            scoped_node_ids,
+            applicable_constraints.as_slice(),
+        )
+    }
+
+    // 2026-04-09 CST: 这里补带 metadata registry 的检索入口，原因是字段目录模式要求 retrieval 显式校验
+    // 哪些约束字段应作用于 node，而不是继续沿用“字段存在就直接匹配”的隐式模式。
+    // 目的：在不丢 diagnostics/hygiene 主线的前提下，把 node-target aware metadata 检索接回 foundation 主链。
+    pub fn retrieve_with_metadata_registry(
+        &self,
+        question: &str,
+        scope: &CandidateScope,
+        graph_store: &KnowledgeGraphStore,
+        metadata_registry: &MetadataRegistry,
+    ) -> Result<Vec<RetrievalHit>, RetrievalEngineError> {
+        self.retrieve_with_diagnostics_and_metadata_registry(
+            question,
+            scope,
+            graph_store,
+            metadata_registry,
+        )
+        .map(|execution| execution.hits)
+    }
+
+    // 2026-04-09 CST: 这里补带 registry 的 diagnostics 入口，原因是 metadata 目录治理接入后，
+    // 我们仍然需要看到与最终 hits 对齐的 diagnostics，而不是回退成只有命中列表。
+    // 目的：保持 diagnostics/hygiene 与 metadata-aware retrieval 共用同一条执行链。
+    pub fn retrieve_with_diagnostics_and_metadata_registry(
+        &self,
+        question: &str,
+        scope: &CandidateScope,
+        graph_store: &KnowledgeGraphStore,
+        metadata_registry: &MetadataRegistry,
+    ) -> Result<RetrievalExecution, RetrievalEngineError> {
+        let concept_id_refs: Vec<&str> = scope.concept_ids.iter().map(String::as_str).collect();
+        let scoped_node_ids = graph_store.node_ids_for_concepts(&concept_id_refs);
+        let applicable_constraints = scope
+            .metadata_scope
+            .constraints_for_registered_target(metadata_registry, MetadataFieldTarget::Node)
+            .map_err(RetrievalEngineError::InvalidMetadataConstraint)?;
+
+        self.retrieve_with_constraints(
+            question,
+            scope,
+            graph_store,
+            scoped_node_ids,
+            applicable_constraints.as_slice(),
+        )
+    }
+
+    // 2026-04-09 CST: 这里把“问题 + scope + 节点约束集合”的真正检索执行链收口，原因是普通 metadata 模式和 registry 模式
+    // 都应该共用同一套 diagnostics / hygiene / 排序逻辑，不能并出两条逐步漂移的实现。
+    // 目的：让 foundation retrieval 只有一条真实执行链，减少后续合并继续串台。
+    fn retrieve_with_constraints(
+        &self,
+        question: &str,
+        scope: &CandidateScope,
+        graph_store: &KnowledgeGraphStore,
+        scoped_node_ids: Vec<&str>,
+        applicable_constraints: &[&MetadataConstraint],
+    ) -> Result<RetrievalExecution, RetrievalEngineError> {
         let question_tokens = tokenize(question);
         let normalized_question = normalized_text(question);
         let seed_concept_ids = seed_concept_ids(scope);
-        let concept_id_refs: Vec<&str> = scope.concept_ids.iter().map(String::as_str).collect();
-        let scoped_node_ids = graph_store.node_ids_for_concepts(&concept_id_refs);
         let mut candidates = Vec::new();
 
         for node_id in scoped_node_ids {
             let Some(node) = graph_store.node(node_id) else {
                 continue;
             };
+
+            if !applicable_constraints
+                .iter()
+                .all(|constraint| constraint.matches_metadata(&node.metadata))
+            {
+                continue;
+            }
 
             let Some(candidate) = build_scored_candidate(
                 &question_tokens,
@@ -174,6 +254,29 @@ impl RetrievalEngine {
 
         Ok(RetrievalExecution { hits, diagnostics })
     }
+}
+
+// 2026-04-09 CST: 这里补普通 metadata 模式下的 node 侧适用约束收敛，原因是同一个 MetadataScope 现在会同时服务
+// concept 收敛和 node 检索，concept-only 字段不能在没有 registry 的情况下误伤 retrieval。
+// 目的：沿用 foundation 现有“按当前层真实出现的字段再生效”的保守策略，避免 metadata 主线反向压坏旧 diagnostics 主线。
+fn collect_applicable_node_constraints<'a>(
+    scope: &'a CandidateScope,
+    graph_store: &KnowledgeGraphStore,
+    scoped_node_ids: &[&str],
+) -> Vec<&'a MetadataConstraint> {
+    scope
+        .metadata_scope
+        .as_slice()
+        .iter()
+        .filter(|constraint| {
+            scoped_node_ids.iter().any(|node_id| {
+                graph_store
+                    .node(node_id)
+                    .map(|node| node.metadata.contains_key(constraint.field()))
+                    .unwrap_or(false)
+            })
+        })
+        .collect()
 }
 
 // 2026-04-08 CST: 这里补最小评分聚合函数，原因是 Task 11 要在不改外部合同的前提下增强排序，

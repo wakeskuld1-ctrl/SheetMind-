@@ -69,6 +69,19 @@ pub const STOCK_TOOL_NAMES: &[&str] = &[
     "security_decision_evidence_bundle",
     "security_decision_committee",
     "security_committee_member_agent",
+    // 2026-04-09 CST: 这里把主席正式裁决 Tool 暴露到 stock 目录，原因是 Task 1 要把最终正式决议对象单独产品化；
+    // 目的：让 CLI / Skill / 后续治理链稳定发现主席线入口。
+    "security_chair_resolution",
+    // 2026-04-09 CST: 这里把特征快照 Tool 暴露到 stock 目录，原因是 Task 2 要把训练底座对象正式产品化；
+    // 目的：让 feature_snapshot 成为可发现、可复用的一等能力。
+    "security_feature_snapshot",
+    // 2026-04-09 CST: 这里把未来标签回填 Tool 暴露到 stock 目录，原因是 Task 3 要让 forward_outcome 成为正式训练底座入口；
+    // 目的：让 CLI / Skill / 回算流水线可以稳定发现 snapshot 绑定的多期限标签能力。
+    "security_forward_outcome",
+    "security_scorecard_refit",
+    // 2026-04-09 CST: 这里把正式 scorecard training Tool 暴露到 stock 目录，原因是 Task 5 需要统一发现训练主链入口；
+    // 目的：让 CLI、Skill 与后续回算编排都能稳定发现“训练 -> artifact -> refit”这条正式能力链。
+    "security_scorecard_training",
     "security_decision_submit_approval",
     "security_decision_verify_package",
     "security_decision_package_revision",
@@ -135,6 +148,19 @@ pub const TOOL_NAMES: &[&str] = &[
     "security_decision_evidence_bundle",
     "security_decision_committee",
     "security_committee_member_agent",
+    // 2026-04-09 CST: 这里把主席正式裁决 Tool 暴露到总目录，原因是主 dispatcher 与 tool_catalog 仍依赖全量 TOOL_NAMES；
+    // 目的：确保主席线成为一等正式能力，而不是只能内部调用的隐藏模块。
+    "security_chair_resolution",
+    // 2026-04-09 CST: 这里把特征快照 Tool 暴露到总目录，原因是主 dispatcher 与 tool_catalog 仍依赖全量 TOOL_NAMES；
+    // 目的：确保训练底座入口从一开始就是主链可发现能力。
+    "security_feature_snapshot",
+    // 2026-04-09 CST: 这里把未来标签回填 Tool 暴露到总目录，原因是主 dispatcher 的 tool_catalog 仍依赖全量 TOOL_NAMES；
+    // 目的：确保 forward_outcome 像 feature_snapshot 一样成为主链可发现的一等能力。
+    "security_forward_outcome",
+    "security_scorecard_refit",
+    // 2026-04-09 CST: 这里把正式 scorecard training Tool 暴露到总目录，原因是主 dispatcher 的 tool_catalog 仍依赖全量 TOOL_NAMES；
+    // 目的：确保训练入口和 snapshot/forward_outcome/refit 一样成为主链可发现能力。
+    "security_scorecard_training",
     "security_decision_submit_approval",
     "security_decision_verify_package",
     "security_decision_package_revision",

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::ops::foundation::ontology_schema::OntologyRelationType;
 
 // 2026-04-07 CST: 这里定义证据引用模型，原因是 foundation 图谱节点后续需要把命中的原始出处
@@ -21,6 +23,49 @@ impl EvidenceRef {
     }
 }
 
+// 2026-04-09 CST: 这里新增节点级元数据值模型，原因是 foundation 现在要支持 business-agnostic 的 metadata 过滤，
+// 但还不适合把 source / kind / time 等字段硬编码成多个专用字段。
+// 目的：先用通用单值 / 多值模型承载节点元数据，为 MetadataConstraint 提供统一匹配输入。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetadataFieldValue {
+    Text(String),
+    TextList(Vec<String>),
+}
+
+impl MetadataFieldValue {
+    // 2026-04-09 CST: 这里补单值只读入口，原因是范围匹配只对可比较的单值字段有意义，
+    // 需要一个稳定的内部访问方式，避免匹配逻辑直接拆 enum。
+    // 目的：让 Range 约束在不暴露存储细节的前提下复用单值 metadata。
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            MetadataFieldValue::Text(value) => Some(value.as_str()),
+            MetadataFieldValue::TextList(_) => None,
+        }
+    }
+
+    // 2026-04-09 CST: 这里补包含判断，原因是 Equals 约束既可能命中单值字段，也可能命中多值字段中的某一项，
+    // 如果不统一成标准方法，约束匹配会散落在 retrieval 侧。
+    // 目的：把元数据值级别的最小匹配语义沉到 record 层。
+    pub fn contains(&self, candidate: &str) -> bool {
+        match self {
+            MetadataFieldValue::Text(value) => value == candidate,
+            MetadataFieldValue::TextList(values) => values.iter().any(|value| value == candidate),
+        }
+    }
+
+    // 2026-04-09 CST: 这里补交集判断，原因是 kind / tags / labels 这类多值字段需要和请求白名单做交集匹配，
+    // 单靠调用方循环会导致同一语义在多处重复实现。
+    // 目的：把多值 metadata 的通用交集语义稳定收口。
+    pub fn intersects(&self, candidates: &[String]) -> bool {
+        match self {
+            MetadataFieldValue::Text(value) => candidates.iter().any(|candidate| candidate == value),
+            MetadataFieldValue::TextList(values) => values
+                .iter()
+                .any(|value| candidates.iter().any(|candidate| candidate == value)),
+        }
+    }
+}
+
 // 2026-04-07 CST: 这里定义知识节点模型，原因是 retrieval 后续真正命中的对象应该是节点，
 // 不是 ontology concept 本身，因此需要独立记录节点文本、关联概念和证据引用。
 // 目的：把“节点是图谱里的信息载体”这层语义稳定下来，避免后续把 concept 和 node 混成一层。
@@ -31,6 +76,10 @@ pub struct KnowledgeNode {
     pub body: String,
     pub concept_ids: Vec<String>,
     pub evidence_refs: Vec<EvidenceRef>,
+    // 2026-04-09 CST: 这里新增节点级 metadata 容器，原因是通用 MetadataConstraint 第一阶段先作用于 retrieval，
+    // 需要节点能够承载 source / kind / observed_at 等非语义主字段。
+    // 目的：把元数据过滤建立成 foundation 正式能力，而不是让不同上层各自拼字段。
+    pub metadata: BTreeMap<String, MetadataFieldValue>,
 }
 
 impl KnowledgeNode {
@@ -44,6 +93,7 @@ impl KnowledgeNode {
             body: body.into(),
             concept_ids: Vec::new(),
             evidence_refs: Vec::new(),
+            metadata: BTreeMap::new(),
         }
     }
 
@@ -60,6 +110,30 @@ impl KnowledgeNode {
     // 目的：把节点与证据的一对多关系收口在 record 层，减少后续层间重复传参。
     pub fn with_evidence_ref(mut self, evidence_ref: EvidenceRef) -> Self {
         self.evidence_refs.push(evidence_ref);
+        self
+    }
+
+    // 2026-04-09 CST: 这里补单值元数据写入入口，原因是 source / owner / observed_at 这类字段在当前阶段最适合
+    // 先用通用元数据容器承载，而不是继续扩专用结构。
+    // 目的：给测试与主链提供最小、统一、可扩展的节点 metadata 写入方式。
+    pub fn with_metadata_text(
+        mut self,
+        field: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        self.metadata
+            .insert(field.into(), MetadataFieldValue::Text(value.into()));
+        self
+    }
+
+    // 2026-04-09 CST: 这里补多值元数据写入入口，原因是 tags / kind / labels 等字段天然可能有多个值，
+    // 需要一个不额外引入业务命名的通用承载方式。
+    // 目的：让多值 metadata 与单值 metadata 使用同一套节点容器和约束框架。
+    pub fn with_metadata_values(mut self, field: impl Into<String>, values: Vec<&str>) -> Self {
+        self.metadata.insert(
+            field.into(),
+            MetadataFieldValue::TextList(values.into_iter().map(str::to_string).collect()),
+        );
         self
     }
 }

@@ -1,5 +1,6 @@
 use excel_skill::ops::foundation::knowledge_graph_store::KnowledgeGraphStore;
 use excel_skill::ops::foundation::knowledge_record::{EvidenceRef, KnowledgeEdge, KnowledgeNode};
+use excel_skill::ops::foundation::metadata_constraint::MetadataScope;
 use excel_skill::ops::foundation::ontology_schema::OntologyRelationType;
 use excel_skill::ops::foundation::retrieval_engine::{
     RetrievalDiagnostic, RetrievalEngine, RetrievalEngineError, RetrievalHygieneFlag,
@@ -17,6 +18,10 @@ fn retrieval_engine_only_scores_nodes_inside_candidate_scope() {
             &CandidateScope {
                 concept_ids: vec!["revenue".to_string()],
                 path: Vec::new(),
+                // 2026-04-09 CST: 这里补空 metadata scope，原因是 CandidateScope 已升级为统一承载
+                // roaming/retrieval 合同；本用例不关心 metadata 过滤，只需要显式给出零值。
+                // 目的：让旧测试继续覆盖“候选域内检索”语义，而不是因结构升级误报失败。
+                metadata_scope: MetadataScope::new(),
             },
             &sample_graph_store(),
         )
@@ -37,6 +42,10 @@ fn retrieval_engine_returns_hits_in_descending_score_order() {
             &CandidateScope {
                 concept_ids: vec!["revenue".to_string(), "trend".to_string()],
                 path: Vec::new(),
+                // 2026-04-09 CST: 这里补空 metadata scope，原因是当前排序测试只验证文本相关性，
+                // 不希望把 metadata 约束混入断言语义。
+                // 目的：维持测试关注点单一，避免 ranking 回归被结构性变更掩盖。
+                metadata_scope: MetadataScope::new(),
             },
             &sample_graph_store(),
         )
@@ -59,6 +68,10 @@ fn retrieval_engine_returns_error_when_scope_has_no_matching_evidence() {
             &CandidateScope {
                 concept_ids: vec!["revenue".to_string()],
                 path: Vec::new(),
+                // 2026-04-09 CST: 这里补空 metadata scope，原因是无命中错误测试依赖的是 scoped
+                // evidence 为空，而不是 metadata 拦截。
+                // 目的：把失败边界继续固定在 retrieval 本身。
+                metadata_scope: MetadataScope::new(),
             },
             &sample_graph_store(),
         )
@@ -719,6 +732,9 @@ fn sample_candidate_scope_for_revenue_only() -> CandidateScope {
     CandidateScope {
         concept_ids: vec!["revenue".to_string()],
         path: Vec::new(),
+        // 2026-04-09 CST: 这里补空 metadata scope，原因是大多数 retrieval 单测当前不需要元数据过滤。
+        // 目的：给统一 scope 合同提供稳定零值，减少各测试重复散落构造逻辑。
+        metadata_scope: MetadataScope::new(),
     }
 }
 
@@ -734,6 +750,10 @@ fn sample_candidate_scope_with_roaming_path() -> CandidateScope {
             relation_type: OntologyRelationType::Supports,
             depth: 1,
         }],
+        // 2026-04-09 CST: 这里补空 metadata scope，原因是该夹具只用于 seed/roamed 优先级测试，
+        // metadata 不应成为额外变量。
+        // 目的：保证测试只表达漫游路径语义，不被 scope 结构升级干扰。
+        metadata_scope: MetadataScope::new(),
     }
 }
 

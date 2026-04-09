@@ -1,4 +1,6 @@
-use excel_skill::ops::foundation::knowledge_record::{EvidenceRef, KnowledgeEdge, KnowledgeNode};
+use excel_skill::ops::foundation::knowledge_record::{
+    EvidenceRef, KnowledgeEdge, KnowledgeNode, MetadataFieldValue,
+};
 use excel_skill::ops::foundation::ontology_schema::OntologyRelationType;
 
 // 2026-04-07 CST: 这里先补 knowledge record 的最小模型测试，原因是 Task 4 需要先把节点、
@@ -28,4 +30,35 @@ fn knowledge_record_keeps_concepts_evidence_and_edges() {
     assert_eq!(edge.from_node_id, "node-revenue-1");
     assert_eq!(edge.to_node_id, "node-invoice-1");
     assert_eq!(edge.relation_type, OntologyRelationType::DependsOn);
+}
+
+// 2026-04-09 CST: 这里补 knowledge record 的元数据承载测试，原因是通用 MetadataConstraint 要先有稳定的节点元数据落点，
+// 否则 retrieval 层会被迫回退成散落字段判断，破坏 foundation 的标准能力边界。
+// 目的：先钉死 KnowledgeNode 可以稳定承载单值与多值元数据，为后续 metadata 约束匹配提供统一输入。
+#[test]
+fn knowledge_record_keeps_generic_metadata_fields() {
+    let node = KnowledgeNode::new(
+        "node-revenue-1",
+        "Revenue Summary",
+        "Revenue is derived from invoices.",
+    )
+    .with_metadata_text("source", "sheet:sales")
+    .with_metadata_text("observed_at", "2026-04-01")
+    .with_metadata_values("kind", vec!["table", "finance"]);
+
+    assert_eq!(
+        node.metadata.get("source"),
+        Some(&MetadataFieldValue::Text("sheet:sales".to_string()))
+    );
+    assert_eq!(
+        node.metadata.get("observed_at"),
+        Some(&MetadataFieldValue::Text("2026-04-01".to_string()))
+    );
+    assert_eq!(
+        node.metadata.get("kind"),
+        Some(&MetadataFieldValue::TextList(vec![
+            "table".to_string(),
+            "finance".to_string(),
+        ]))
+    );
 }

@@ -59,23 +59,37 @@ pub use foundation::window;
 pub use stock::import_stock_price_history;
 pub use stock::security_analysis_contextual;
 pub use stock::security_analysis_fullstack;
-pub use stock::security_decision_card;
+pub use stock::security_approval_brief_signature;
 pub use stock::security_decision_approval_bridge;
 pub use stock::security_decision_approval_brief;
-pub use stock::security_approval_brief_signature;
+pub use stock::security_decision_card;
 // 2026-04-02 CST: 这里导出证券审批包能力，原因是外层仍通过 `crate::ops::...` 兼容访问股票链路；
 // 目的：不要求调用方立刻改路径，也能使用新的 decision package 构造能力。
 pub use stock::security_decision_package;
+pub use stock::security_scorecard;
+// 2026-04-09 CST: 这里导出主席正式裁决能力，原因是外层兼容调用仍可能走 `crate::ops::...`；
+// 目的：在不要求调用方立刻改路径的前提下，把主席线纳入正式兼容出口。
+pub use stock::security_chair_resolution;
+// 2026-04-09 CST: 这里导出正式特征快照能力，原因是后续训练/回算/治理层都可能通过兼容路径访问；
+// 目的：在不打断旧调用路径的前提下，把 feature_snapshot 纳入正式兼容出口。
+pub use stock::security_feature_snapshot;
+// 2026-04-09 CST: 这里导出正式未来标签回填能力，原因是后续训练/回算/复盘链路都可能先通过 `crate::ops::...` 兼容路径访问；
+// 目的：在不打断旧调用路径的前提下，把 forward_outcome 纳入统一兼容出口。
+pub use stock::security_forward_outcome;
+pub use stock::security_scorecard_refit_run;
+// 2026-04-09 CST: 这里导出正式训练入口能力，原因是外层兼容调用仍可能沿用 `crate::ops::...` 路径；
+// 目的：在不打断旧调用方式的前提下，把 Task 5 新能力纳入统一兼容出口。
+pub use stock::security_scorecard_training;
 // 2026-04-02 CST: 这里导出证券审批包版本化能力，原因是外层调用方仍通过 `crate::ops::...` 兼容访问股票链路；
 // 目的：让新的 revision Tool 不要求调用方立刻改模块路径，也能沿现有入口被消费。
 pub use stock::security_decision_package_revision;
 // 2026-04-08 CST: 这里导出会后结论对象与记录入口，原因是现有外层兼容调用仍可能走 `crate::ops::...`；
 // 目的：在不打断旧路径的前提下，把 Task 3 新能力纳入统一兼容出口。
-pub use stock::security_post_meeting_conclusion;
-pub use stock::security_record_post_meeting_conclusion;
 pub use stock::security_decision_committee;
 pub use stock::security_decision_evidence_bundle;
 pub use stock::security_decision_submit_approval;
+pub use stock::security_post_meeting_conclusion;
+pub use stock::security_record_post_meeting_conclusion;
 // 2026-04-02 CST: 这里导出证券审批包校验能力，原因是外层调用方仍通过 `crate::ops::...` 兼容访问股票链路；
 // 目的：让新的 verify Tool 不要求调用方立刻改模块路径，也能沿现有入口被消费。
 pub use stock::security_decision_verify_package;

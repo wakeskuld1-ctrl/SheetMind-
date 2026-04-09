@@ -211,6 +211,50 @@ impl StockHistoryStore {
         Ok(rows)
     }
 
+    // 2026-04-09 CST: 这里新增向未来窗口读取方法，原因是 Task 3 的 forward_outcome 需要基于同一份 SQLite 历史表回填未来多期限标签；
+    // 目的：把“按 symbol + 截止日之后 + 固定窗口读取升序未来行情”的 SQL 统一收口，避免标签层和后续训练层重复拼接查询。
+    pub fn load_forward_rows(
+        &self,
+        symbol: &str,
+        after_date: &str,
+        forward_days: usize,
+    ) -> Result<Vec<StockHistoryRow>, StockHistoryStoreError> {
+        let connection = self.open_connection()?;
+        let mut statement = connection
+            .prepare(
+                "
+                SELECT trade_date, open, high, low, close, adj_close, volume
+                FROM stock_price_history
+                WHERE symbol = ?1
+                  AND trade_date > ?2
+                ORDER BY trade_date ASC
+                LIMIT ?3
+                ",
+            )
+            .map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?;
+
+        let mapped_rows = statement
+            .query_map(params![symbol, after_date, forward_days as i64], |row| {
+                Ok(StockHistoryRow {
+                    trade_date: row.get(0)?,
+                    open: row.get(1)?,
+                    high: row.get(2)?,
+                    low: row.get(3)?,
+                    close: row.get(4)?,
+                    adj_close: row.get(5)?,
+                    volume: row.get(6)?,
+                })
+            })
+            .map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?;
+
+        let mut rows = Vec::new();
+        for row in mapped_rows {
+            rows.push(row.map_err(|error| StockHistoryStoreError::ReadRows(error.to_string()))?);
+        }
+
+        Ok(rows)
+    }
+
     fn open_connection(&self) -> Result<Connection, StockHistoryStoreError> {
         if let Some(parent) = self.db_path.parent() {
             fs::create_dir_all(parent)

@@ -1,6 +1,7 @@
 use excel_skill::ops::foundation::ontology_schema::{
     OntologyConcept, OntologyRelation, OntologyRelationType, OntologySchema,
 };
+use excel_skill::ops::foundation::metadata_constraint::{MetadataConstraint, MetadataScope};
 use excel_skill::ops::foundation::ontology_store::OntologyStore;
 use excel_skill::ops::foundation::roaming_engine::{RoamingEngine, RoamingPlan};
 
@@ -45,6 +46,26 @@ fn roaming_engine_respects_max_concepts_budget() {
 
     assert_eq!(scope.concept_ids, vec!["revenue", "invoice"]);
     assert_eq!(scope.path.len(), 1);
+}
+
+// 2026-04-09 CST: 这里补 roaming 保留 metadata scope 的红测，原因是方案B第二阶段要把 metadata 正式提升为
+// RoamingPlan -> CandidateScope -> Retrieval 共用的标准输入，而不是继续让 retrieval 单独吃外部参数。
+// 目的：先钉死 roaming 至少要把 metadata scope 稳定保留到输出 scope 中，为后续真正的元数据收敛留出统一合同。
+#[test]
+fn roaming_engine_preserves_metadata_scope_in_candidate_scope() {
+    let metadata_scope = MetadataScope::from_constraints(vec![MetadataConstraint::equals(
+        "source",
+        "sheet:sales",
+    )]);
+    let scope = sample_roaming_engine()
+        .roam(
+            RoamingPlan::new(vec!["revenue"])
+                .with_metadata_scope(metadata_scope.clone())
+                .with_max_concepts(4),
+        )
+        .expect("scope should preserve metadata scope");
+
+    assert_eq!(scope.metadata_scope, metadata_scope);
 }
 
 // 2026-04-07 CST: 这里集中构造纯内存 ontology store，原因是 Task 6 当前只验证漫游规则，

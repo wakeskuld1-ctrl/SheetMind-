@@ -14,6 +14,7 @@ fn router_matches_question_to_seed_concepts_by_alias() {
         .expect("route should be created");
 
     assert_eq!(route.matched_concept_ids, vec!["revenue"]);
+    assert_eq!(route.matched_terms, vec!["sales"]);
 }
 
 // 2026-04-07 CST: 这里补多词短语优先命中测试，原因是方案 B 已经确定要先做短语匹配，
@@ -26,6 +27,37 @@ fn router_prefers_phrase_alias_before_single_tokens() {
         .expect("route should be created");
 
     assert_eq!(route.matched_concept_ids, vec!["invoice"]);
+    assert_eq!(route.matched_terms, vec!["billing document"]);
+}
+
+// 2026-04-09 CST: 这里补标点归一化测试，原因是 foundation 路由接下来会面对不同知识源里的
+// `gross-margin` / `gross_margin` / `gross margin` 等写法差异，如果 lookup 规则不能把它们视为同一短语，
+// 语义路由就会被纯文本格式噪声打断。
+// 目的：先把“标点形式不同但语义相同”的最小通用契约钉死，避免后续业务层各自再补一遍格式兼容。
+#[test]
+fn router_normalizes_phrase_punctuation_variants() {
+    let route = sample_router()
+        .route(&NavigationRequest::new("review gross margin trend"))
+        .expect("route should normalize punctuation variants");
+
+    assert_eq!(route.matched_concept_ids, vec!["gross_margin"]);
+    assert_eq!(route.matched_terms, vec!["gross margin"]);
+}
+
+// 2026-04-09 CST: 这里补标签约束路由测试，原因是 foundation 路由下一步必须支持“同词不同域”
+// 的最小约束能力，不能在出现重名概念时仍然只能靠全局唯一 lookup key 硬扛。
+// 目的：先把“相同短语在不同标签域下命中不同概念”的通用契约钉死，为后续 metadata/scope 约束继续扩展留出稳定入口。
+#[test]
+fn router_prefers_candidates_matching_requested_concept_tags() {
+    let route = sample_router()
+        .route(
+            &NavigationRequest::new("review margin trend")
+                .with_required_concept_tags(vec!["finance"]),
+        )
+        .expect("route should honor requested concept tags");
+
+    assert_eq!(route.matched_concept_ids, vec!["gross_margin"]);
+    assert_eq!(route.matched_terms, vec!["margin"]);
 }
 
 // 2026-04-07 CST: 这里补无命中错误测试，原因是 capability router 是主链起点，
@@ -53,6 +85,13 @@ fn sample_router() -> CapabilityRouter {
         vec![
             OntologyConcept::new("revenue", "Revenue").with_alias("sales"),
             OntologyConcept::new("invoice", "Invoice").with_alias("billing document"),
+            OntologyConcept::new("gross_margin", "MarginSpread")
+                .with_alias("gross-margin")
+                .with_tag("finance")
+                .with_alias("margin"),
+            OntologyConcept::new("layout_margin", "LayoutMargin")
+                .with_alias("margin")
+                .with_tag("ui"),
         ],
         vec![],
     )

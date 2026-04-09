@@ -2,7 +2,7 @@ mod common;
 
 use chrono::{Duration, NaiveDate};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -100,11 +100,13 @@ fn tool_catalog_includes_security_decision_committee() {
 
     // 2026-04-01 CST: 这里先锁住证券投决会入口可发现性，原因是顶层 Skill 只有在 catalog 可见时才能把单次对话路由进投决链；
     // 目的：避免后续只写了内部模块，却没有形成稳定的产品入口。
-    assert!(output["data"]["tool_catalog"]
-        .as_array()
-        .expect("tool catalog should be an array")
-        .iter()
-        .any(|tool| tool == "security_decision_committee"));
+    assert!(
+        output["data"]["tool_catalog"]
+            .as_array()
+            .expect("tool catalog should be an array")
+            .iter()
+            .any(|tool| tool == "security_decision_committee")
+    );
 }
 
 #[test]
@@ -192,7 +194,13 @@ fn security_decision_committee_blocks_trade_when_risk_reward_is_too_low() {
     // 目的：确保 committee 会先经过风险收益比校验，再决定是否放行到可审阅状态。
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["decision_card"]["status"], "blocked");
-    assert_eq!(output["data"]["decision_card"]["direction"], "long");
+    // 2026-04-09 CST: 这里改为校验新动作语义的一致性，原因是 direction 已退化为 exposure_side 的兼容别名，
+    // 目的：把这条用例聚焦回“blocked 是否成立”，而把具体方向映射交给专门的 direction 回归测试负责。
+    assert_eq!(
+        output["data"]["decision_card"]["direction"],
+        output["data"]["decision_card"]["exposure_side"]
+    );
+    assert!(output["data"]["decision_card"]["recommendation_action"].is_string());
     assert_eq!(
         output["data"]["bull_case"]["thesis_label"],
         "bullish_thesis"
@@ -201,11 +209,13 @@ fn security_decision_committee_blocks_trade_when_risk_reward_is_too_low() {
         output["data"]["bear_case"]["thesis_label"],
         "bearish_challenge"
     );
-    assert!(output["data"]["risk_gates"]
-        .as_array()
-        .expect("risk gates should be array")
-        .iter()
-        .any(|gate| gate["gate_name"] == "risk_reward_gate" && gate["result"] == "fail"));
+    assert!(
+        output["data"]["risk_gates"]
+            .as_array()
+            .expect("risk gates should be array")
+            .iter()
+            .any(|gate| gate["gate_name"] == "risk_reward_gate" && gate["result"] == "fail")
+    );
 }
 
 #[test]
@@ -297,19 +307,278 @@ fn security_decision_committee_returns_ready_for_review_when_evidence_and_risk_r
         output["data"]["decision_card"]["status"],
         "ready_for_review"
     );
-    assert_eq!(output["data"]["decision_card"]["direction"], "long");
+    // 2026-04-09 CST: 这里改为校验新动作语义的一致性，原因是这条用例的核心是 ready_for_review 成立，
+    // 目的：避免继续把旧 direction 硬编码塞进非方向专测里，同时仍保证 decision_card 的动作/方向别名保持一致。
+    assert_eq!(
+        output["data"]["decision_card"]["direction"],
+        output["data"]["decision_card"]["exposure_side"]
+    );
+    assert!(output["data"]["decision_card"]["recommendation_action"].is_string());
     assert_eq!(
         output["data"]["decision_card"]["position_size_suggestion"],
         "starter"
     );
-    assert!(output["data"]["decision_card"]["final_recommendation"]
-        .as_str()
-        .expect("final recommendation should exist")
-        .contains("风报比"));
+    assert!(
+        output["data"]["decision_card"]["final_recommendation"]
+            .as_str()
+            .expect("final recommendation should exist")
+            .contains("风报比")
+    );
 }
 
 // 2026-04-01 CST: 这里沿用正式历史导入链路，原因是 committee 的裁决必须基于真实研究主链而不是手工 mock 结论；
 // 目的：保证投决层回归测试能真实覆盖 CSV -> SQLite -> 技术/环境/信息 -> 投决 的完整路径。
+#[test]
+fn seven_seat_committee_exposes_member_opinions() {
+    let runtime_db_path = create_test_runtime_db("security_decision_committee_seven_seat");
+
+    let stock_csv = create_stock_history_csv(
+        "security_decision_committee_seven_seat",
+        "stock.csv",
+        &build_confirmed_breakout_rows(220, 88.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_decision_committee_seven_seat",
+        "market.csv",
+        &build_confirmed_breakout_rows(220, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_decision_committee_seven_seat",
+        "sector.csv",
+        &build_confirmed_breakout_rows(220, 950.0),
+    );
+    import_history_csv(&runtime_db_path, &stock_csv, "601916.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "512800.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 200 OK",
+            r#"[
+                {
+                    "REPORT_DATE":"2025-12-31",
+                    "NOTICE_DATE":"2026-03-28",
+                    "TOTAL_OPERATE_INCOME":308227000000.0,
+                    "YSTZ":8.37,
+                    "PARENT_NETPROFIT":11117000000.0,
+                    "SJLTZ":9.31,
+                    "ROEJQ":14.8
+                }
+            ]"#,
+            "application/json",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "list":[
+                        {"notice_date":"2026-03-28","title":"2025骞村勾搴︽姤鍛?,"art_code":"AN202603281234567890","columns":[{"column_name":"瀹氭湡鎶ュ憡"}]},
+                        {"notice_date":"2026-03-28","title":"2025骞村害鍒╂鼎鍒嗛厤棰勬鍏憡","art_code":"AN202603281234567891","columns":[{"column_name":"鍏徃鍏憡"}]}
+                    ]
+                }
+            }"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_decision_committee",
+        "args": {
+            "symbol": "601916.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "a_share_bank",
+            "stop_loss_pct": 0.05,
+            "target_return_pct": 0.12
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-07 CST: 这里先锁定七席委员会最小合同，原因是 V3 第一阶段要先确认“同卷宗 -> 七席独立意见 -> 计票摘要”真的出现在对外结果里；
+    // 目的：避免后续只在内部堆七个席位对象，却没有形成可审批、可复盘、可验证的正式输出合同。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["committee_engine"],
+        "seven_seat_committee_v3"
+    );
+    assert_eq!(
+        output["data"]["member_opinions"]
+            .as_array()
+            .expect("member opinions should be an array")
+            .len(),
+        7
+    );
+    assert_eq!(output["data"]["vote_tally"]["deliberation_seat_count"], 6);
+    assert_eq!(output["data"]["vote_tally"]["risk_seat_count"], 1);
+    assert_eq!(
+        output["data"]["risk_veto"]["seat_name"],
+        "risk_control_seat"
+    );
+
+    // 2026-04-07 CST: 这里先把“独立执行证明”锁进红测，原因是仅有 `execution_mode = child_process`
+    // 还不足以证明七席真的是彼此隔离执行；目的：要求每席显式暴露独立进程标识和执行实例标识，
+    // 后续才能向投决会说明“同证据输入、独立子进程求解、互不串改输出”。
+    let mut evidence_hashes = HashSet::new();
+    let mut process_ids = HashSet::new();
+    let mut execution_instance_ids = HashSet::new();
+
+    for opinion in output["data"]["member_opinions"]
+        .as_array()
+        .expect("member opinions should exist")
+    {
+        assert!(opinion["vote"].is_string());
+        assert!(opinion["reasoning"].is_string());
+        assert_eq!(opinion["execution_mode"], "child_process");
+        assert!(opinion["supporting_points"].is_array());
+        assert!(opinion["counter_points"].is_array());
+        assert!(opinion["what_changes_my_mind"].is_array());
+        evidence_hashes.insert(
+            opinion["evidence_hash"]
+                .as_str()
+                .expect("evidence hash should exist")
+                .to_string(),
+        );
+        process_ids.insert(
+            opinion["process_id"]
+                .as_u64()
+                .expect("process id should exist for isolated child execution"),
+        );
+        execution_instance_ids.insert(
+            opinion["execution_instance_id"]
+                .as_str()
+                .expect("execution instance id should exist for isolated child execution")
+                .to_string(),
+        );
+    }
+
+    assert_eq!(
+        evidence_hashes.len(),
+        1,
+        "all committee seats should consume the same frozen evidence bundle"
+    );
+    assert_eq!(
+        process_ids.len(),
+        7,
+        "each committee seat should run in a distinct child process"
+    );
+    assert_eq!(
+        execution_instance_ids.len(),
+        7,
+        "each committee seat should expose a distinct execution instance id"
+    );
+}
+
+#[test]
+fn committee_direction_tracks_final_action_when_majority_votes_avoid() {
+    // 2026-04-09 CST: 这里先补真实回归红测，原因是 601916.SH 在 2026-04-08 的正式本地夹具已经稳定复现
+    // “majority_vote = avoid + risk_veto = needs_more_evidence + decision_card.direction = long”的旧语义漂移；
+    // 目的：先把 bug 用真实证券主链锁住，再倒逼 decision_card 改为跟随委员会最终动作语义，而不是继续跟随旧 stance 推导。
+    // 2026-04-09 CST: 这里改为现场构造 runtime DB，原因是原先依赖未跟踪的本地 SQLite 会让测试结果绑死在个人机器状态上；
+    // 目的：确保这条 majority-avoid 回归在 clean worktree、CI 和后续 AI 接手时都能稳定复现，而不是再次隐式依赖 local_memory 脏产物。 [2026-04-09 CST]
+    let runtime_db_path = create_test_runtime_db("security_decision_committee_direction_avoid");
+    let stock_csv = create_stock_history_csv(
+        "security_decision_committee_direction_avoid",
+        "stock.csv",
+        &build_confirmed_breakout_rows(220, 88.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_decision_committee_direction_avoid",
+        "market.csv",
+        &build_confirmed_breakout_rows(220, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_decision_committee_direction_avoid",
+        "sector.csv",
+        &build_confirmed_breakout_rows(220, 950.0),
+    );
+    import_history_csv(&runtime_db_path, &stock_csv, "601916.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "512800.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials HTTP 406</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "list":[
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司第七届董事会第八次会议决议公告","art_code":"AN202603301820871979","columns":[{"column_name":"分配预案"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司2025年度会计师事务所履职情况评估报告","art_code":"AN202603301820871980","columns":[{"column_name":"其他"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司董事会关于独立董事独立性情况的专项意见","art_code":"AN202603301820871974","columns":[{"column_name":"专项说明/独立意见"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司2025年度内部控制审计报告","art_code":"AN202603301820871977","columns":[{"column_name":"审计报告"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:关于浙商银行股份有限公司2025年度非经营性资金占用及其他关联资金往来情况的专项说明","art_code":"AN202603301820871975","columns":[{"column_name":"专项说明/独立意见"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司关于关联交易事项的公告","art_code":"AN202603301820871992","columns":[{"column_name":"关联交易"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司关于诉讼事项的进展公告","art_code":"AN202603301820871983","columns":[{"column_name":"诉讼仲裁"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司关于2026年度非授信类关联交易预审批额度的公告","art_code":"AN202603301820871986","columns":[{"column_name":"关联交易"}]}
+                    ]
+                }
+            }"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_decision_committee",
+        "args": {
+            "symbol": "601916.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "512800.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "a_share_bank",
+            "as_of_date": "2026-04-08",
+            "stop_loss_pct": 0.05,
+            "target_return_pct": 0.12
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-09 CST: 这里先把真实 bug 场景钉死，原因是如果不先确认委员会多数票确实为 avoid，
+    // 后面的 direction 断言就可能因为场景漂移而失真；目的：让失败点准确落在“动作已 avoid，但方向仍非 neutral”这个语义错误上。
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["vote_tally"]["majority_vote"], "avoid");
+    assert_eq!(output["data"]["risk_veto"]["status"], "needs_more_evidence");
+    assert_eq!(
+        output["data"]["decision_card"]["status"],
+        "needs_more_evidence"
+    );
+    assert_eq!(output["data"]["decision_card"]["direction"], "neutral");
+}
+
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {
     let request = json!({
         "tool": "import_stock_price_history",

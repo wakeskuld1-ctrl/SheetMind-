@@ -8,10 +8,10 @@ use thiserror::Error;
 use crate::ops::stock::security_decision_approval_brief::SecurityDecisionApprovalBrief;
 use crate::ops::stock::security_decision_package::SecurityDecisionPackageDocument;
 use crate::ops::stock::security_decision_package_revision::{
-    security_decision_package_revision, SecurityDecisionPackageRevisionRequest,
+    SecurityDecisionPackageRevisionRequest, security_decision_package_revision,
 };
 use crate::ops::stock::security_post_meeting_conclusion::{
-    build_security_post_meeting_conclusion, SecurityPostMeetingConclusionBuildInput,
+    SecurityPostMeetingConclusionBuildInput, build_security_post_meeting_conclusion,
 };
 
 // 2026-04-08 CST: 这里新增会后结论记录 Tool 请求合同，原因是 Task 3 需要独立的“会后治理动作入口”；
@@ -77,42 +77,42 @@ pub fn security_record_post_meeting_conclusion(
     }
 
     let package_path = PathBuf::from(request.package_path.trim());
-    let package: SecurityDecisionPackageDocument = serde_json::from_slice(
-        &fs::read(&package_path)
-            .map_err(|error| SecurityRecordPostMeetingConclusionError::Record(error.to_string()))?,
-    )
-    .map_err(|error| SecurityRecordPostMeetingConclusionError::Record(error.to_string()))?;
-    let approval_brief: SecurityDecisionApprovalBrief = serde_json::from_slice(
-        &fs::read(&package.object_graph.approval_brief_path).map_err(|error| {
+    let package: SecurityDecisionPackageDocument =
+        serde_json::from_slice(&fs::read(&package_path).map_err(|error| {
             SecurityRecordPostMeetingConclusionError::Record(error.to_string())
-        })?,
+        })?)
+        .map_err(|error| SecurityRecordPostMeetingConclusionError::Record(error.to_string()))?;
+    let approval_brief: SecurityDecisionApprovalBrief = serde_json::from_slice(
+        &fs::read(&package.object_graph.approval_brief_path)
+            .map_err(|error| SecurityRecordPostMeetingConclusionError::Record(error.to_string()))?,
     )
     .map_err(|error| SecurityRecordPostMeetingConclusionError::Record(error.to_string()))?;
 
     let post_meeting_conclusion_path =
         resolve_post_meeting_conclusion_path(&package_path, &package.decision_id)?;
     let revision_reason = normalized_revision_reason(&request.revision_reason);
-    let conclusion = build_security_post_meeting_conclusion(SecurityPostMeetingConclusionBuildInput {
-        generated_at: chrono::Utc::now().to_rfc3339(),
-        scene_name: package.scene_name.clone(),
-        decision_id: package.decision_id.clone(),
-        decision_ref: package.decision_ref.clone(),
-        approval_ref: package.approval_ref.clone(),
-        symbol: package.symbol.clone(),
-        analysis_date: package.analysis_date.clone(),
-        source_package_path: package_path.to_string_lossy().to_string(),
-        source_package_version: package.package_version,
-        source_brief_ref: approval_brief.brief_id.clone(),
-        source_brief_path: package.object_graph.approval_brief_path.clone(),
-        final_disposition: request.final_disposition.trim().to_string(),
-        disposition_reason: request.disposition_reason.trim().to_string(),
-        key_reasons: sanitize_string_list(&request.key_reasons),
-        required_follow_ups: sanitize_string_list(&request.required_follow_ups),
-        reviewer_notes: request.reviewer_notes.trim().to_string(),
-        reviewer: request.reviewer.trim().to_string(),
-        reviewer_role: request.reviewer_role.trim().to_string(),
-        revision_reason: revision_reason.clone(),
-    });
+    let conclusion =
+        build_security_post_meeting_conclusion(SecurityPostMeetingConclusionBuildInput {
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            scene_name: package.scene_name.clone(),
+            decision_id: package.decision_id.clone(),
+            decision_ref: package.decision_ref.clone(),
+            approval_ref: package.approval_ref.clone(),
+            symbol: package.symbol.clone(),
+            analysis_date: package.analysis_date.clone(),
+            source_package_path: package_path.to_string_lossy().to_string(),
+            source_package_version: package.package_version,
+            source_brief_ref: approval_brief.brief_id.clone(),
+            source_brief_path: package.object_graph.approval_brief_path.clone(),
+            final_disposition: request.final_disposition.trim().to_string(),
+            disposition_reason: request.disposition_reason.trim().to_string(),
+            key_reasons: sanitize_string_list(&request.key_reasons),
+            required_follow_ups: sanitize_string_list(&request.required_follow_ups),
+            reviewer_notes: request.reviewer_notes.trim().to_string(),
+            reviewer: request.reviewer.trim().to_string(),
+            reviewer_role: request.reviewer_role.trim().to_string(),
+            revision_reason: revision_reason.clone(),
+        });
     persist_json(&post_meeting_conclusion_path, &conclusion)?;
 
     let revision = security_decision_package_revision(&SecurityDecisionPackageRevisionRequest {

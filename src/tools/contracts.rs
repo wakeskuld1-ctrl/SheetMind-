@@ -3,14 +3,14 @@ use serde_json::{Value, json};
 
 use crate::tools::catalog;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ToolRequest {
     pub tool: String,
     #[serde(default)]
     pub args: Value,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ToolResponse {
     pub status: String,
     pub data: Value,

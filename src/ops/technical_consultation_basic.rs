@@ -27,7 +27,7 @@ pub struct TechnicalConsultationBasicRequest {
 // 目的：让调用方直接拿到量价是否共振的结构化判断，而不是只读文案。
 // 2026-03-29 CST：这里追加 `divergence_signal`，原因是量价确认之后下一步最自然的是补第一版价格-OBV 背离识别；
 // 目的：让上层能直接知道当前是否存在顶部或底部背离风险，而不需要再重复解析价格和 OBV 关系。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct TechnicalConsultationBasicResult {
     pub symbol: String,
     pub as_of_date: String,
@@ -73,7 +73,7 @@ pub struct TechnicalConsultationBasicResult {
 
 // 2026-04-01 CST: 这里定义技术面组合结论对象，原因是当前 `summary / recommended_actions / watch_points` 更偏展示文案，
 // 目的：补一层稳定的证券分析语义合同，给后续 Skill / AI / GUI 直接消费“偏向、置信度、核心理由、主要风险”。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct TechnicalConsultationConclusion {
     pub bias: String,
     pub confidence: String,
@@ -88,7 +88,7 @@ pub struct TechnicalConsultationConclusion {
 // 目的：让下游 AI 能直接拿到趋势强度快照，而不是再次自己解释 OHLC 序列。
 // 2026-03-29 CST：这里追加 OBV 与量能均值快照，原因是本轮要补量价确认能力；
 // 目的：把“价格方向是否得到量能配合”正式暴露给上层，避免外部自己重复计算成交量特征。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct TechnicalIndicatorSnapshot {
     pub close: f64,
     pub ema_10: f64,
@@ -133,7 +133,7 @@ pub struct TechnicalIndicatorSnapshot {
 
 // 2026-03-28 CST：这里补充数据窗口摘要，原因是技术咨询结论必须让后续 AI 知道本次判断覆盖了多长历史；
 // 目的：减少排障时反复追问“这次结论到底基于多少数据、截止到哪一天”。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DataWindowSummary {
     pub requested_lookback_days: usize,
     pub loaded_row_count: usize,

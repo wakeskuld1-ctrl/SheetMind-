@@ -190,8 +190,52 @@ The following directions have already been discussed and rejected for the curren
 - Foundation code must remain business-agnostic.
 - Domain-specific objects must only appear as upper-layer adapters or examples.
 - The architecture must prefer ontology + roaming + retrieval over domain-specific shortcut logic.
+- Metadata field management must prefer an explicit registry instead of implicit key discovery.
+- Metadata fields must declare whether they act on concept scope, node scope, or both.
+- When registry mode is enabled, unregistered metadata fields must fail fast instead of being silently ignored.
+- When registry mode is enabled, operators unsupported by the registered field contract must fail fast instead of degrading into empty results.
+- Metadata field definitions should carry governance attributes such as group, description, applies-to reason, and deprecation state.
+- Metadata registry governance quality should be inspectable through a structured validation summary instead of ad-hoc manual review.
+- Metadata field governance may also carry compatibility metadata such as aliases, replacement targets, and compatibility notes.
+- Metadata registry should be able to summarize compatibility chains and alias mappings without changing runtime execution semantics.
+- Metadata registry should expose canonical field resolution outputs so direct hits and alias hits can converge to the same catalog-level field view.
+- Metadata registry should support batch field normalization with stable input-order preservation and explicit unknown-field retention.
+- Metadata registry batch normalization may expose lightweight batch summaries such as direct-hit, alias-hit, unresolved, and deprecated counts without changing runtime execution semantics.
+- Metadata registry batch normalization may expose structured unknown-field lists that preserve input order and duplicate unresolved entries for audit-friendly catalog review.
+- Metadata registry batch normalization may expose canonical-field aggregation views that group only resolved inputs, keep canonical first-seen order, and leave unknown fields to explicit unknown-field reporting.
+- Metadata registry may expose a unified audit/export view that bundles governance summary, compatibility summary, batch normalization detail, unknown-field reporting, and canonical aggregation as directory-level outputs without changing runtime execution semantics.
+- Metadata registry governance should explicitly report alias conflicts, replacement-chain cycles, and ambiguous shared replacement targets instead of leaving them as implicit catalog behavior.
 - Retrieval accuracy, retrieval efficiency, and vectorization efficiency remain high priorities.
 - Foundation work must avoid accidental spread into application-side files.
+- The repository mainline must be described through foundation and generic capabilities, not through domain adapter progress.
+
+## 11A. Mainline Directory Guardrails
+
+The current mainline directory rule is:
+
+1. `src/ops/foundation/` is reserved for the business-agnostic navigation kernel.
+2. Generic reusable capabilities belong to runtime/tooling/table-analysis-report lines, not to domain-specific workflow files.
+3. Domain-specific tracks belong to adapter-side lines and must not redefine project identity.
+
+For current practical classification:
+
+- Mainline foundation scope:
+  - ontology
+  - roaming
+  - retrieval
+  - evidence assembly
+- Mainline generic scope:
+  - reusable runtime
+  - reusable tooling
+  - reusable table / analysis / report capability
+- Adapter-side scope:
+  - `security_*`
+  - `stock_*`
+  - approval workflow objects
+  - committee workflow objects
+  - scorecard / refit / training workflow objects
+
+If a future AI sees active `security_*` work in the repository, it must interpret that line as a domain adapter track, not as a foundation architecture change.
 
 ## 12. GitHub Handoff Rules
 
@@ -203,6 +247,37 @@ These rules must be followed whenever the project is prepared for GitHub upload 
 4. Update this handoff manual if project-level guidance changed.
 5. Update the short baseline file if the practical focus changed.
 6. Do not push major direction changes without corresponding handoff updates.
+
+## 12A. Version Consistency Closeout Rule
+
+Added on 2026-04-09 to stop repeated merge-cleanup drift across future AI sessions.
+
+The rule is:
+
+1. Version consistency closeout is a one-time recovery task, not a default startup task for every new AI session.
+2. Once a worktree has no unresolved merge conflict entries, no merge markers in active handoff files, and at least one documented verification run, future AI must continue from that baseline instead of reopening version-alignment work by default.
+3. Future AI may reopen version consistency work only if at least one real trigger exists:
+   - the user explicitly asks for sync, merge, pull, or branch comparison
+   - the Git index contains unresolved conflicts
+   - active project files contain new unresolved merge markers
+   - a newly fetched remote branch introduces real divergence that affects the current line
+   - fresh verification proves a real contract conflict caused by cross-branch drift
+4. The following are not enough, by themselves, to reopen version consistency work:
+   - a dirty worktree
+   - staged but not yet pushed files
+   - parallel adapter-side tracks such as `security_*` or `stock_*`
+   - old execution notes that already describe the last successful closeout
+5. If a future AI suspects drift, it must first read the latest handoff note and execution note, then point to the exact new conflict before starting another cleanup round.
+
+Current durable memory for this repository:
+
+- The 2026-04-09 `codex/foundation-merge-review` closeout is intended to be the last generic version-consistency cleanup round for this line.
+- After this point, AI should default back to feature continuation, diagnostics, or governance work unless a new real trigger appears.
+- A fresh combined regression run for foundation plus security closeout targets was rerun on 2026-04-09 and passed after fixture hygiene repairs.
+- The most important closeout lesson was not "merge drift broke the branch"; it was "runtime cleanup exposed hidden test-fixture assumptions":
+  - two security tests had been depending on untracked local SQLite state
+  - one scorecard-training sample had degraded enough to trigger `RSRS` denominator-zero failure
+- Future AI should treat similar failures as fixture/data hygiene candidates first, then escalate to version-consistency work only if a real cross-branch conflict is proven.
 
 ## 13. Maintenance Rules
 
@@ -273,6 +348,13 @@ It must not absorb:
 - stock analysis workflow logic
 - GUI interaction flow logic
 - dispatcher-side application orchestration
+- scorecard, refit, or training workflow logic
+
+Future AI sessions must also preserve this wording:
+
+- `security_*` is an adapter-side domain track.
+- `security_*` is not the current project mainline.
+- domain progress must not be written as foundation delivery progress.
 
 If the repo is dirty, stage and commit only the files belonging to this foundation line.
 
@@ -328,9 +410,13 @@ The next recommended refinement inside foundation is now:
 
 ## 19. Parallel Security Governance Track Status (2026-04-08)
 
+<<<<<<< HEAD
 <!-- 2026-04-08 CST: 调整交接口径，原因是本节记录的是 Task 11 前的最小 Green 快照，而第 20 节已经写入 Task 11 后的新状态；目的：让后续 AI 明确第 19 节是历史背景，第 20 节才是当前合同状态。 -->
 
 There is an active parallel security decision workflow line in this repository. It is not part of the foundation navigation kernel, but future AI sessions must not ignore it when working on the stock governance path.
+=======
+There is an active parallel security decision workflow line in this repository. It is not part of the foundation navigation kernel and it does not redefine the project mainline. Future AI sessions may continue it only as an adapter-side domain track when explicitly asked.
+>>>>>>> origin/codex/foundation-navigation-kernel
 
 This section is a historical snapshot before Task 11 package binding landed.
 
@@ -365,6 +451,12 @@ Historical limitation before Task 11:
 - Task 3 is not fully closed yet
 - the revised package does not yet formally carry `post_meeting_conclusion` inside `object_graph` or `artifact_manifest`
 - verify has not yet been extended to enforce post-meeting conclusion binding and integrity
+
+Important classification rule:
+
+- do not present the security governance line as the current repository mainline
+- do not describe security scorecard or approval progress as foundation delivery progress
+- if mainline guidance and domain-track progress appear to conflict, mainline guidance wins
 
 If a future AI continues the security governance line, read the security-specific handoff first:
 

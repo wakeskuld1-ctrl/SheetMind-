@@ -25,11 +25,25 @@ impl OntologyStore {
         self.schema.find_concept_id(raw)
     }
 
+    // 2026-04-09 CST: 这里暴露多候选 concept 查询，原因是 foundation router 需要在 schema 的多候选
+    // lookup 结果上继续叠加标签约束，而不应该自行复制 schema 的索引逻辑。
+    // 目的：让 router 继续只依赖 store 接口，就能完成“候选收集 -> 约束过滤”的最小闭环。
+    pub fn find_concept_ids(&self, raw: &str) -> Vec<&str> {
+        self.schema.find_concept_ids(raw)
+    }
+
     // 2026-04-07 CST: 这里提供按 concept id 读取概念详情的只读入口，原因是后续 router、
     // roaming 和 evidence 组装都需要安全读取概念元信息，但不该知道 schema 的索引细节。
     // 目的：把概念实体读取统一收口到 store，降低上层对 schema 内部存储方式的依赖。
     pub fn concept(&self, concept_id: &str) -> Option<&OntologyConcept> {
         self.schema.concept(concept_id)
+    }
+
+    // 2026-04-09 CST: 这里补 concepts 只读访问入口，原因是 metadata-aware scope resolver 需要判断某个字段是否在 concept 层真实存在，
+    // 不能反向耦合 schema 内部结构。
+    // 目的：继续由 store 统一暴露 ontology 查询边界，让上层在不越层的前提下完成通用收敛判断。
+    pub fn concepts(&self) -> &[OntologyConcept] {
+        self.schema.concepts.as_slice()
     }
 
     // 2026-04-07 CST: 这里先按内存遍历实现邻接概念查询，原因是 Task 3 明确要求先做最小可用实现，
