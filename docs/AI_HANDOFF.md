@@ -1,298 +1,471 @@
 # AI 交接手册
 
-<!-- 2026-04-02 CST: 新增统一 AI 交接手册。原因：仓库里已有两份历史交接摘要，内容分散且有旧主线残留。目的：把当前正式主链、门禁规则、接手顺序和维护要求集中到一份权威手册。 -->
+<!-- 2026-04-09 CST: 重写统一 AI 交接手册。原因：当前本地主文档已混入过期主线与乱码内容，而远端 foundation-navigation-kernel 又补进了新的证券治理与评分卡进展。目的：把“当前该看哪条主线、做到哪了、接下来该从哪里继续”统一收口到一份主文档里。 -->
 
-## 1. 当前应该怎么理解这个仓库
+## 1. 当前仓库怎么理解
 
-这个仓库当前最重要的正式产品链是证券分析链，而不是早期的 Excel/GUI 叙事。后续 AI 接手时，默认应优先从证券分析、briefing、投决会、Skill 门禁和合同测试这条线继续推进，除非用户明确要求处理其他模块。
+这个仓库当前有两条并行能力线：
 
-## 2. 当前正式主链
+- 证券治理与证券分析主线
+- foundation 通用导航内核线
 
-### 2.1 分析层
+但从当前实际开发连续性、用户需求和后续接续价值看，默认优先级应是：
 
-- `technical_consultation_basic`
-  - 单证券技术面分析。
-- `security_analysis_contextual`
-  - 证券 + 大盘 + 板块环境共振分析。
-- `security_analysis_fullstack`
-  - 技术面 + 财务快照 + 公告摘要 + 行业上下文的综合分析。
-- `signal_outcome_research`
-  - 信号结果研究与历史类比沉淀。
-  - 现在已向上游正式输出赔率层所需的数值摘要：`win/loss/flat rate`、`avg win/loss return`、`payoff_ratio`、`expectancy`。
+1. 证券治理与证券分析主线
+2. foundation 通用导航内核线
 
-### 2.2 决策层
+除非用户明确要求继续 foundation，否则后续默认先沿证券主线推进。
 
-- `security_decision_briefing`
-  - 当前统一证券决策入口。
-  - 输出结构化 briefing、`committee_payload`、默认 `committee_recommendations`。
-  - 现在已新增 `odds_brief` 与 `position_plan`，并把同源摘要同步进 `committee_payload.odds_digest / position_digest`。
-- `security_committee_vote`
-  - 正式投决会入口。
-  - 只消费 briefing 产出的同一份 `committee_payload`。
+## 2. 当前正式主线
 
-### 2.2.1 执行与复盘层
+### 2.1 证券主线
 
-<!-- 2026-04-08 CST: 追加证券执行与复盘层交接。原因：Task 6 已把仓位计划、调仓事件和投后复盘打通成正式 Tool 链，如果手册仍只写 briefing/vote，后续 AI 会把执行链误判成未建设或继续留在对话层。目的：明确证券主链已经具备单标的最小执行闭环。 -->
+当前证券主线已经不再只是单纯的技术分析，而是一个持续扩展中的证券治理链。
 
-- `security_position_plan_record`
-  - 把 `security_decision_briefing.position_plan` 落成正式计划对象。
-  - 生成 `position_plan_ref`，并与 `decision_ref / approval_ref / evidence_version` 对齐。
-- `security_record_position_adjustment`
-  - 记录围绕同一 `position_plan_ref` 的实际调仓事件。
-  - 输出 `adjustment_event_ref / before_position_pct / after_position_pct / trigger_reason / plan_alignment`。
-- `security_post_trade_review`
-  - 只消费 `position_plan_ref + adjustment_event_refs`。
-  - 会回读正式计划与事件对象，做引用一致性、日期顺序和仓位衔接校验，并输出结构化复盘结论。
-- `src/runtime/security_execution_store.rs`
-  - 当前执行层正式事实存储。
-  - 负责 `position_plan` 与 `adjustment_event` 的落盘和按 ref 回读。
+现阶段主线模块包括：
 
-### 2.3 默认投决语义
+- 研究与分析层
+  - `technical_consultation_basic`
+  - `security_analysis_contextual`
+  - `security_analysis_fullstack`
+- 治理与审批层
+  - `security_decision_evidence_bundle`
+  - `security_decision_committee`
+  - `security_position_plan`
+  - `security_decision_submit_approval`
+  - `security_decision_verify_package`
+  - `security_decision_package_revision`
+  - `security_record_post_meeting_conclusion`
+- 评分卡与量化治理层
+  - `security_feature_snapshot`
+  - `security_forward_outcome`
+  - `security_scorecard`
+  - `security_scorecard_refit`
+  - `security_scorecard_training`
+  - `security_chair_resolution`
 
-- `standard`
-  - 普通个股分析报告默认投决建议。
-- `strict`
-  - 涉及金额与买卖动作的严格交易建议。
-- `advisory`
-  - 已有持仓判断与持仓处置建议。
+### 2.2 foundation 主线
 
-### 2.4 Foundation 通用知识标准能力（Phase 2 第一阶段）
+foundation 当前是独立的通用能力内核，不应误判成证券主链的一部分。
 
-<!-- 2026-04-08 CST: 更新 foundation 接手说明。原因：当前仓库已经在 navigation kernel 之上补齐标准知识包、标准仓储与 metadata 精确过滤，如果仍按 Phase 1 口径交接，后续 AI 会误判缺口和边界。目的：明确 foundation 线当前只做通用标准能力，不做业务化知识库。 -->
+当前主要包括：
 
-- 代码位置：`src/ops/foundation/`
-- 当前闭环：`ontology_schema -> ontology_store -> capability_router -> roaming_engine -> retrieval_engine -> evidence_assembler -> navigation_pipeline`
-- 当前已完成：
-  - `KnowledgeBundle`
-    - 标准知识包结构，统一承载 ontology 与 graph 原始数据。
-  - `KnowledgeRepository`
-    - 标准仓储入口，支持构建、单文件保存/读回、标准布局目录保存/读回和重建查询视图。
-  - `MetadataFilter`
-    - 支持基于 `node.metadata` 的 exact-match、多字段 AND 与可选 `concept scope` 过滤。
-  - `knowledge_ingestion`
-    - 支持标准 bundle JSON 与 tagged-record JSONL 导入，并可直接构建 `KnowledgeRepository`。
-- 当前已新增：
-  - `MetadataSchema`
-    - 支持 metadata 字段定义、字段类型与 allowed values 注册。
-  - `ConceptMetadataPolicy`
-    - 支持 concept 允许字段和 required 字段绑定。
-- 当前状态：已具备 `question -> NavigationEvidence` 内存闭环 + 标准包/仓储最小持久化闭环 + 标准 JSON/JSONL 导入 + 标准布局目录，但仍是独立 foundation 通用内核。
-- 当前未接入：`security_analysis_*`、`security_decision_briefing`、`security_committee_vote`
-- 当前未完成：知识入库流水线、持久化目录布局与索引、向量检索、高级 metadata filter、证券分析适配层
+- ontology schema / store
+- capability router
+- roaming engine
+- retrieval engine
+- evidence assembler
+- navigation pipeline
 
-### 2.4.1 2026-04-08 CST 补充纠偏
-<!-- 2026-04-08 CST: 追加 metadata validator 阶段补充。原因：本轮已完成节点级 validator，而上一版接手口径仍停留在 schema registry。目的：让后续 AI 直接看到当前治理层已经进入执行校验阶段。 -->
+它的职责仍然是通用知识导航，不是证券业务编排。
 
-- `MetadataValidator` 已完成，并已导出到 `foundation` 模块边界
-- 当前 foundation 已具备节点级 metadata 结构化校验能力：
-  - required 字段
-  - concept policy 缺失
-  - disallowed field
-  - allowed values
-  - value type
-  - multi-concept compatibility
-- 当前 foundation 线下一优先级应更新为：
-  - `schema versioning / migration`
-  - repository 级批量 metadata 校验
-  - 更强 registry 治理对象
+## 3. 当前证券主线做到哪了
 
-### 2.4.2 2026-04-08 CST Schema Versioning 第一阶段补充
-<!-- 2026-04-08 CST: 追加 schema versioning 第一阶段补充。原因：本轮已把 MetadataSchema 从“无版本 registry”推进到“有正式版本契约的 registry”。目的：让后续 AI 接手时直接从 migration contract 往下接。 -->
+### 3.1 已稳定落地的部分
 
-- `MetadataSchema` 已新增正式字段 `schema_version`
-- 当前默认版本为 `metadata-schema:v1`
-- 当前已新增：
-  - `MetadataSchema::new_with_version(...)`
-  - `MetadataSchema::is_compatible_with(...)`
-  - `MetadataSchemaError::InvalidSchemaVersion`
-- 当前 versioning 仍停留在第一阶段：
-  - 只做精确版本匹配
-  - 不做 migration 执行
-  - 不做 deprecated / replaced_by / alias
+- `analysis -> evidence_bundle -> committee -> submit_approval -> verify_package -> package_revision` 已形成正式链路
+- `security_record_post_meeting_conclusion` 已形成 Task 3 最小闭环
+- `scorecard` 已进入正式治理链，不再只是临时评分输出
+- `verify` 已补 `scorecard_binding_consistent / scorecard_complete / scorecard_action_aligned` 护栏
+- `chair_resolution`、`feature_snapshot`、`forward_outcome`、`scorecard_refit`、`scorecard_training` 已进入 catalog / dispatcher
 
-### 2.4.3 2026-04-08 CST Migration Contract 第一阶段补充
-<!-- 2026-04-08 CST: 追加 migration contract 第一阶段补充。原因：本轮已正式建模字段演进对象。目的：让后续 AI 直接从 validator 联动或 repository 审计继续推进。 -->
+### 3.2 当前明确未完全收口的部分
 
-- `MetadataFieldDefinition` 已正式承载：
-  - `deprecated`
-  - `replaced_by`
-  - `aliases`
-- 当前 schema 构建期已经会拦截：
-  - unknown replacement target
-  - self replacement target
-  - alias conflict
-- 当前仍未进入：
-  - alias 执行层解析
-  - deprecated validator 联动
-  - 自动迁移执行器
+- `post_meeting_conclusion` 还没有完整挂入 `decision_package.object_graph`
+- `post_meeting_conclusion` 还没有完整挂入 `artifact_manifest`
+- `security_decision_verify_package` 的会后结论绑定校验还没有完全补齐
+- `security_scorecard_training` 已完成最小正式训练主链收口，当前不再停留在端到端红测未通过状态
 
-## 3. 绝对不要再走回头路的点
+### 3.3 当前已知尾项
 
-<!-- 2026-04-02 CST: 新增“禁止回退”部分。原因：近期多轮纠偏都集中在入口分叉、事实包分叉和旧主线误读。目的：给后续 AI 一个明确的禁区列表。 -->
+`security_scorecard_training` 的最小正式训练闭环已经打通，并且已经做到：
 
-- 不要绕过正式 Tool 主链回退成自由拼装分析。
-- 不要直接手工构造 `committee_payload`。
-- 不要让报告使用一套事实、投决会再使用另一套事实。
-- 不要再把正式仓位计划、调仓记录和投后复盘只留在对话文本里，而不落成可回读对象。
-- 不要只把能力做成内部函数而不接 `catalog`、`dispatcher`、Skill 和回归测试。
-- 不要把旧的 Excel/GUI 文档误当成当前项目主线。
-- 不要把历史切片测试通过误写成“整仓全绿”。
+- 训练请求合同
+- 样本采集
+- `security_forward_outcome` 标签回填
+- artifact 落盘
+- `security_scorecard_refit` 接线
+- `model_registry` 注册
+- `security_scorecard_training_generates_artifact_and_registers_refit_outputs` 已转绿
 
-## 4. 当前必须知道的入口文件
+当前状态已经从“主链已接通、仍有一处端到端红测待收敛”推进到“最小训练主链可用，后续可以继续做更完整的 walk-forward / champion-challenger / package 绑定治理”。
 
-- `src/ops/security_decision_briefing.rs`
-- `src/ops/security_committee_vote.rs`
-- `src/ops/security_analysis_contextual.rs`
-- `src/ops/security_analysis_fullstack.rs`
-- `src/ops/signal_outcome_research.rs`
-- `src/ops/security_position_plan_record.rs`
-- `src/ops/security_record_position_adjustment.rs`
-- `src/ops/security_post_trade_review.rs`
-- `src/tools/catalog.rs`
-- `src/tools/dispatcher.rs`
-- `src/tools/dispatcher/stock_ops.rs`
-- `src/runtime/security_execution_store.rs`
-- `skills/security-analysis-v1/SKILL.md`
-- `skills/security-decision-briefing-v1/SKILL.md`
-- `skills/security-committee-v1/SKILL.md`
-- `tests/security_analysis_resonance_cli.rs`
-- `tests/security_committee_vote_cli.rs`
-- `tests/integration_tool_contract.rs`
+## 4. 日期与数据口径硬规则
 
-## 5. 推荐接手顺序
+- 证券分析默认只允许使用当前日期
+- 如果当前日期没有有效收盘数据，才允许退到前一个交易日
+- 输出中必须显式写明实际锚定日期
+- 不允许混用多个交易日的数据拼一个结论
+- 免费公开数据源失败时允许降级，但必须明确写出 unavailable 范围
+- 不使用大模型抓行情
+- 不使用 Token 依赖型证券数据入口作为默认主链
 
-1. 先看 [README.md](/E:/TradingAgents/TradingAgents/README.md)。
-2. 再看本手册，确认当前主链和禁区。
-3. 再看 `CHANGELOG_TASK.MD` 最近两到三段，确认最新修改、风险和记忆点。
-4. 再按需求打开对应 `src/ops/...`、`tests/...` 和 `skills/...` 文件。
-5. 真要新增能力时，优先补测试，再改实现，再补文档和任务日志。
+## 5. 后续接手最容易犯的错
 
-## 6. 当前文档同步规则
+- 把 foundation 线误当成当前默认主线
+- 把 Python `tradingagents/` 架构误当成 Rust 证券主链
+- 放着正式 Tool 不用，回退成手工拼接 JSON 或泛化股评
+- 把 `scorecard` 当成最终主席决议，而不是量化线对象
+- 把 `chair_resolution`、`committee`、`scorecard` 三条线重新混成一个输出
+- 误以为 `security_scorecard_training` 还没做入口；实际当前工作区已具备正式入口，并已通过最小端到端训练回归
 
-- 用户每次要求修改功能后，都要评估是否同步更新：
-  - `README.md`
-  - `docs/AI_HANDOFF.md`
-  - `CHANGELOG_TASK.MD`
-- 如果是正式 Tool、Skill、流程门禁、合同字段变更，通常三者都要更新。
-- 如果只是局部实现细节变更，至少要补 `CHANGELOG_TASK.MD`。
+## 6. 推荐阅读顺序
 
-## 7. 最近已确认的状态
+### 6.1 继续证券主线时
 
-### 7.1 投决会链路
+1. `README.md`
+2. `docs/AI_HANDOFF.md`
+3. `docs/交接摘要_证券分析_给后续AI.md`
+4. `docs/plans/2026-04-08-security-investment-lifecycle-roadmap.md`
+5. `CHANGELOG_TASK.MD`
 
-- `security_committee_vote` 已被正式 catalog 收录并可通过 dispatcher 调用。
-- 显式 `tool_catalog` 请求与空输入目录返回已经统一。
-- `security_decision_briefing -> committee_payload -> security_committee_vote` 已有端到端回归。
+然后再按任务需要看：
 
-### 7.2 默认投决建议
+- `src/ops/security_decision_evidence_bundle.rs`
+- `src/ops/security_decision_committee.rs`
+- `src/ops/security_position_plan.rs`
+- `src/ops/security_decision_submit_approval.rs`
+- `src/ops/security_decision_verify_package.rs`
+- `src/ops/security_decision_package_revision.rs`
+- `src/ops/security_record_post_meeting_conclusion.rs`
+- `src/ops/security_scorecard.rs`
+- `src/ops/security_scorecard_refit_run.rs`
+- `src/ops/security_scorecard_training.rs`
+- `src/ops/security_chair_resolution.rs`
 
-- `security_decision_briefing` 默认内嵌 `committee_recommendations`。
-- `standard / strict / advisory` 三种模式已一并准备。
-- 默认建议复用正式 `security_committee_vote` 结果，不是手写摘要。
+### 6.2 继续 foundation 时
 
-### 7.2.1 赔率层与仓位层
+1. `README.md`
+2. `docs/AI_HANDOFF.md`
+3. `docs/architecture/`
+4. `CHANGELOG_TASK.MD`
 
-- `signal_outcome_research_summary` 现在已补齐赔率系统 V1 所需数值字段，不需要再新开平行复盘模块。
-- `security_decision_briefing` 现在会正式输出：
-  - `odds_brief`
-  - `position_plan`
-- `committee_payload` 现在同步承载：
-  - `odds_digest`
-  - `position_digest`
-- 当前规则仍是 V1 轻量分档版：
-  - 赔率层按 `win_rate / payoff_ratio / expectancy / sample_count` 分档。
-  - 仓位层按 `odds_grade + historical_confidence + resonance_score + execution_plan` 分档。
-- 当前边界：
-  - 不做 Kelly 全公式。
-  - 不做组合级相关性管理。
-  - 不做 ETF/海外资产专用赔率模板。
+## 7. 当前建议优先级
 
-### 7.2.2 仓位计划、调仓记录与投后复盘闭环
+如果继续做证券主线，建议优先顺序是：
 
-<!-- 2026-04-08 CST: 追加 Task 6 状态收口。原因：证券主链已经从“只给仓位建议”推进到“正式计划对象 -> 多次调仓事件 -> 投后复盘聚合”的单标的闭环。目的：让后续 AI 从当前闭环上继续接审批、审计和收益结果，而不是回退到临时文本记录。 -->
+1. 补齐会后结论进入 package / verify 的完整治理链
+2. 继续做 scorecard 的 walk-forward / champion-challenger / 更完整训练验证
+3. 再继续投中/投后闭环对象层
 
-- `security_position_plan_record` 已正式落地：
-  - 可把 briefing 中的 `position_plan` 落成正式对象
-  - 会返回 `position_plan_ref`
-  - 会绑定 `decision_ref / approval_ref / evidence_version`
-- `security_record_position_adjustment` 已正式落地：
-  - 可围绕同一 `position_plan_ref` 连续记录多次事件
-  - 会返回 `adjustment_event_ref`
-  - 会保留 `before_position_pct / after_position_pct / trigger_reason / plan_alignment`
-- `security_post_trade_review` 已正式落地：
-  - 可只凭 `position_plan_ref + adjustment_event_refs` 执行复盘
-  - 不要求调用方重复提交完整计划和完整事件对象
-  - 当前会做：
-    - `position_plan_ref` 一致性校验
-    - `symbol / decision_ref / approval_ref / evidence_version` 一致性校验
-    - `event_date` 顺序校验
-    - 相邻事件 `after_position_pct -> before_position_pct` 仓位衔接校验
-    - 轻规则复盘维度聚合
-- 当前闭环边界已明确为：
-  - 单标的
-  - 多次调仓
-  - 正式 ref 回读
-  - 最小一致性校验
-  - 结构化投后复盘
-- 当前还没完成的下一层资产化能力：
-  - 复盘结果尚未正式装订进审批简报对象或 decision package
-  - 尚未接入收益表现、赔率表现、信号结果研究层
-  - 尚未覆盖更细粒度盘中执行日志、滑点或多版本计划并存
+不要先重新开分支做新的平行实验线。
 
-### 7.3 Foundation Phase 2 第一阶段状态
+## 8. 当前工作区约定
 
-- `src/ops/foundation/` 已完成 ontology、route、roam、retrieve、assemble、pipeline 七段最小实现，并补齐 `knowledge_bundle`、`knowledge_repository` 两个标准能力模块。
-- 对应回归已覆盖：`ontology_schema_unit`、`ontology_store_unit`、`knowledge_record_unit`、`knowledge_graph_store_unit`、`capability_router_unit`、`roaming_engine_unit`、`retrieval_engine_unit`、`evidence_assembler_unit`、`navigation_pipeline_integration`、`knowledge_bundle_unit`、`knowledge_repository_unit`、`knowledge_ingestion_unit`。
-- 当前 `KnowledgeNode` 已统一携带 `metadata`，foundation 可通过 `MetadataFilter` 做 exact-match 过滤。
-- 当前 `MetadataFilter` 已支持多字段 AND 与可选 `concept scope`，过滤能力仍保持在通用标准层，不包含 DSL。
-- 当前 `knowledge_ingestion` 已支持两类标准输入：完整 `KnowledgeBundle` JSON 与单文件 tagged-record JSONL。
-- 当前 `KnowledgeRepository` 已支持标准布局目录：`bundle.json + repository.manifest.json`。
-- 当前 `MetadataSchema` 已开始把 metadata 从“字符串 map”提升为“字段注册 + concept 绑定”的正式管理对象。
-- 当前应把它理解为“可复用通用标准能力”，而不是“已接入证券分析主链的完整知识库系统”。
+从 2026-04-09 这轮开始，文档口径统一回收到当前主工作区。
 
-## 8. 当前已知风险
+- worktree 只允许临时用于观察或隔离验证
+- 不再把长期交接信息分散写在 worktree 对应分支里
+- 后续 AI 默认以当前主工作区文档为准
 
-- `security_decision_briefing` 现在会额外生成三次 vote 结果，后续若 vote 逻辑继续变重，要注意耗时。
-- 仓库里仍然存在较多历史 `dead_code` warning，这次没有混做清理。
-- 当前 Skill 门禁主要是流程文档级约束，若有人绕过 Skill 直接拼 Tool，仍需要测试和 review 兜底。
-- foundation 当前虽然已具备标准包、标准仓储、标准布局目录、metadata 多字段 AND / concept scope 过滤、标准 JSON/JSONL 导入和 metadata schema registry，但仍缺 validator、versioning / migration、原始业务数据入库流水线、更完整的持久化索引/目录布局与向量检索，不能把它误读成“完整知识库”。
-- Windows 下 `cargo test` 偶发会受残留 `excel_skill.exe` / `cargo` 进程占用影响，出现 `os error 5`；长跑测试前应先清残留进程。
-- `security_execution_store` 当前使用独立 SQLite 文件 `security_execution.db`；如果未来要求统一进单一 runtime.db，需要单独迁移方案。
-- 当前同日同类型调仓事件仍可能发生 ref 冲突；若进入“同一日多次 reduce/add”场景，需要补版本号或序号策略。
-- 当前 `security_post_trade_review` 仍是轻规则复盘，尚未纳入真实收益、赔率兑现和更细的执行质量指标。
+## 9. 一句话结论
 
-## 9. 后续优先级建议
+当前仓库最有价值的正式主线，是“证券治理链 + 评分卡治理链”的持续收口；foundation 仍保留，但不是默认继续开发入口。
+## 10. 2026-04-09 RSRS 正式收口补充
 
-- 优先阅读 [2026-04-08-closed-loop-investment-research-roadmap.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-closed-loop-investment-research-roadmap.md)，后续证券主链默认按“闭环优先”推进，而不是继续深挖投决会制度层。
-- 继续推进赔率/仓位时，先看 [2026-04-08-odds-position-system-design.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-odds-position-system-design.md)，不要脱离 `signal_outcome_research` 另起平行研究模块。
-- 继续推进执行闭环时，先看 [2026-04-08-security-post-trade-review-position-management.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-security-post-trade-review-position-management.md)，不要把正式计划/调仓/复盘重新退回对话层。
-- 证券主链下一阶段的正式优先级应为：`复盘结果资产化/审批绑定 -> 信号结果研究层接入复盘 -> 更细粒度执行日志 -> 组合层仓位管理 -> 市场结构层 -> 技术面平衡计分卡 -> 深层信息面增强`。
-- `security_committee_vote` 当前可视为“最小可用收口版”已完成，后续只做必要收口，不再默认吞噬主线资源。
-- `signal_outcome_research` 应被视为后续最重要的正式扩展点，因为赔率、胜率、最大回撤和投后复盘都应从这条线长出来。
-- 先补更强的 `strict / advisory` 端到端回归。
-- 再补授权开启时的 `tool_catalog` 目录门禁回归。
-- 如果后续报告模板要进一步产品化，再把三类 committee 建议更明确地落进中文报告排版层。
-- 如果继续推进 foundation 线，下一优先级应是“metadata validator + schema versioning”先于“直接接证券分析主链”，否则元数据管理层仍然缺最关键的治理闭环。
-- Foundation 线后续默认只做通用标准能力，除非用户重新明确批准，否则不要自行扩展业务化知识库能力。
+- `tests/security_scorecard_training_cli.rs` 已修正训练夹具的下跌样本生成逻辑，不再把 `low` 长时间压成固定 `0.10`
+- `src/ops/technical_consultation_basic.rs` 已把 RSRS 从“分母为 0 直接回填中性 beta”改成“显式 `degraded` 状态”
+- 当前合同新增 `rsrs_status`
+- 当 `rsrs_status != "available"` 时：
+  - `rsrs_signal = "degraded"`
+  - `summary / recommended_actions / watch_points` 会明确写出“本次不作为方向判断依据”
+  - 不再把这类退化 RSRS 伪装成正常 neutral 或共振未形成
+- 已验证：
+  - `cargo test --test security_scorecard_training_cli -- --nocapture`
+  - `cargo test rsrs_degraded_guidance_explicitly_excludes_directional_use -- --nocapture`
+  - `cargo test rsrs_snapshot_stays_computable_when_low_window_collapses_to_same_floor -- --nocapture`
 
-### 9.1 2026-04-08 CST Foundation 更新
+这一条很重要：后续如果再遇到技术指标数学退化，默认原则不是“补一个中性值继续走”，而是“先修正；修不了就显式标记不可用，并退出投决输入”。
+## 11. 2026-04-09 Task 6 package 治理链补齐
 
-- `MetadataValidator` 已经把 `MetadataSchema + ConceptMetadataPolicy` 从“治理定义层”推进到了“节点执行层”
-- 当前风险描述应更新为：foundation 仍然不等于“完整知识库”，但它已经不再缺 validator，真正缺的是 versioning / migration 和更完整的批量治理入口
+- `security_record_post_meeting_conclusion` 已正式落地，当前不再只是文档口径。
+- `security_decision_package` 已正式落地，当前会把 `post_meeting_conclusion` 挂进：
+  - `object_graph`
+  - `artifact_manifest`
+- `security_decision_verify_package` 已正式落地，当前至少会校验：
+  - `post_meeting_conclusion` 是否挂进 `object_graph`
+  - `post_meeting_conclusion` 是否挂进 `artifact_manifest`
+  - `chair_resolution` 是否仍保留正式挂接
+  - `artifact_manifest` 的 `symbol / analysis_date` 是否与 package 一致
+- `security_decision_package_revision` 已正式落地，当前会基于 verify 结果输出：
+  - `suggested_actions`
+  - `missing_objects`
+  - `manifest_repairs`
+- 已接入：
+  - `src/ops/stock.rs`
+  - `src/ops/mod.rs`
+  - `src/tools/catalog.rs`
+  - `src/tools/dispatcher.rs`
+  - `src/tools/dispatcher/stock_ops.rs`
+- 已验证：
+  - `cargo fmt --all`
+  - `cargo test --test security_decision_package_cli -- --nocapture`
+  - `cargo test --test security_chair_resolution_cli -- --nocapture`
 
-### 9.2 2026-04-08 CST Foundation 下一阶段候选
-<!-- 2026-04-08 CST: 追加 foundation 下一阶段候选方案。原因：migration contract 落地后，后续实现路径已经出现分叉。目的：给后续 AI 一个明确的默认推荐顺序，避免误入业务化或过早做执行器。 -->
+这意味着当前证券主线里，Task 6 不再是“文档里计划过、代码里还没有”的状态，而是已经具备最小正式 package 闭环。
+## 12. 2026-04-09 Task 8 投后复盘最小正式收口
 
-- 候选方案 A：`Validator` 联动
-  - 让 `deprecated / aliases / replaced_by` 进入节点级 `MetadataValidationIssue`
-  - 这是当前默认推荐路线，因为它与现有 `MetadataValidator` 最连续、改动面最小
-- 候选方案 B：Repository-Level Audit
-  - 做整库批量扫描，输出 deprecated 字段使用清单与可迁移清单
-  - 适合放在方案 A 之后，基于节点级 issue 再做聚合
-- 候选方案 C：Migration Executor
-  - 仅在后续继续获批时再进入 dry-run / rewrite 级执行层
-  - 当前不要提前跳到自动重写 metadata
-- 当前推荐顺序：
-  - 先方案 A
-  - 再视需要进入方案 B
-  - 最后才考虑方案 C
+- `security_post_trade_review` 已正式落地，当前不再只是“手工把 position_plan 和 forward_outcome 拼成复盘结论”
+- 当前正式输出分三层：
+  - `position_plan_result`
+  - `forward_outcome_result`
+  - `post_trade_review`
+- `post_trade_review` 当前最小正式字段已经固定：
+  - `planned_position`
+  - `actual_result_window`
+  - `realized_return`
+  - `max_drawdown_realized`
+  - `max_runup_realized`
+  - `thesis_status`
+  - `execution_deviation`
+## 13. 2026-04-09 Task 9 投后复盘治理挂接收口
+
+- `security_post_trade_review` 已正式挂入 `security_decision_package`
+- 当前 package 会同时装配：
+  - `post_meeting_conclusion`
+  - `post_trade_review`
+- `object_graph` 当前已正式包含：
+  - `post_meeting_conclusion`
+  - `post_trade_review`
+- `artifact_manifest` 当前已正式包含：
+  - `security_post_meeting_conclusion`
+  - `security_post_trade_review`
+- `security_decision_verify_package` 当前至少会校验：
+  - `post_trade_review` 是否挂进 `object_graph`
+  - `post_trade_review` 是否挂进 `artifact_manifest`
+  - `post_trade_review.position_plan_ref / snapshot_ref / outcome_ref` 是否与底层结果同源
+- `security_decision_package_revision` 当前已能对以下问题输出修补建议：
+  - `missing_post_trade_review`
+  - `post_trade_review_ref_misaligned`
+- 本轮重要排障结论：
+  - 之前 `security_decision_package_cli` 卡住，不是治理链没接上
+  - 真正根因是测试夹具 `as_of_date = 2025-07-15` 导致技术分析只拿到 196 条历史样本
+  - 当前已改为更长夹具 + `as_of_date = 2025-10-15`
+- 已验证：
+  - `cargo test --test security_decision_package_cli -- --nocapture`
+  - `cargo test --test security_post_trade_review_cli -- --nocapture`
+  - `cargo test --test security_position_plan_cli -- --nocapture`
+
+这一条意味着当前证券主线里，Task 9 已经不是“投后复盘 Tool 单独可用”，而是已经正式并入 package 治理闭环。
+## 14. 2026-04-09 Task 10 真实执行对象最小收口
+
+- `security_execution_record` 已正式落地
+- 当前 execution record 已不再是 review 内部占位字段，而是独立正式 Tool
+- 当前最小正式执行字段已经固定：
+  - `actual_entry_date`
+  - `actual_entry_price`
+  - `actual_position_pct`
+  - `actual_exit_date`
+  - `actual_exit_price`
+  - `exit_reason`
+  - `execution_record_notes`
+- 当前最小收益归因字段已经固定：
+  - `planned_entry_price`
+  - `planned_position_pct`
+  - `planned_forward_return`
+  - `actual_return`
+  - `entry_slippage_pct`
+  - `position_size_gap_pct`
+  - `execution_return_gap`
+  - `execution_quality`
+- `security_post_trade_review` 当前已经正式绑定：
+  - `execution_record_ref`
+  - `executed_return`
+  - `execution_return_gap`
+- `security_decision_package` 当前已经正式挂入：
+  - `execution_record_result`
+  - `execution_record`
+- `security_decision_verify_package` 当前至少会校验：
+  - `execution_record` 是否挂进 `object_graph`
+  - `execution_record` 是否挂进 `artifact_manifest`
+  - `execution_record` 与 `post_trade_review / position_plan / snapshot / outcome` 是否同源
+- `security_decision_package_revision` 当前已能对以下问题输出修补建议：
+  - `missing_execution_record`
+  - `execution_record_ref_misaligned`
+- 已验证：
+ - `cargo test --test security_execution_record_cli -- --nocapture`
+  - `cargo test --test security_post_trade_review_cli -- --nocapture`
+  - `cargo test --test security_decision_package_cli -- --nocapture`
+
+这一条意味着当前证券主线里的 M3 闭环底座，已经从“建议层复盘”推进到“真实执行对象已正式进入 review 与 package 治理链”。
+
+补充说明：
+
+- `Task 8` 阶段里曾经存在的 `execution_deviation = not_tracked_v1` 旧口径，已经被 `Task 10` 的正式 `security_execution_record` 接入所取代。
+- 当前 `security_post_trade_review` 里的关键字段仍然保留并继续有效：
+  - `model_miss_reason`
+  - `next_adjustment_hint`
+- 当前归因与执行质量规则仍属于最小正式版，不是最终完整版：
+  - `hit_stop_first => broken`
+  - `forward_return > 0 && max_drawdown <= 0.08 => validated`
+  - `forward_return > 0 => mixed`
+  - 其他情况 => `broken`
+- 当前阶段明确复用既有底座，不重复开发：
+  - `security_position_plan`
+  - `security_forward_outcome`
+
+## 15. 2026-04-09 Task 11 多笔成交 journal 最小收口
+
+- `security_execution_journal` 已正式落地
+- 当前 journal 已不再是备注文本，而是独立正式 Tool
+- 当前最小正式成交字段已经固定：
+  - `trade_date`
+  - `side`
+  - `price`
+  - `position_pct_delta`
+  - `reason`
+  - `notes`
+- 当前最小聚合字段已经固定：
+  - `trade_count`
+  - `entry_trade_count`
+  - `exit_trade_count`
+  - `holding_start_date`
+  - `holding_end_date`
+  - `peak_position_pct`
+  - `final_position_pct`
+  - `weighted_entry_price`
+  - `weighted_exit_price`
+  - `realized_return`
+- `security_execution_record` 当前已经升级为复用 `execution_journal`
+  - 新增 `execution_journal_ref`
+- `security_post_trade_review` 当前已经正式绑定：
+  - `execution_journal_ref`
+- `security_decision_package` 当前已经正式挂入：
+  - `execution_journal_result`
+  - `execution_journal`
+- `security_decision_verify_package` 当前至少会校验：
+  - `execution_journal` 是否挂进 `object_graph`
+  - `execution_journal` 是否挂进 `artifact_manifest`
+  - `execution_journal` 与 `execution_record / post_trade_review / position_plan / snapshot / outcome` 是否同源
+- `security_decision_package_revision` 当前已能对以下问题输出修补建议：
+  - `missing_execution_journal`
+  - `execution_journal_ref_misaligned`
+- 已验证：
+  - `cargo test --test security_execution_journal_cli -- --nocapture`
+  - `cargo test --test security_execution_record_cli -- --nocapture`
+  - `cargo test --test security_post_trade_review_cli -- --nocapture`
+  - `cargo test --test security_decision_package_cli -- --nocapture`
+
+这一条意味着当前证券主线已经从“单次执行记录”推进到“多笔成交明细 journal + 聚合 record”双层执行对象。
+## 16. 2026-04-09 Task 12 账户级仓位管理最小收口
+- `security_portfolio_position_plan` 已正式落地
+- 当前它不是复杂组合优化器，而是“账户级增量资金分配 Tool”
+- 当前正式输入会同时消费：
+  - 账户总资产
+  - 可用现金
+  - 当前持仓
+  - 候选标的及其正式 `security_position_plan`
+- 当前正式输出会同时给出：
+  - 现金底线占比
+  - 可部署现金金额
+  - 当前已投资占比
+  - 集中度预警
+  - 逐标的账户级分配建议
+- 当前账户级约束只做最实用的 4 类：
+  - `min_cash_reserve_pct`
+  - `max_single_position_pct`
+  - `max_sector_exposure_pct`
+  - `risk_cap_pct`
+- 当前候选排序规则是：
+  - `confidence + odds_grade - risk_penalty`
+- 当前 `risk_cap_pct` 口径固定为：
+  - `low => 0.20`
+  - `medium => 0.15`
+  - `high => 0.10`
+  - `default => 0.12`
+- 本轮已经修过一个真实 bug：
+  - 同一 `symbol` 的现有暴露必须累计，不能覆盖
+- 已接入：
+  - `src/ops/stock.rs`
+  - `src/ops/mod.rs`
+  - `src/tools/catalog.rs`
+  - `src/tools/dispatcher.rs`
+  - `src/tools/dispatcher/stock_ops.rs`
+- 已验证：
+  - `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+这一条意味着当前 M3 后续增强线已经不再只停留在“单票 position_plan”，而是开始进入“账户层这笔钱该怎么投”的正式对象化阶段。
+
+## 17. 2026-04-09 Task 12 第二轮补齐：账户级风险预算门禁
+- `security_portfolio_position_plan` 当前已补入最小账户级风险预算门禁
+- 当前新增正式输入：
+  - `max_portfolio_risk_budget_pct`
+  - `current_portfolio_risk_budget_pct`
+  - `max_single_trade_risk_budget_pct`
+- 当前新增正式输出：
+  - `remaining_portfolio_risk_budget_pct`
+  - `estimated_new_risk_budget_pct`
+  - `total_portfolio_risk_budget_pct`
+  - `risk_budget_warnings`
+- 当前逐标的建议已新增：
+  - `estimated_risk_budget_pct`
+- 当前风险预算口径仍是规则型折算，不是波动率 / 协方差模型
+- 当前风险预算折算系数是：
+  - `low => 0.25`
+  - `medium => 0.50`
+  - `high => 0.75`
+  - `default => 0.60`
+- 当前门禁逻辑是：
+  - 候选标的先过现金底线
+  - 再过单票上限与行业上限
+  - 再过账户总风险预算与单笔风险预算
+- 已验证：
+  - `cargo fmt --all`
+  - `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+这一条意味着账户层现在已经不只是“给建议仓位”，而是开始正式回答“账户风险预算还够不够继续加”。
+
+## 18. 2026-04-09 Task 12 第三轮补齐：仓位分层模板
+- `security_position_plan` 当前已正式暴露分层模板，不再只有 `starter_position_pct / max_position_pct`
+- 当前新增单票层字段：
+  - `entry_tranche_pct`
+  - `add_tranche_pct`
+  - `reduce_tranche_pct`
+  - `max_tranche_count`
+  - `tranche_template`
+  - `tranche_trigger_rules`
+  - `cooldown_rule`
+- 当前这些字段直接复用：
+  - `briefing_core.position_plan`
+  - `briefing_core.execution_plan`
+- `security_portfolio_position_plan` 当前已新增账户层分层输出：
+  - `suggested_tranche_action`
+  - `suggested_tranche_pct`
+  - `remaining_tranche_count`
+- 当前账户层不仅能说“要不要买”，还能说“当前该走试仓、加仓还是等待”
+- 已验证：
+  - `cargo fmt --all`
+  - `cargo test --test security_position_plan_cli -- --nocapture`
+  - `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+这一条意味着方案 A 已经从“账户级风险预算”继续推进到“账户级动作分层”，开始具备更接近实盘执行的话术和对象层。
+## 19. 2026-04-09 Task 12 第四轮补齐：账户偏差回写
+- `security_execution_record` 当前已可选消费 `portfolio_position_plan_document`
+- 当前新增正式账户偏差字段：
+  - `portfolio_position_plan_ref`
+  - `planned_tranche_action`
+  - `planned_tranche_pct`
+  - `planned_peak_position_pct`
+  - `actual_tranche_action`
+  - `actual_tranche_pct`
+  - `actual_peak_position_pct`
+  - `tranche_count_drift`
+  - `account_budget_alignment`
+- `security_post_trade_review` 当前已继续输出：
+  - `account_plan_alignment`
+  - `tranche_discipline`
+  - `budget_drift_reason`
+  - `next_account_adjustment_hint`
+- 当前明确分层职责：
+  - `execution_record` 记事实偏差
+  - `post_trade_review` 记治理解释
+  - `decision_package` 旧链路默认不传账户计划，兼容不破
+- 当前已修一个真实口径问题：
+  - `tranche_count_drift` 不再按单票 starter 基线反推
+  - 改为按“账户层本次建议的 tranche 大小”折算，避免 drift 被单票模板误导
+- 已验证：
+  - `cargo fmt --all`
+  - `cargo test --test security_execution_record_cli -- --nocapture`
+  - `cargo test --test security_post_trade_review_cli -- --nocapture`
+
+这一轮意味着 `方案A-2` 已经从“账户层建议能不能给出来”推进到“执行完以后能不能对上账户计划并正式复盘”。

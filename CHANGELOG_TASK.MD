@@ -1210,3 +1210,437 @@
 
 ### 记忆点（可选）
 - 用户再次明确要求：推送前不仅要整理当前实现，还要把“下一步做什么”的方案正式写进仓库文档，不能只停留在对话里。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_scorecard_training.rs`、`tests/security_scorecard_training_cli.rs`：从已存在提交 `81ce734` 恢复 Task 5 的正式训练主链与端到端测试。目的：把当前分支缺失的 `security_scorecard_training` 入口、artifact 落盘、`security_scorecard_refit` 挂接与 `model_registry` 注册能力补回主工作区。<!-- 2026-04-09 CST: 本次恢复训练主链文件。原因：AI_HANDOFF 已明确 Task 5 只剩尾项，但当前分支本地实际缺文件，必须先把真实实现取回。目的：避免继续在“文档说有、代码里没有”的失真状态下推进。 -->
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐 `security_scorecard_training` 的 stock 域模块声明、兼容导出、tool catalog 暴露与 dispatcher 路由。目的：让训练主链成为和 `security_feature_snapshot` / `security_forward_outcome` / `security_scorecard_refit` 同级的一等正式 Tool。<!-- 2026-04-09 CST: 本次补齐 training 接线。原因：恢复主文件后，当前分支仍缺统一发现与路由入口。目的：先形成完整可调度能力，再做尾项收敛。 -->
+- `src/ops/technical_consultation_basic.rs`：新增 `rsrs_snapshot_stays_computable_when_low_window_collapses_to_same_floor` 复现测试，并把 RSRS 分母为 0 从硬错误降级为返回中性 beta=1.0。目的：修复单边下跌样本把 low 压到同一价格下限时导致 `security_scorecard_training` 端到端失败的问题，同时保持正常 RSRS 分类语义不变。<!-- 2026-04-09 CST: 本次修复底层 RSRS 边界。原因：Task 5 红测真实失败点位于训练上游的技术面指标链，而不是训练逻辑本身。目的：避免单个退化窗口直接打断 snapshot/fullstack/training 主链。 -->
+- `docs/AI_HANDOFF.md`：把 `security_scorecard_training` 从“仍有已知尾项红测”更新为“最小正式训练主链已打通”，并同步调整后续优先级。目的：避免后续 AI 继续按过期文档误判 Task 5 仍处于未收敛状态。<!-- 2026-04-09 CST: 本次同步交接口径。原因：代码已完成 Task 5 最小收口，旧文档状态已失真。目的：让后续接手顺序和真实代码状态重新对齐。 -->
+
+### 修改原因
+- 用户已批准“方案 A”，要求先把 `Task 5` 的 `security_scorecard_training` 主链按远端已存在实现恢复到当前分支，再继续收尾。
+- 当前分支虽然已经收完 `Task 1-4`，但 `AI_HANDOFF.md` 所描述的 Task 5 代码在本地并不存在，真实阻塞点是“文档与代码状态不一致”。
+- 恢复训练主链后，真实红测暴露的是底层 RSRS 边界 BUG；按用户规则，必须先补复现测试，再修复到通过为止。
+
+### 方案还差什么?
+- [ ] 还未跑全量 `cargo test`；本轮已完成 `Task 1-4` 四个定向测试、`security_scorecard_training` 端到端测试，以及底层 RSRS 边界修复后的定向回归。
+- [ ] `security_scorecard_training` 当前只实现最小正式闭环，后续仍可继续补 walk-forward、champion-challenger、更多样本治理与更强校验。
+
+### 潜在问题
+- [ ] RSRS 分母为 0 目前统一降级为中性 beta=1.0；如果后续要引入更严格的统计修正口径，需要先补更多极端样本测试再调整。
+- [ ] 训练夹具仍依赖本地 HTTP 假服务和 SQLite 运行时；如果后续扩大样本量或提高并发，测试时间和锁等待可能继续上升。
+- [ ] 当前工作区仍有不少与本轮无关的既有修改和未跟踪文件；后续提交时必须继续收口路径，避免把无关改动一起带入。
+
+### 关闭项
+- 已通过 `cargo test --test security_chair_resolution_cli -- --nocapture`
+- 已通过 `cargo test --test security_feature_snapshot_cli -- --nocapture`
+- 已通过 `cargo test --test security_forward_outcome_cli -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_refit_cli -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli security_scorecard_training_generates_artifact_and_registers_refit_outputs -- --exact --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli -- --nocapture`
+- 已通过 `cargo test security_scorecard_training_generates_artifact_and_registers_refit_outputs --test security_scorecard_training_cli -- --exact --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：像这类持续主线收口任务，即使已有上下文，也必须先给方案、等批准，再执行代码修改。
+- 用户再次强调：每轮代码任务结束后都要按 `task-journal` 方式补 `CHANGELOG_TASK.MD`，不能因为在调试或恢复远端代码就省略。
+### 修改内容
+- `docs/AI_HANDOFF.md`：重写为当前主工作区统一交接手册，并补入 `foundation-navigation-kernel` 远端观察结果。目的：把证券主线、foundation 线、评分卡训练尾项和当前默认接手顺序收口到一份主文档里。<!-- 2026-04-09 CST: 本次追加主文档收口记录。原因：用户要求先把远端观察分支信息合并回当前主文档，再清理 worktree。目的：避免后续 AI 继续在分散文档和 worktree 之间找上下文。 -->
+- `docs/DOCUMENTATION_INDEX.md`：重写文档索引，明确“必看入口 / 证券主线入口 / foundation 入口 / 历史交接入口”。目的：让后续协作直接回到当前主工作区文档体系，不再依赖观察分支中的单独入口。<!-- 2026-04-09 CST: 本次同步索引口径。原因：旧索引已过时且存在乱码显示风险。目的：统一当前仓库的文档导航。 -->
+- `docs/交接摘要_证券分析_给后续AI.md`：重写证券专项交接页，补入 `security_scorecard`、`security_chair_resolution`、`security_scorecard_training`、会后结论未完整收口点，以及已知尾项 `security_scorecard_training_generates_artifact_and_registers_refit_outputs`。目的：把证券主线的真实进度写清楚，避免后续重复误判“还没做入口”或“会后链已完全收口”。<!-- 2026-04-09 CST: 本次重写证券专项交接页。原因：本地旧文档仍停留在较早阶段，无法反映 4/8-4/9 的治理与评分卡推进。目的：给后续 AI 一个单页可读的证券主线现状。 -->
+
+### 修改原因
+- 用户明确要求先把远端 `codex/foundation-navigation-kernel` 的关键信息合并回当前主文档，再清理 worktree，避免长期并行工作区导致“代码和文档不知道该看哪一套”。
+- 当前本地 `AI_HANDOFF.md` 与 `DOCUMENTATION_INDEX.md` 已出现明显过期和乱码显示风险，如果不先重写主入口，后续 AI 会继续从失真的文档状态接续。
+- 这轮目标不是合并远端代码，而是先把交接信息、阅读顺序、已知尾项和开发基线统一回当前主工作区。
+
+### 方案还差什么?
+- [ ] 还未执行 worktree 清理；本条日志先记录文档收口动作，worktree 删除将在本轮后续步骤完成。
+- [ ] 还未把远端证券代码改动并回当前分支；本轮明确只做主文档合并，不做代码并线。
+- [ ] `security_scorecard_training` 的端到端红测仍未收敛，这次只是把该尾项正式写回主文档。
+
+### 潜在问题
+- [ ] 当前工作区本身仍有多处与本轮无关的未提交改动；如果后续提交不收口路径，容易把无关修改一起带入。
+- [ ] `CHANGELOG_TASK.MD` 当前在终端里仍存在历史编码显示噪声，本轮只追加新条目，没有尝试整体转码清洗，避免扩大改动面。
+- [ ] 即使 worktree 清掉，远端 `codex/foundation-navigation-kernel` 上的代码仍未自动进入当前分支；后续若要继续吸收其实现，仍需单独设计代码合并方案。
+
+### 关闭项
+- [ ] 未执行自动化验证：本轮修改仅涉及交接文档与索引重写，不涉及生产代码或测试逻辑。
+
+### 记忆点（可选）
+- 用户再次强调：worktree 不能长期堆积，否则会让后续开发不知道该改哪一套代码；后续默认优先收口到当前主工作区。
+- 用户再次强调：修改代码前要先给方案并等待批准；本轮已先给出方案 A / B / C，并在批准方案 A 后才开始改文档。
+## 2026-04-09
+### 修改内容
+- `tests/security_scorecard_training_cli.rs`：先新增 `build_trend_rows_keeps_low_series_variable_in_downtrend_fixture` 失败测试，再把 `build_trend_rows()` 的低点下限改成动态正数底。目的：修正训练夹具把下跌样本 `low` 压成固定 `0.10`、人为制造 RSRS 退化窗口的问题。
+- `src/ops/technical_consultation_basic.rs`：新增 `rsrs_status` 合同字段，并把 `rsrs_snapshot()` / `regression_slope_high_on_low()` 从“分母为 0 直接回填中性 beta”改为“显式 `degraded` 状态 + 不作为方向判断依据”。目的：落实用户确认的原则，避免把数学异常伪装成正常信号。
+- `src/ops/technical_consultation_basic.rs`：新增 `rsrs_degraded_guidance_explicitly_excludes_directional_use` 等回归测试，并同步修正摘要、动作、观察点文案。目的：锁住退化 RSRS 的对外合同，防止后续又回退成 neutral/共振语义。
+- `docs/AI_HANDOFF.md`：补充 2026-04-09 的 RSRS 正式收口说明。目的：让后续 AI 接手时明确知道当前已经不是“中性兜底”方案，而是“显式 degraded 并退出投决输入”。
+
+### 修改原因
+- 用户明确否决“RSRS 分母为 0 直接中性处理”的止血方案，要求先修正；如果无法修正，则不得再作为投决输入条件。
+- 已定位 Task 5 真正的失败根因是训练夹具构造了平底 `low` 序列，而不是训练主链本身。
+
+### 方案还差什么?
+- [ ] 当前只对 RSRS 建立了显式退化合同，其他技术指标若后续也出现数学退化，还没有统一的 availability 框架。
+- [ ] 还没有跑全量 `cargo test`；本轮以定向回归为主，避免在当前脏工作区里扩大无关噪声。
+
+### 潜在问题
+- [ ] `docs/AI_HANDOFF.md` 与 `CHANGELOG_TASK.MD` 在当前 PowerShell 输出里仍有历史编码显示噪声；本轮只追加新内容，没有整体清洗旧文档编码。
+- [ ] 当前工作区仍然存在大量与本轮无关的已修改/未跟踪文件；后续提交时仍需严格按路径收口。
+
+### 关闭项
+- 已通过 `cargo test --test security_scorecard_training_cli build_trend_rows_keeps_low_series_variable_in_downtrend_fixture -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli -- --nocapture`
+- 已通过 `cargo test rsrs_degraded_guidance_explicitly_excludes_directional_use -- --nocapture`
+- 已通过 `cargo test rsrs_snapshot_stays_computable_when_low_window_collapses_to_same_floor -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli security_scorecard_training_generates_artifact_and_registers_refit_outputs -- --nocapture`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 用户再次强调：遇到数学退化时，优先修正根因，不能用“中性兜底”掩盖问题；实在修不了，才允许显式剔出投决输入。
+- 用户再次强调：每次代码任务完成后，都必须按 `task-journal` 思路补 `CHANGELOG_TASK.MD`。
+## 2026-04-09
+### 修改内容
+- `tests/security_decision_package_cli.rs`：新增 Task 6 红测与回归测试，覆盖 `post_meeting -> package -> verify -> revision` 正式链路。目的：先锁“会后结论必须挂入 package”的行为，再补实现。
+- `src/ops/security_record_post_meeting_conclusion.rs`：新增正式会后结论 Tool 与文档对象。目的：把主席决议后的会后结论从文档口径升级为正式治理对象。
+- `src/ops/security_decision_package.rs`：新增正式 decision package 对象，装配 `object_graph` 与 `artifact_manifest`。目的：给 verify/revision 提供统一 package 输入。
+- `src/ops/security_decision_verify_package.rs`：新增 package 校验 Tool。目的：显式校验 `post_meeting_conclusion`、`chair_resolution`、`symbol`、`analysis_date` 的挂载与一致性。
+- `src/ops/security_decision_package_revision.rs`：新增 package 修订建议 Tool。目的：把 verify 失败转成可执行修补动作，而不是只返回失败状态。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐新 Tool 的模块声明、导出、catalog 暴露与 dispatcher 路由。目的：让 Task 6 成为正式可发现、可调用的主链能力。
+- `docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：补记 Task 6 已完成的真实状态与后续入口。目的：避免后续 AI 继续把 package 治理链当成“文档里计划过、代码里还没有”。
+
+### 修改原因
+- 用户已批准 `方案C`，要求把 Task 6 做成完整 package 版，而不是只补文档口径。
+- 当前真实缺口不是“修一个尾项”，而是文档里声称存在的 `post_meeting / package / verify / revision` 四个正式对象在代码里尚未落地。
+- 用户明确要求：不能用“中性兜底”或“文档先写上”这种规避方式假收口，必须把正式对象和链路真正做出来。
+
+### 方案还差什么?
+- [ ] 当前 verify 只做了最小一致性校验，后续还可以继续补更细的引用完整性、签名/审计字段、上下游哈希绑定等深水位治理校验。
+- [ ] 当前 revision 只输出最小修补动作，后续还可以继续补自动修补模板或更结构化的 remediation payload。
+- [ ] Task 6 收口后，后续主线应转向更完整的投中 / 投后对象层，而不是继续重复造 package 基础对象。
+
+### 潜在问题
+- [ ] `security_decision_verify_package` 当前直接消费 `serde_json::Value`，优点是兼容现有嵌套对象，缺点是字段重构时编译期保护较弱；后续如果 package 合同稳定，可以考虑再收口成强类型输入。
+- [ ] 当前 package 的 `artifact_manifest` 仍是最小字段集，后续如果要承接更严格审计，可能需要补 `evidence_hash`、签名链、版本指纹等字段。
+- [ ] 工作区本身仍有不少与本轮无关的既有改动和未跟踪文件，后续提交时仍需按路径收口，避免混入无关改动。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+- 已通过 `cargo test --test security_chair_resolution_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：改代码前必须先出多个方案并等待批准；这轮是在用户批准 `方案C` 后才继续实现。
+- 用户再次强调：Task 收口不能靠文档声明，文档里写了的正式对象，代码里也必须真实存在并可验证。
+## 2026-04-09
+### 修改内容
+- `tests/security_position_plan_cli.rs`：先新增 `tool_catalog_includes_security_position_plan` 与 `security_position_plan_outputs_formal_document_aligned_with_briefing` 两条外层合同测试。目的：先复现并锁定 Task 7 的真实需求，确保独立仓位计划 Tool 可发现、可调用，且与 briefing 同源对齐。
+- `src/ops/security_position_plan.rs`：新增正式 `security_position_plan` Tool、请求合同、结果合同与 `SecurityPositionPlanDocument`。目的：把已有 `position_plan` / `odds_brief` / `committee_payload` 正式对象化，形成可被 Skill 与后续治理链直接消费的独立仓位文档。
+- `src/ops/security_decision_briefing.rs`：新增 `SecurityDecisionBriefingCore` 与 `security_decision_briefing_core()`，并把原 `security_decision_briefing()` 改为“先装配 core，再生成默认 committee recommendations”。目的：把 briefing 核心事实层与默认投决建议解耦，避免 Task 7 被不需要的 seat agent 子链阻塞。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐 `security_position_plan` 的模块声明、导出、catalog 暴露与 dispatcher 路由。目的：让独立仓位计划成为正式一等 Tool，而不是继续靠手工拆 briefing。
+- `docs/plans/2026-04-09-task7-security-position-plan.md`：新增本轮收口文档。目的：把 Task 7 的实现边界、设计结论、验证结果和后续建议留档，方便后续 AI 续接。
+
+### 修改原因
+- 用户已批准 Task 7 按方案 A 推进，要求把 briefing 中已存在的仓位层正式对象化，而不是重写第二套仓位算法。
+- 首轮红测已真实复现阻塞：`security_position_plan` 若直接复用完整 `security_decision_briefing`，会在默认 `committee_recommendations` 子链上触发 seat agent 调用，并因 `member_id` 缺失报错。
+- 因此本轮不仅要落地新 Tool，还必须把 `briefing` 的“核心事实层”抽离出来，保证仓位文档继续复用单一事实源，但不被无关副作用卡住。
+
+### 方案还差什么?
+- [ ] 当前只完成了 Task 7 的最小正式对象化，尚未把 `security_position_plan` 继续挂入更完整的 package / audit 治理链。
+- [ ] 当前仅跑了与 Task 7 直接相关的定向测试，还未执行全量 `cargo test`。
+- [ ] 现有主交接文档 `docs/AI_HANDOFF.md` 存在历史编码噪声，本轮改为新增独立 Task 7 收口文档，后续可在文档清洗轮统一回收。
+
+### 潜在问题
+- [ ] `security_decision_briefing_core()` 目前是为了解耦 Task 7 引入的新公共入口；后续若 briefing 顶层字段继续扩展，需要同步保持 core 与完整结果的字段一致性。
+- [ ] 当前 `security_position_plan` 返回 `briefing_core` 而不是完整 `briefing_result`；若上层错误依赖 `committee_recommendations`，仍需要显式调用完整 `security_decision_briefing`。
+- [ ] 仓库当前工作区仍然很脏，存在大量与本轮无关的既有修改和未跟踪文件，后续提交或推送时必须继续按路径收口。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_position_plan_cli -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_odds_and_position_layers -- --exact --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：持续主线开发也必须先给方案，获得批准后再改代码；本轮是在方案 A 获批后才开始实现。
+- 用户再次强调：每轮代码任务结束后都要按 `task-journal` 风格补 `CHANGELOG_TASK.MD`，不能因为历史文件编码噪声而省略。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_post_trade_review.rs`：移除未使用的 `SecurityForwardOutcomeResult` 导入。目的：收敛 `Task 8` 尾项 warning，保持最小正式投后复盘 Tool 编译输出干净。
+- `docs/plans/2026-04-09-task8-security-post-trade-review.md`：新增 `Task 8` 收口文档。目的：把投后复盘最小正式版的实现边界、验证结果与后续扩展方向沉淀为正式交接材料。
+- `docs/DOCUMENTATION_INDEX.md`：补充 `Task 7` / `Task 8` 证券主线收口文档入口。目的：让后续 AI 和开发者从统一索引直接定位仓位管理与投后复盘文档。
+- `docs/AI_HANDOFF.md`：追加 `Task 8` 投后复盘状态说明。目的：把证券主线当前推进到“最小正式复盘 Tool 可用”的真实状态写回主交接文档。
+
+### 修改原因
+- 用户已批准 `Task 8 -> 方案A`，要求先做最小正式版投后复盘 Tool，而不是重造完整平台。
+- 本轮代码主链已经基本打通，剩余问题集中在 warning、文档入口和交接状态未收口；如果不补齐，后续 AI 仍可能误判 `Task 8` 还停留在路线图阶段。
+- 用户明确要求每轮任务结束后必须按 `task-journal` 风格追加 `CHANGELOG_TASK.MD`，不能因为历史文档编码噪声而省略。
+
+### 方案还差什么?
+- [ ] 当前 `security_post_trade_review` 仍是建议层复盘，尚未接入真实成交执行记录、分批成交与实际止损止盈动作。
+- [ ] 当前尚未把 `post_trade_review` 正式挂入 `decision_package` 或后续复盘治理链，只完成了独立 Tool 收口。
+- [ ] 当前只跑了与 `Task 8` 直接相关的格式化和定向回归，尚未执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前 `thesis_status`、`model_miss_reason`、`next_adjustment_hint` 仍是规则型最小版；如果后续引入更多市场状态或执行层输入，现有归因规则需要先补测试再扩展。
+- [ ] 当前 `execution_deviation = not_tracked_v1` 只是显式占位；如果上层误把它当成“无执行偏差”，会放大复盘结论的解释风险。
+- [ ] `docs/AI_HANDOFF.md` 和 `CHANGELOG_TASK.MD` 在 PowerShell 输出里仍存在历史编码显示噪声；本轮只做最小追加，没有做整文件编码清洗，避免扩大改动面。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_forward_outcome_cli -- --nocapture`
+- 已通过 `cargo test --test security_position_plan_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：持续主线开发也必须先给出多个方案，等待批准后再改代码；本轮是在 `方案A` 获批后执行收口。
+- 用户再次强调：每次代码任务结束后都必须按 `task-journal` 风格补 `CHANGELOG_TASK.MD`，不能因为历史文件编码显示噪声而跳过。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_decision_package.rs`：把 `security_post_trade_review` 正式装进 `security_decision_package`，并挂入 `object_graph` 与 `artifact_manifest`。目的：把投后复盘从“独立 Tool 可用”推进到“正式治理对象已入包”。
+- `src/ops/security_decision_verify_package.rs`：新增 `object_graph_post_trade_review_bound`、`artifact_manifest_post_trade_review_bound`、`post_trade_review_refs_consistent` 三类校验，并补充 `missing_post_trade_review`、`post_trade_review_ref_misaligned` 问题码。目的：让 verify 对 review 的存在性和同源引用一致性形成正式门禁。
+- `src/ops/security_decision_package_revision.rs`：新增 review 缺失与引用错绑的修补建议输出。目的：让 verify 失败后能够沿统一 remediation 建议收口，而不是只返回 failed。
+- `tests/security_decision_package_cli.rs`：先补红测，再修正夹具。具体包括：锁定 `post_trade_review` 必须进入 package 的 `object_graph / artifact_manifest`；新增 review 引用错绑后的 verify / revision 回归；把测试历史夹具扩到 `420` 条，并把 `as_of_date` 调整为 `2025-10-15`。目的：先复现 Task 9 真需求，再修复“样本窗不足”导致的假失败。
+- `docs/plans/2026-04-09-task9-post-trade-review-package-governance.md`：新增 Task 9 收口文档。目的：沉淀本轮治理挂接边界、排障结论、验证命令与后续扩展建议。
+- `docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`：补充 Task 9 当前状态与入口索引。目的：让后续 AI 明确知道投后复盘已经正式并入 package 治理闭环。
+
+### 修改原因
+- 用户已批准 `方案B`，要求把 Task 9 做成“标准治理版投后闭环”，不是重做 `security_post_trade_review`，而是接入 `decision_package -> verify -> revision`。
+- 本轮红测后定位出的真实阻塞不是治理代码，而是测试夹具日期窗口冲突：`as_of_date = 2025-07-15` 时，技术分析链只拿到 `196` 条历史样本，低于最少 `200` 条要求。
+- 用户明确要求：遇到 BUG 先补能复现的测试，再修复；同时每轮任务结束后都必须补本地任务日志和 AI 交接文档。
+
+### 方案还差什么?
+- [ ] 当前 Task 9 只完成了投后复盘进入 package 的最小治理挂接，尚未接入真实成交执行记录。
+- [ ] 当前 verify 仍是最小一致性门禁，尚未补更强的哈希、签名、审计指纹或自动修补模板。
+- [ ] 本轮只跑了定向回归，还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] `security_decision_verify_package` 目前仍直接消费 `serde_json::Value`，对 future schema drift 的编译期保护较弱；如果 package 合同稳定，后续可考虑收口成强类型输入。
+- [ ] `tests/security_decision_package_cli.rs` 当前通过更长夹具和更晚快照日保证样本窗充足；后续如果再改技术分析最小样本要求或 review horizon，夹具日期仍需要同步维护。
+- [ ] 当前工作区依然存在大量与本轮无关的已修改/未跟踪文件；后续提交时必须继续按路径收口，不能混入杂项改动。
+
+### 关闭项
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_position_plan_cli -- --nocapture`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 用户再次强调：持续开发也必须先出多个方案，等批准后再改代码；本轮是在 `方案B` 获批后才继续实现。
+- 用户再次强调：根因优先于规避；这轮 package 测试失败的真实根因是测试快照日过早导致历史样本不足，不是治理链没接上。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_execution_record.rs`：新增正式 `security_execution_record` Tool、请求合同、执行文档和收益归因规则。目的：把真实执行对象从 review 占位字段升级为正式一等治理对象。
+- `src/ops/security_post_trade_review.rs`：改为复用 `security_execution_record`，并新增 `execution_record_ref`、`executed_return`、`execution_return_gap`。目的：让投后复盘从“建议层复盘”进入“真实执行复盘”。
+- `src/ops/security_decision_package.rs`：新增 `execution_record_result`、`execution_record`，并把 `execution_record` 正式挂入 `object_graph` 与 `artifact_manifest`。目的：把真实执行对象并入 package 主治理链。
+- `src/ops/security_decision_verify_package.rs`：新增 execution record 挂载与引用一致性门禁，补充 `missing_execution_record`、`execution_record_ref_misaligned` 问题码。目的：让 verify 对真实执行对象形成正式校验，而不是只校验 review 文档存在性。
+- `src/ops/security_decision_package_revision.rs`：新增 execution record 缺失与错绑的修补建议。目的：让 verify 失败后能够沿统一 remediation 继续收口。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐 `security_execution_record` 的模块边界、catalog 暴露和 dispatcher 路由。目的：让 Task 10 成为正式可发现、可调用的主链能力。
+- `tests/security_execution_record_cli.rs`：新增 execution record 外层合同测试。目的：先用红测锁住真实执行对象与收益归因字段，再补实现。
+- `tests/security_post_trade_review_cli.rs`、`tests/security_decision_package_cli.rs`：扩展 review 与 package 治理链回归，要求 execution record 正式进入 review/package，并能被 verify/revision 识别错绑。目的：防止 Task 10 退化成孤立 Tool。
+- `docs/plans/2026-04-09-task10-security-execution-record.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`：补充 Task 10 收口文档与入口。目的：让后续 AI 直接知道 M3 已进入真实执行对象阶段。
+
+### 修改原因
+- 用户已批准 `方案A-2`，要求 Task 10 不是只补最小执行壳，而是要带收益归因。
+- 当前主链虽然已经有 `post_trade_review`，但 `execution_deviation = not_tracked_v1` 仍然说明真实执行对象缺位；如果不补这一层，M3 只能算“建议闭环”，不能算“真实执行闭环”。
+- 本轮仍按要求先补红测，再改实现，确保真实执行对象、自身合同和 package 治理挂接都被源码测试锁住。
+
+### 方案还差什么?
+- [ ] 当前 execution record 仍只支持单次进出，不支持多笔成交 journal。
+- [ ] 当前还没有接入真实券商成交单、回单或外部交易流水。
+- [ ] 本轮只跑了定向回归，尚未执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] Windows 下 `target\\debug\\excel_skill.exe` 在连续回归时仍可能残留占用，需要先结束残留进程再继续编译或测试。
+- [ ] 当前 `execution_quality` 仍是最小规则分档版；如果后续加入分批执行、滑点容忍度模板或不同资产类别，规则需要先补测试再扩展。
+- [ ] 当前工作区仍有大量与本轮无关的既有修改和未跟踪文件；后续提交时必须继续按路径收口。
+
+### 关闭项
+- 已通过 `cargo test --test security_execution_record_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：持续开发也必须先给方案并等批准；本轮是在 `方案A-2` 获批后才继续实现。
+- 用户再次强调：不要重复开发已有模块；因此本轮 review 没有重造 position/outcome 底层，而是让 `security_execution_record` 复用现有主链并成为新的正式对象。
+## 2026-04-09
+### 修改内容
+- `docs/AI_HANDOFF.md`：清理 `Task 10` 后残留的旧 `Task 8` 口径，并补充“`not_tracked_v1` 已被正式 execution record 替代”的说明。目的：避免主交接文档同时存在“执行已接入”和“执行未接入”两套冲突状态。
+- `docs/交接摘要_证券分析_给后续AI.md`：补写 `Task 8-10` 的最新真实状态，并把推荐续做顺序改为“确认 M3 收口 -> 进入 M4 增强层”。目的：让后续 AI 不再按旧文档误判证券主线还停留在训练链或会后结论阶段。
+
+### 修改原因
+- 本轮定向测试已确认 `Task 10 / 方案A-2` 代码主链通过，但主文档仍残留一段 `execution_deviation = not_tracked_v1` 的旧口径，会误导后续 AI。
+- 用户此前明确要求把主文档和 AI 交接手册统一到当前主工作区，不要再让下一位 AI 去 worktree 或远端分支里猜真实进展。
+
+### 方案还差什么?
+- [ ] 当前只完成了 `Task 10` 的代码与文档收口，还未执行全量 `cargo test`。
+- [ ] 当前 `M3` 虽可视为核心收口完成，但 `M4` 的多笔成交 journal、增强审计链和更细归因模板仍未开始。
+
+### 潜在问题
+- [ ] `docs/AI_HANDOFF.md` 和 `docs/交接摘要_证券分析_给后续AI.md` 属于长期累积文档，后续继续追加时仍有再次出现旧段落覆盖新状态的风险，需要保持“新状态覆盖旧状态”的单一口径。
+- [ ] 当前验证仍是定向测试，不等同于全仓库回归；若其他模块改动影响编译或运行，仍需后续全量确认。
+
+### 关闭项
+- 已通过 `cargo test --test security_execution_record_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 用户再次强调：文档要能让其他 AI 直接接续，因此主交接文档里不能同时保留互相冲突的阶段口径。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_execution_journal.rs`：新增正式 `security_execution_journal` Tool、成交输入合同、journal 文档和聚合规则。目的：把多笔成交从备注文本升级为正式一等对象。
+- `src/ops/security_execution_record.rs`：改为兼容旧单次进出字段与新 `execution_trades`，并统一复用 `security_execution_journal` 聚合结果。目的：在不打断既有调用的前提下，把 execution record 升级为 journal 的摘要层。
+- `src/ops/security_post_trade_review.rs`：新增 `execution_journal_ref`，并在结果中正式暴露 `execution_journal_result` 与 `execution_journal`。目的：让投后复盘能够直接追溯多笔成交事实源。
+- `src/ops/security_decision_package.rs`、`src/ops/security_decision_verify_package.rs`、`src/ops/security_decision_package_revision.rs`：把 `execution_journal` 挂入 package / verify / revision，新增缺挂载与错绑门禁及修补建议。目的：确保 journal 进入正式治理链，而不是停留在孤立 Tool。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐 `security_execution_journal` 的模块边界、catalog 暴露和 dispatcher 路由。目的：让 P1 成为正式可发现、可调用的证券主链能力。
+- `tests/security_execution_journal_cli.rs`：新增 journal 外层合同测试。目的：先锁“多笔成交正式文档 + 聚合字段”再补实现。
+- `tests/security_execution_record_cli.rs`、`tests/security_decision_package_cli.rs`：扩展 journal -> record 聚合回归，以及 journal 进入 package 后的挂载与错绑校验。目的：防止 P1 退化成只多一个孤立 Tool。
+- `docs/plans/2026-04-09-task11-security-execution-journal.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`：补充 Task 11 收口文档与交接入口。目的：让后续 AI 直接知道当前已经进入“journal 明细层 + record 摘要层”阶段。
+
+### 修改原因
+- 用户已批准方案 A-1，要求先做最实用方向：多笔成交 `execution_journal`，再由它聚合生成 `execution_record`，不要直接打碎现有 record 合同。
+- 当前主链虽然已经有真实执行对象，但仍只支持单次进出；如果不补 journal，系统无法真实承载分批买入、分批卖出、加仓和减仓。
+- 本轮仍按要求先补红测，再改实现，并在任务结束后补主文档与任务日志。
+
+### 方案还差什么?
+- [ ] 当前 `journal v1` 仍要求最终回到空仓，还不支持“持仓未结束”的跨周期 journal。
+- [ ] 当前还没有账户级仓位管理和账户现金流约束。
+- [ ] 当前只跑了定向回归，还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前 `journal v1` 不处理 FIFO/LIFO 税务口径，也不处理跨周期残余仓位；后续如果进入更真实的实盘场景，需要先补测试再扩展。
+- [ ] 当前执行收益仍是最小聚合版；如果后续要拆分加仓收益、减仓收益、滑点来源和纪律偏差，还需要更细归因模型。
+- [ ] 当前工作区依然很脏，后续提交时必须继续按路径收口，不能把无关修改混进来。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_execution_journal_cli -- --nocapture`
+- 已通过 `cargo test --test security_execution_record_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次确认：当前阶段优先做“最实用”的能力，因此先补 execution journal，再做账户级仓位和更细收益归因。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_position_plan.rs`：补入 `entry_tranche_pct`、`add_tranche_pct`、`reduce_tranche_pct`、`max_tranche_count`、`tranche_template`、`tranche_trigger_rules`、`cooldown_rule`。目的：把方案 A-1 的“试仓 / 加仓 / 减仓模板”正式对象化，而不是继续只给 starter/max。
+- `src/ops/security_portfolio_position_plan.rs`：补入 `suggested_tranche_action`、`suggested_tranche_pct`、`remaining_tranche_count`，并新增旧版 `SecurityPositionPlanDocument` 的分层字段回退推导。目的：让账户层不仅能分配资金，还能明确告诉上层当前该走哪一层。
+- `tests/security_position_plan_cli.rs`、`tests/security_portfolio_position_plan_cli.rs`：先补红测锁定分层模板与账户层分层动作输出，再收口实现。目的：按用户要求先用测试固定需求，再修到通过。
+- `docs/plans/2026-04-09-task12-security-portfolio-position-plan.md`、`docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：补齐 Task 12 第三轮“仓位分层模板”记录。目的：避免主文档仍停在风险预算版。
+
+### 修改原因
+- 用户已批准按方案 A-1 继续，要求把“更细的仓位分层模板”落到正式代码上。
+- 当前如果只有 starter/max 和风险预算，系统仍然回答不了“这次动作是试仓、加仓还是等待”。
+- 本轮在实现中确认了一个真实问题：旧版 `SecurityPositionPlanDocument` 缺少分层字段时，账户层会把层数误算为 0；已补回退推导修复。
+
+### 方案还差什么?
+- [ ] 当前分层模板仍是规则型，不含时间序列统计最优层数和波动率自适应层宽。
+- [ ] 当前还没有把执行后的账户偏差回写进分层模板调整。
+- [ ] 当前还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前 `max_tranche_count` 和 `remaining_tranche_count` 仍基于规则推导，不是交易流水回写后的真实层数。
+- [ ] 旧版 `SecurityPositionPlanDocument` 虽然已能回退推导，但如果上游只给极简字段，层数精度仍会下降。
+- [ ] 当前工作区仍然存在大量与本轮无关的已修改/未跟踪文件；后续提交时仍需严格按路径收口。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_position_plan_cli -- --nocapture`
+- 已通过 `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次确认：方案 A-1 的目标不是另造一套仓位算法，而是把“更细的仓位分层模板”正式对象化。
+- 用户再次强调：发现逻辑问题时，先补能复现的测试，再修复，并在每轮结束后同步主文档和 `CHANGELOG_TASK.MD`。
+
+## 2026-04-09
+### 修改内容
+- `src/ops/security_portfolio_position_plan.rs`：在现有账户级仓位 Tool 上补入 `max_portfolio_risk_budget_pct`、`current_portfolio_risk_budget_pct`、`max_single_trade_risk_budget_pct` 三个正式输入，并新增账户汇总风险预算字段与逐标的 `estimated_risk_budget_pct`。目的：把账户层从“只看现金怎么分配”推进到“现金 + 风险预算双门禁”。
+- `tests/security_portfolio_position_plan_cli.rs`：先补红测，锁定“第一只候选吃满剩余风险预算后，第二只候选必须被 `portfolio_risk_budget_reached` 挡住”的正式行为，再收口实现。目的：按用户要求先复现需求，再修复到通过。
+- `docs/plans/2026-04-09-task12-security-portfolio-position-plan.md`、`docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：补齐 Task 12 第二轮“账户级风险预算门禁”记录。目的：避免代码已经升级到风险预算版，但主文档仍停留在现金分配版。
+
+### 修改原因
+- 用户已批准按方案 A 继续，当前阶段优先补“账户级风险预算”，而不是跳去复杂组合优化。
+- 如果账户层只有资金分配，没有风险预算门禁，系统仍回答不了“账户风险预算还够不够继续加仓”这个核心问题。
+- 本轮按要求先补红测，再把风险预算门禁并入现有 `security_portfolio_position_plan`，避免再次新拆平行 Tool。
+
+### 方案还差什么?
+- [ ] 当前风险预算仍是规则型折算，尚未接入真实波动率、相关性矩阵和组合最大回撤预算。
+- [ ] 当前还没有执行后账户偏差回写，也还没有自动再平衡。
+- [ ] 当前还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前 `position_risk_grade -> 风险预算占用系数` 是规则型映射，不是统计校准结果；后续如果误把它当成真实风险模型，会高估当前能力。
+- [ ] 当前风险预算只约束新增仓位，不会自动重估历史持仓的真实波动与相关性漂移。
+- [ ] 当前工作区仍然存在大量与本轮无关的已修改/未跟踪文件；后续提交时仍需严格按路径收口。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次确认：当前阶段先补最实用的账户级风险预算，不做马科维茨类复杂优化，也不做自动再平衡。
+- 用户再次强调：遇到新增逻辑时，先补红测，再改实现，并在任务结束后同步主文档与 `CHANGELOG_TASK.MD`。
+
+## 2026-04-09
+### 修改内容
+- `src/ops/security_portfolio_position_plan.rs`：新增正式 `security_portfolio_position_plan` Tool、账户级请求合同、输出文档和规则型分配逻辑。目的：把“账户里这笔可部署现金优先投给谁、投多少”收口为正式对象。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐账户级仓位管理 Tool 的模块导出、目录暴露与路由接线。目的：让 Task 12 成为正式可发现、可调用能力。
+- `tests/security_portfolio_position_plan_cli.rs`：新增账户级仓位管理外层合同测试，并补同一 symbol 持仓累计与正式输出断言。目的：先锁住真实需求，再验证实现不退化。
+- `docs/plans/2026-04-09-task12-security-portfolio-position-plan.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/交接摘要_证券分析_给后续AI.md`：补齐 Task 12 收口文档与后续 AI 接手入口。目的：避免代码已完成但主文档口径断档。
+
+### 修改原因
+- 用户已批准按方案 A 继续推进，且明确当前阶段不做马科维茨类复杂优化、不做自动再平衡，优先落“最实用”的账户级仓位管理。
+- 如果只有单票 `security_position_plan` 而没有账户级分配对象，系统仍回答不了“同一账户新增资金该先投谁、投多少”，闭环深度不够。
+- 本轮在测试中确认了一个真实风险点：同一 `symbol` 的现有持仓暴露不能覆盖，必须累计；否则账户层建议会被低估。
+
+### 方案还差什么?
+- [ ] 当前还没有账户级风险预算、相关性矩阵和组合最大回撤约束。
+- [ ] 当前还没有真实券商账户、订单流或现金流水接入。
+- [ ] 当前还没有自动再平衡和调仓审计链。
+- [ ] 当前还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前排序规则是规则型打分，不是统计最优组合；如果后续误把它理解成“最优解”，会高估当前能力边界。
+- [ ] 当前行业暴露依赖 `sector_tag` 输入质量；如果上游标签缺失或错误，行业上限约束会失真。
+- [ ] 当前 `risk_cap_pct` 是固定档位，不含波动率联动和相关性联动；在高波动市场中，真实风险可能高于当前建议。
+- [ ] 当前工作区仍然存在大量与本轮无关的已修改/未跟踪文件；后续提交时必须继续按路径收口，不能混入杂项改动。
+
+### 关闭项
+- 已通过 `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次确认：当前阶段先做“最实用”的账户级仓位管理，明确不做马科维茨类复杂优化，也不做自动再平衡。
+- 用户要求：每次代码任务结束后都要把主文档、AI 交接和 `CHANGELOG_TASK.MD` 同步到同一口径，不能只让代码完成而记录断档。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_execution_record.rs`：新增可选 `portfolio_position_plan_document` 输入，并正式回写账户层计划对齐字段。目的：把账户层仓位建议和真实执行偏差沉淀进 execution record，而不是只记录单票收益归因。
+- `src/ops/security_post_trade_review.rs`：新增 `account_plan_alignment`、`tranche_discipline`、`budget_drift_reason`、`next_account_adjustment_hint`。目的：把账户层偏差进一步翻译成投后治理结论。
+- `src/ops/security_decision_package.rs`：补 `portfolio_position_plan_document: None`。目的：保持既有 package 链路在未接入账户计划时继续兼容编译和运行。
+- `tests/security_execution_record_cli.rs`：先补账户偏差回写红测，再验证 `execution_record` 的账户层事实字段。目的：锁定 A-2 的正式合同。
+- `tests/security_post_trade_review_cli.rs`：先补账户复盘红测，再验证 `post_trade_review` 的治理输出。目的：确保账户偏差能进入正式复盘层。
+- `docs/plans/2026-04-09-task12-security-portfolio-position-plan.md`、`docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：补 Task 12 第四轮“账户偏差回写”记录。目的：让后续 AI 直接知道 A-2 已收口到哪。
+
+### 修改原因
+- 用户已批准按 `方案3` 做 `方案A-2`，要求把账户层“计划 vs 实际执行”的偏差正式回写，不再停留在单票层。
+- 本轮先补红测后修实现，确认新增字段确实按账户层计划口径工作。
+- 实现过程中确认了一个真实口径问题：`tranche_count_drift` 若按单票 starter 回推，会被单票默认模板干扰；已改为按“账户层本次明确建议的 tranche 大小”计算。
+
+### 方案还差什么?
+- [ ] 当前账户偏差回写仍依赖显式传入 `portfolio_position_plan_document`，还未自动从运行时存储中回溯账户计划。
+- [ ] 当前 `direction_mismatch` 主要覆盖方向不一致的最小口径，尚未继续拆到更细的部分执行/反手场景。
+- [ ] 当前只执行了定向测试与相关测试文件回归，尚未执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 如果上游传入的 `portfolio_position_plan_document` 不含目标 `symbol`，当前会直接返回构建错误；这符合严格口径，但接入方要先保证引用一致。
+- [ ] 当前 `actual_peak_position_pct` 采用“账户当前持仓 + execution_journal 峰值增量”的口径，更适合描述建仓/加仓波段；后续若覆盖更复杂的纯减仓或反手场景，需先补测试再扩展。
+- [ ] 工作区仍存在大量与本轮无关的既有修改和未跟踪文件；后续若提交 Git，仍需按路径精确收口。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_execution_record_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：每次代码任务结束后都要同步主文档、AI 交接文档和 `CHANGELOG_TASK.MD`，不能只改代码不留痕。
+- 用户再次强调：账户级仓位管理不是只给建议，还必须能回写执行偏差并进入投后复盘，这样闭环才算成立。

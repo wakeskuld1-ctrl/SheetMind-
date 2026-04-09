@@ -1,333 +1,401 @@
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use thiserror::Error;
 
-use crate::runtime::security_execution_store::SecurityExecutionStore;
-use crate::runtime::security_execution_store::SecurityExecutionStoreError;
-use crate::tools::contracts::PostTradeReviewDimension;
-use crate::tools::contracts::PostTradeReviewOutcome;
-use crate::tools::contracts::SecurityPostTradeReviewRequest;
-use crate::tools::contracts::SecurityPostTradeReviewResult;
-use crate::tools::contracts::SecurityRecordPositionAdjustmentResult;
+use crate::ops::stock::security_execution_journal::{
+    SecurityExecutionJournalResult, SecurityExecutionTradeInput,
+};
+use crate::ops::stock::security_execution_record::{
+    SecurityExecutionRecordError, SecurityExecutionRecordRequest, SecurityExecutionRecordResult,
+    security_execution_record,
+};
+use crate::ops::stock::security_portfolio_position_plan::SecurityPortfolioPositionPlanDocument;
+use crate::ops::stock::security_position_plan::SecurityPositionPlanResult;
 
-const POSITION_CONTINUITY_TOLERANCE: f64 = 1e-9;
+// 2026-04-09 CST: 这里新增投后复盘请求合同，原因是 Task 8 要把“投前仓位建议 + 未来结果”正式收口成投后对象；
+// 目的：让复盘 Tool 通过统一输入边界复用 position_plan 与 forward_outcome 主链，而不是继续由外层手工拼接。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityPostTradeReviewRequest {
+    pub symbol: String,
+    #[serde(default)]
+    pub market_symbol: Option<String>,
+    #[serde(default)]
+    pub sector_symbol: Option<String>,
+    pub market_regime: String,
+    pub sector_template: String,
+    #[serde(default)]
+    pub market_profile: Option<String>,
+    #[serde(default)]
+    pub sector_profile: Option<String>,
+    #[serde(default)]
+    pub as_of_date: Option<String>,
+    #[serde(default = "default_review_horizon_days")]
+    pub review_horizon_days: usize,
+    #[serde(default = "default_lookback_days")]
+    pub lookback_days: usize,
+    #[serde(default = "default_factor_lookback_days")]
+    pub factor_lookback_days: usize,
+    #[serde(default = "default_disclosure_limit")]
+    pub disclosure_limit: usize,
+    #[serde(default = "default_stop_loss_pct")]
+    pub stop_loss_pct: f64,
+    #[serde(default = "default_target_return_pct")]
+    pub target_return_pct: f64,
+    #[serde(default)]
+    pub actual_entry_date: String,
+    #[serde(default)]
+    pub actual_entry_price: f64,
+    #[serde(default)]
+    pub actual_position_pct: f64,
+    #[serde(default)]
+    pub actual_exit_date: String,
+    #[serde(default)]
+    pub actual_exit_price: f64,
+    #[serde(default)]
+    pub exit_reason: String,
+    #[serde(default)]
+    pub execution_trades: Vec<SecurityExecutionTradeInput>,
+    #[serde(default)]
+    pub execution_journal_notes: Vec<String>,
+    #[serde(default)]
+    pub execution_record_notes: Vec<String>,
+    #[serde(default)]
+    pub portfolio_position_plan_document: Option<SecurityPortfolioPositionPlanDocument>,
+    #[serde(default = "default_created_at")]
+    pub created_at: String,
+}
 
-// 2026-04-08 CST: 这里新增投后复盘正式 Tool，原因是证券主链已经具备计划对象与调仓事件对象，下一步必须能形成正式复盘闭环；
-// 目的：让系统基于 position_plan_ref 与 adjustment_event_ref 回读执行事实，产出结构化复盘结论，而不是继续依赖对话层人工总结。
+// 2026-04-09 CST: 这里固化最小正式投后复盘文档，原因是平台要补齐“投后”这一段，而不能只停留在 forward_outcome 数值回填；
+// 目的：把收益兑现、回撤、执行偏差与后续调整提示装配成一份可留痕、可审阅、可继续治理的正式对象。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityPostTradeReviewDocument {
+    pub review_id: String,
+    pub contract_version: String,
+    pub document_type: String,
+    pub generated_at: String,
+    pub symbol: String,
+    pub analysis_date: String,
+    pub snapshot_date: String,
+    pub review_horizon_days: usize,
+    pub position_plan_ref: String,
+    pub snapshot_ref: String,
+    pub outcome_ref: String,
+    pub execution_journal_ref: String,
+    pub execution_record_ref: String,
+    pub planned_position: serde_json::Value,
+    pub actual_result_window: String,
+    pub realized_return: f64,
+    pub executed_return: f64,
+    pub max_drawdown_realized: f64,
+    pub max_runup_realized: f64,
+    pub thesis_status: String,
+    pub execution_deviation: String,
+    pub execution_return_gap: f64,
+    pub account_plan_alignment: Option<String>,
+    pub tranche_discipline: Option<String>,
+    pub budget_drift_reason: Option<String>,
+    pub model_miss_reason: String,
+    pub next_account_adjustment_hint: Option<String>,
+    pub next_adjustment_hint: String,
+    pub review_summary: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SecurityPostTradeReviewResult {
+    pub position_plan_result: SecurityPositionPlanResult,
+    pub forward_outcome_result: SecurityPostTradeReviewOutcomeBinding,
+    pub execution_journal_result: SecurityExecutionJournalResult,
+    pub execution_journal:
+        crate::ops::stock::security_execution_journal::SecurityExecutionJournalDocument,
+    pub execution_record_result: SecurityExecutionRecordResult,
+    pub execution_record:
+        crate::ops::stock::security_execution_record::SecurityExecutionRecordDocument,
+    pub post_trade_review: SecurityPostTradeReviewDocument,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SecurityPostTradeReviewOutcomeBinding {
+    pub snapshot: crate::ops::stock::security_feature_snapshot::SecurityFeatureSnapshot,
+    pub selected_outcome:
+        crate::ops::stock::security_forward_outcome::SecurityForwardOutcomeDocument,
+    pub all_outcomes:
+        Vec<crate::ops::stock::security_forward_outcome::SecurityForwardOutcomeDocument>,
+}
+
 #[derive(Debug, Error)]
 pub enum SecurityPostTradeReviewError {
-    #[error("security_post_trade_review 缺少 decision_ref")]
-    MissingDecisionRef,
-    #[error("security_post_trade_review 缺少 approval_ref")]
-    MissingApprovalRef,
-    #[error("security_post_trade_review 缺少 evidence_version")]
-    MissingEvidenceVersion,
-    #[error("security_post_trade_review 缺少 position_plan_ref")]
-    MissingPositionPlanRef,
-    #[error("security_post_trade_review 缺少 symbol")]
-    MissingSymbol,
-    #[error("security_post_trade_review 缺少 analysis_date")]
-    MissingAnalysisDate,
-    #[error("security_post_trade_review 至少需要一条 adjustment_event_ref")]
-    EmptyAdjustmentEventRefs,
-    #[error("未找到仓位计划记录 `{position_plan_ref}`")]
-    PositionPlanNotFound { position_plan_ref: String },
-    #[error("未找到调仓事件记录 `{adjustment_event_ref}`")]
-    AdjustmentEventNotFound { adjustment_event_ref: String },
-    #[error("调仓事件 `{adjustment_event_ref}` 不属于同一 position_plan_ref")]
-    EventPlanMismatch { adjustment_event_ref: String },
-    #[error("调仓事件 `{adjustment_event_ref}` 的 symbol 与复盘请求不一致")]
-    EventSymbolMismatch { adjustment_event_ref: String },
-    #[error("调仓事件 `{adjustment_event_ref}` 的 decision_ref 与复盘请求不一致")]
-    EventDecisionMismatch { adjustment_event_ref: String },
-    #[error("调仓事件 `{adjustment_event_ref}` 的 approval_ref 与复盘请求不一致")]
-    EventApprovalMismatch { adjustment_event_ref: String },
-    #[error("调仓事件 `{adjustment_event_ref}` 的 evidence_version 与复盘请求不一致")]
-    EventEvidenceMismatch { adjustment_event_ref: String },
-    #[error("调仓事件顺序必须按 event_date 递增")]
-    EventDateOutOfOrder,
-    #[error("调仓事件链存在仓位衔接断裂")]
-    BrokenPositionContinuity,
-    #[error("{0}")]
-    Store(#[from] SecurityExecutionStoreError),
+    #[error("security post trade review execution preparation failed: {0}")]
+    ExecutionRecord(#[from] SecurityExecutionRecordError),
+    #[error("security post trade review build failed: {0}")]
+    Build(String),
 }
 
 pub fn security_post_trade_review(
     request: &SecurityPostTradeReviewRequest,
 ) -> Result<SecurityPostTradeReviewResult, SecurityPostTradeReviewError> {
-    validate_post_trade_review_request(request)?;
+    let execution_record_result = security_execution_record(&SecurityExecutionRecordRequest {
+        symbol: request.symbol.clone(),
+        market_symbol: request.market_symbol.clone(),
+        sector_symbol: request.sector_symbol.clone(),
+        market_regime: request.market_regime.clone(),
+        sector_template: request.sector_template.clone(),
+        market_profile: request.market_profile.clone(),
+        sector_profile: request.sector_profile.clone(),
+        as_of_date: request.as_of_date.clone(),
+        review_horizon_days: request.review_horizon_days,
+        lookback_days: request.lookback_days,
+        factor_lookback_days: request.factor_lookback_days,
+        disclosure_limit: request.disclosure_limit,
+        stop_loss_pct: request.stop_loss_pct,
+        target_return_pct: request.target_return_pct,
+        actual_entry_date: request.actual_entry_date.clone(),
+        actual_entry_price: request.actual_entry_price,
+        actual_position_pct: request.actual_position_pct,
+        actual_exit_date: request.actual_exit_date.clone(),
+        actual_exit_price: request.actual_exit_price,
+        exit_reason: request.exit_reason.clone(),
+        execution_trades: request.execution_trades.clone(),
+        execution_journal_notes: request.execution_journal_notes.clone(),
+        execution_record_notes: request.execution_record_notes.clone(),
+        portfolio_position_plan_document: request.portfolio_position_plan_document.clone(),
+        created_at: request.created_at.clone(),
+    })?;
+    let outcome_binding = SecurityPostTradeReviewOutcomeBinding {
+        snapshot: execution_record_result
+            .forward_outcome_result
+            .snapshot
+            .clone(),
+        selected_outcome: execution_record_result
+            .forward_outcome_result
+            .selected_outcome
+            .clone(),
+        all_outcomes: execution_record_result
+            .forward_outcome_result
+            .all_outcomes
+            .clone(),
+    };
+    let post_trade_review =
+        build_security_post_trade_review(&execution_record_result, &outcome_binding, request)?;
 
-    let store = SecurityExecutionStore::workspace_default()?;
-    let position_plan = store
-        .load_position_plan(&request.position_plan_ref)?
-        .ok_or_else(|| SecurityPostTradeReviewError::PositionPlanNotFound {
-            position_plan_ref: request.position_plan_ref.clone(),
-        })?;
-
-    // 2026-04-08 CST: 这里先把复盘请求与正式计划锚点做强一致性校验，原因是方案 C 不能容忍 review 对着另一份计划事实做“错配复盘”；
-    // 目的：确保后续聚合时 symbol / decision / approval / evidence 都来自同一条正式执行链。
-    if position_plan.symbol != request.symbol
-        || position_plan.decision_ref != request.decision_ref
-        || position_plan.approval_ref != request.approval_ref
-        || position_plan.evidence_version != request.evidence_version
-    {
-        return Err(SecurityPostTradeReviewError::EventPlanMismatch {
-            adjustment_event_ref: request.position_plan_ref.clone(),
-        });
-    }
-
-    let mut adjustment_events = Vec::with_capacity(request.adjustment_event_refs.len());
-    for adjustment_event_ref in &request.adjustment_event_refs {
-        let event = store
-            .load_adjustment_event(adjustment_event_ref)?
-            .ok_or_else(|| SecurityPostTradeReviewError::AdjustmentEventNotFound {
-                adjustment_event_ref: adjustment_event_ref.clone(),
-            })?;
-        validate_adjustment_event(request, &event)?;
-        adjustment_events.push(event);
-    }
-
-    validate_event_sequence(&adjustment_events)?;
-
-    let review_outcome = classify_review_outcome(&adjustment_events);
-    let decision_accuracy = classify_decision_accuracy(&adjustment_events);
-    let execution_quality = classify_execution_quality(&adjustment_events);
-    let risk_control_quality = classify_risk_control_quality(&adjustment_events);
-    let correction_actions =
-        build_correction_actions(&adjustment_events, &review_outcome, &execution_quality);
-    let next_cycle_guidance = build_next_cycle_guidance(
-        &adjustment_events,
-        &review_outcome,
-        &decision_accuracy,
-        &risk_control_quality,
-    );
-    // 2026-04-08 CST: 这里统一用复盘日期生成 post_trade_review_ref，原因是同一标的可能围绕同一计划在不同阶段重复复盘；
-    // 目的：让复盘对象的引用既稳定可读，又能区分不同复盘时点。
-    let post_trade_review_ref = format!(
-        "post-trade-review:{}:{}:v1",
-        request.symbol.trim(),
-        request.analysis_date.trim()
-    );
-
-    Ok(SecurityPostTradeReviewResult::assemble(
-        post_trade_review_ref,
-        request,
-        review_outcome,
-        decision_accuracy,
-        execution_quality,
-        risk_control_quality,
-        correction_actions,
-        next_cycle_guidance,
-    ))
+    Ok(SecurityPostTradeReviewResult {
+        position_plan_result: execution_record_result.position_plan_result.clone(),
+        forward_outcome_result: outcome_binding,
+        execution_journal_result: execution_record_result.execution_journal_result.clone(),
+        execution_journal: execution_record_result.execution_journal.clone(),
+        execution_record_result: execution_record_result.clone(),
+        execution_record: execution_record_result.execution_record.clone(),
+        post_trade_review,
+    })
 }
 
-fn validate_post_trade_review_request(
+// 2026-04-09 CST: 这里单独暴露投后复盘 builder，原因是后续 package / audit / replay 可能继续复用正式复盘文档装配；
+// 目的：保持复盘规则集中，避免后续在多个 Tool 中各自拼 thesis_status 与调整提示。
+pub fn build_security_post_trade_review(
+    execution_record_result: &SecurityExecutionRecordResult,
+    outcome_binding: &SecurityPostTradeReviewOutcomeBinding,
     request: &SecurityPostTradeReviewRequest,
-) -> Result<(), SecurityPostTradeReviewError> {
-    if request.decision_ref.trim().is_empty() {
-        return Err(SecurityPostTradeReviewError::MissingDecisionRef);
-    }
-    if request.approval_ref.trim().is_empty() {
-        return Err(SecurityPostTradeReviewError::MissingApprovalRef);
-    }
-    if request.evidence_version.trim().is_empty() {
-        return Err(SecurityPostTradeReviewError::MissingEvidenceVersion);
-    }
-    if request.position_plan_ref.trim().is_empty() {
-        return Err(SecurityPostTradeReviewError::MissingPositionPlanRef);
-    }
-    if request.symbol.trim().is_empty() {
-        return Err(SecurityPostTradeReviewError::MissingSymbol);
-    }
-    if request.analysis_date.trim().is_empty() {
-        return Err(SecurityPostTradeReviewError::MissingAnalysisDate);
-    }
-    if request.adjustment_event_refs.is_empty() {
-        return Err(SecurityPostTradeReviewError::EmptyAdjustmentEventRefs);
-    }
+) -> Result<SecurityPostTradeReviewDocument, SecurityPostTradeReviewError> {
+    let position_plan_document = &execution_record_result
+        .position_plan_result
+        .position_plan_document;
+    let selected_outcome = &outcome_binding.selected_outcome;
+    let execution_record = &execution_record_result.execution_record;
+    let thesis_status = classify_thesis_status(selected_outcome);
+    let execution_deviation = execution_record.execution_quality.clone();
+    // 2026-04-09 CST: 这里把 execution_record 的账户偏差继续上卷到 review，原因是方案A-2要求投后层给出正式治理语言；
+    // 目的：让 review 直接落地账户计划对齐、分层纪律和后续动作提示，而不是只停留在收益/回撤描述。
+    let account_plan_alignment = execution_record.account_budget_alignment.clone();
+    let tranche_discipline = account_plan_alignment
+        .as_ref()
+        .map(|alignment| classify_tranche_discipline(alignment));
+    let budget_drift_reason = account_plan_alignment
+        .as_ref()
+        .map(|alignment| derive_budget_drift_reason(alignment));
+    let next_account_adjustment_hint = account_plan_alignment
+        .as_ref()
+        .map(|alignment| derive_next_account_adjustment_hint(alignment));
+    let model_miss_reason =
+        derive_model_miss_reason(selected_outcome, &thesis_status, &execution_deviation);
+    let next_adjustment_hint = derive_next_adjustment_hint(
+        &thesis_status,
+        position_plan_document.position_risk_grade.as_str(),
+        selected_outcome,
+        &execution_deviation,
+    );
+    let planned_position = json!({
+        "position_action": position_plan_document.position_action,
+        "entry_mode": position_plan_document.entry_mode,
+        "starter_position_pct": position_plan_document.starter_position_pct,
+        "max_position_pct": position_plan_document.max_position_pct,
+        "position_risk_grade": position_plan_document.position_risk_grade,
+    });
 
-    Ok(())
+    Ok(SecurityPostTradeReviewDocument {
+        review_id: format!(
+            "post-trade-review-{}-{}d",
+            position_plan_document.position_plan_id, request.review_horizon_days
+        ),
+        contract_version: "security_post_trade_review.v1".to_string(),
+        document_type: "security_post_trade_review".to_string(),
+        generated_at: normalize_created_at(&request.created_at),
+        symbol: position_plan_document.symbol.clone(),
+        analysis_date: position_plan_document.analysis_date.clone(),
+        snapshot_date: outcome_binding.snapshot.as_of_date.clone(),
+        review_horizon_days: selected_outcome.horizon_days,
+        position_plan_ref: position_plan_document.position_plan_id.clone(),
+        snapshot_ref: outcome_binding.snapshot.snapshot_id.clone(),
+        outcome_ref: selected_outcome.outcome_id.clone(),
+        execution_journal_ref: execution_record.execution_journal_ref.clone(),
+        execution_record_ref: execution_record.execution_record_id.clone(),
+        planned_position,
+        actual_result_window: format!("{}d", selected_outcome.horizon_days),
+        realized_return: selected_outcome.forward_return,
+        executed_return: execution_record.actual_return,
+        max_drawdown_realized: selected_outcome.max_drawdown,
+        max_runup_realized: selected_outcome.max_runup,
+        thesis_status: thesis_status.clone(),
+        execution_deviation,
+        execution_return_gap: execution_record.execution_return_gap,
+        account_plan_alignment,
+        tranche_discipline,
+        budget_drift_reason,
+        model_miss_reason,
+        next_account_adjustment_hint,
+        next_adjustment_hint: next_adjustment_hint.clone(),
+        review_summary: format!(
+            "投后复盘显示 {} 在 {} 日窗口内计划收益 {:.2}%，真实执行收益 {:.2}%，最大回撤 {:.2}%，结论为 `{}`，执行偏差 `{}`，后续建议 `{}`。",
+            position_plan_document.symbol,
+            selected_outcome.horizon_days,
+            selected_outcome.forward_return * 100.0,
+            execution_record.actual_return * 100.0,
+            selected_outcome.max_drawdown * 100.0,
+            thesis_status,
+            execution_record.execution_quality,
+            next_adjustment_hint
+        ),
+    })
 }
 
-fn validate_adjustment_event(
-    request: &SecurityPostTradeReviewRequest,
-    event: &SecurityRecordPositionAdjustmentResult,
-) -> Result<(), SecurityPostTradeReviewError> {
-    if event.position_plan_ref != request.position_plan_ref {
-        return Err(SecurityPostTradeReviewError::EventPlanMismatch {
-            adjustment_event_ref: event.adjustment_event_ref.clone(),
-        });
+fn classify_thesis_status(
+    selected_outcome: &crate::ops::stock::security_forward_outcome::SecurityForwardOutcomeDocument,
+) -> String {
+    if selected_outcome.hit_stop_first {
+        "broken".to_string()
+    } else if selected_outcome.forward_return > 0.0 && selected_outcome.max_drawdown <= 0.08 {
+        "validated".to_string()
+    } else if selected_outcome.forward_return > 0.0 {
+        "mixed".to_string()
+    } else {
+        "broken".to_string()
     }
-    if event.symbol != request.symbol {
-        return Err(SecurityPostTradeReviewError::EventSymbolMismatch {
-            adjustment_event_ref: event.adjustment_event_ref.clone(),
-        });
-    }
-    if event.decision_ref != request.decision_ref {
-        return Err(SecurityPostTradeReviewError::EventDecisionMismatch {
-            adjustment_event_ref: event.adjustment_event_ref.clone(),
-        });
-    }
-    if event.approval_ref != request.approval_ref {
-        return Err(SecurityPostTradeReviewError::EventApprovalMismatch {
-            adjustment_event_ref: event.adjustment_event_ref.clone(),
-        });
-    }
-    if event.evidence_version != request.evidence_version {
-        return Err(SecurityPostTradeReviewError::EventEvidenceMismatch {
-            adjustment_event_ref: event.adjustment_event_ref.clone(),
-        });
-    }
-
-    Ok(())
 }
 
-fn validate_event_sequence(
-    events: &[SecurityRecordPositionAdjustmentResult],
-) -> Result<(), SecurityPostTradeReviewError> {
-    for pair in events.windows(2) {
-        let previous = &pair[0];
-        let next = &pair[1];
-        if previous.event_date > next.event_date {
-            return Err(SecurityPostTradeReviewError::EventDateOutOfOrder);
+fn derive_model_miss_reason(
+    selected_outcome: &crate::ops::stock::security_forward_outcome::SecurityForwardOutcomeDocument,
+    thesis_status: &str,
+    execution_deviation: &str,
+) -> String {
+    if execution_deviation == "adverse" && thesis_status == "validated" {
+        return "execution_slippage_overrode_valid_thesis".to_string();
+    }
+    if thesis_status == "validated" {
+        return "none".to_string();
+    }
+    if selected_outcome.hit_stop_first {
+        return "stop_loss_triggered_before_thesis_played_out".to_string();
+    }
+    if selected_outcome.forward_return <= 0.0 {
+        return "negative_forward_return_within_review_window".to_string();
+    }
+    "reward_realized_but_path_quality_weakened".to_string()
+}
+
+fn derive_next_adjustment_hint(
+    thesis_status: &str,
+    position_risk_grade: &str,
+    selected_outcome: &crate::ops::stock::security_forward_outcome::SecurityForwardOutcomeDocument,
+    execution_deviation: &str,
+) -> String {
+    if execution_deviation == "adverse" {
+        return "保留研究结论前，先收紧入场滑点、仓位偏差和退出纪律。".to_string();
+    }
+    match thesis_status {
+        "validated" if selected_outcome.max_runup >= 0.10 => {
+            "保留主假设，后续同类机会可维持原仓位框架。".to_string()
         }
-        if (previous.after_position_pct - next.before_position_pct).abs()
-            > POSITION_CONTINUITY_TOLERANCE
-        {
-            return Err(SecurityPostTradeReviewError::BrokenPositionContinuity);
+        "validated" => "保留主假设，但后续仍需观察是否真正形成持续优势。".to_string(),
+        "mixed" if position_risk_grade == "high" => {
+            "降低同类高风险机会的初始仓位，并提高对回撤路径的约束。".to_string()
         }
+        "mixed" => "保留方向判断，但后续应下调仓位或延后加仓确认。".to_string(),
+        _ => "将同类情形降级处理，后续优先等待更强确认或直接缩小风险暴露。".to_string(),
     }
-
-    Ok(())
 }
 
-fn classify_review_outcome(
-    events: &[SecurityRecordPositionAdjustmentResult],
-) -> PostTradeReviewOutcome {
-    let has_off_plan = events
-        .iter()
-        .any(|event| matches!(event.plan_alignment, crate::tools::contracts::PositionPlanAlignment::OffPlan));
-    let has_justified = events.iter().any(|event| {
-        matches!(
-            event.plan_alignment,
-            crate::tools::contracts::PositionPlanAlignment::JustifiedDeviation
-        )
-    });
+fn classify_tranche_discipline(account_plan_alignment: &str) -> String {
+    match account_plan_alignment {
+        "aligned" => "disciplined".to_string(),
+        "under_budget" => "underfilled".to_string(),
+        "over_budget" => "overfilled".to_string(),
+        _ => "offside".to_string(),
+    }
+}
 
-    if has_off_plan {
-        PostTradeReviewOutcome::Invalidated
-    } else if has_justified {
-        PostTradeReviewOutcome::Mixed
+fn derive_budget_drift_reason(account_plan_alignment: &str) -> String {
+    match account_plan_alignment {
+        "aligned" => "none".to_string(),
+        "under_budget" => "planned_tranche_not_fully_executed".to_string(),
+        "over_budget" => "executed_tranche_exceeded_account_budget".to_string(),
+        _ => "execution_direction_conflicted_with_account_plan".to_string(),
+    }
+}
+
+fn derive_next_account_adjustment_hint(account_plan_alignment: &str) -> String {
+    match account_plan_alignment {
+        "aligned" => "账户层计划与执行一致，后续继续按既定预算和层数纪律推进。".to_string(),
+        "under_budget" => {
+            "若研究结论未变，下次应先确认未执行原因，再决定是否补齐原计划层数。".to_string()
+        }
+        "over_budget" => {
+            "下次同类机会先回到计划层数，未重新通过账户预算复核前不要继续追加强度。".to_string()
+        }
+        _ => "先暂停沿用原账户动作，复核方向、预算与分层模板后再恢复执行。".to_string(),
+    }
+}
+
+fn normalize_created_at(value: &str) -> String {
+    if value.trim().is_empty() {
+        Utc::now().to_rfc3339()
     } else {
-        PostTradeReviewOutcome::Validated
+        value.trim().to_string()
     }
 }
 
-fn classify_decision_accuracy(
-    events: &[SecurityRecordPositionAdjustmentResult],
-) -> PostTradeReviewDimension {
-    let has_off_plan = events
-        .iter()
-        .any(|event| matches!(event.plan_alignment, crate::tools::contracts::PositionPlanAlignment::OffPlan));
-    let has_justified = events.iter().any(|event| {
-        matches!(
-            event.plan_alignment,
-            crate::tools::contracts::PositionPlanAlignment::JustifiedDeviation
-        )
-    });
-
-    if has_off_plan {
-        PostTradeReviewDimension::Weak
-    } else if has_justified {
-        PostTradeReviewDimension::Acceptable
-    } else {
-        PostTradeReviewDimension::Strong
-    }
+fn default_created_at() -> String {
+    Utc::now().to_rfc3339()
 }
 
-fn classify_execution_quality(
-    events: &[SecurityRecordPositionAdjustmentResult],
-) -> PostTradeReviewDimension {
-    classify_decision_accuracy(events)
+fn default_review_horizon_days() -> usize {
+    20
 }
 
-fn classify_risk_control_quality(
-    events: &[SecurityRecordPositionAdjustmentResult],
-) -> PostTradeReviewDimension {
-    let has_risk_response = events.iter().any(|event| {
-        matches!(
-            event.event_type,
-            crate::tools::contracts::PositionAdjustmentEventType::Reduce
-                | crate::tools::contracts::PositionAdjustmentEventType::Exit
-                | crate::tools::contracts::PositionAdjustmentEventType::RiskUpdate
-        )
-    });
-    let has_off_plan = events
-        .iter()
-        .any(|event| matches!(event.plan_alignment, crate::tools::contracts::PositionPlanAlignment::OffPlan));
-
-    if has_risk_response {
-        PostTradeReviewDimension::Strong
-    } else if has_off_plan {
-        PostTradeReviewDimension::Weak
-    } else {
-        PostTradeReviewDimension::Acceptable
-    }
+fn default_lookback_days() -> usize {
+    260
 }
 
-fn build_correction_actions(
-    events: &[SecurityRecordPositionAdjustmentResult],
-    review_outcome: &PostTradeReviewOutcome,
-    execution_quality: &PostTradeReviewDimension,
-) -> Vec<String> {
-    let mut actions = Vec::new();
-
-    if events.iter().any(|event| {
-        matches!(
-            event.plan_alignment,
-            crate::tools::contracts::PositionPlanAlignment::JustifiedDeviation
-        )
-    }) {
-        actions.push("把 justified_deviation 的触发条件前移到下一版仓位计划，减少临盘被动偏离。".to_string());
-    }
-    if matches!(review_outcome, PostTradeReviewOutcome::Invalidated) {
-        actions.push("重新检查原始决策假设，必要时重做投研会和仓位上限设定。".to_string());
-    }
-    if matches!(execution_quality, PostTradeReviewDimension::Acceptable | PostTradeReviewDimension::Weak) {
-        actions.push("继续按统一 decision_ref / approval_ref / position_plan_ref 记录每次调仓，压缩执行漂移。".to_string());
-    }
-    if actions.is_empty() {
-        actions.push("当前执行与计划基本一致，保留现有调仓纪律并持续复核。".to_string());
-    }
-
-    actions
+fn default_factor_lookback_days() -> usize {
+    120
 }
 
-fn build_next_cycle_guidance(
-    events: &[SecurityRecordPositionAdjustmentResult],
-    review_outcome: &PostTradeReviewOutcome,
-    decision_accuracy: &PostTradeReviewDimension,
-    risk_control_quality: &PostTradeReviewDimension,
-) -> Vec<String> {
-    let mut guidance = Vec::new();
+fn default_disclosure_limit() -> usize {
+    6
+}
 
-    if events.iter().any(|event| {
-        matches!(
-            event.event_type,
-            crate::tools::contracts::PositionAdjustmentEventType::Reduce
-        )
-    }) {
-        guidance.push("下一轮只在量价重新确认后恢复加仓，避免仓位过早回补。".to_string());
-    } else {
-        guidance.push("下一轮继续按计划节奏分批执行，不要在未确认前一次性拉满仓位。".to_string());
-    }
-    if matches!(review_outcome, PostTradeReviewOutcome::Mixed | PostTradeReviewOutcome::Invalidated)
-    {
-        guidance.push("把本轮偏离原因写回下一版仓位计划，确保下次复盘能直接对照纠偏。".to_string());
-    }
-    if matches!(decision_accuracy, PostTradeReviewDimension::Weak)
-        || matches!(risk_control_quality, PostTradeReviewDimension::Weak)
-    {
-        guidance.push("优先收紧仓位与止损纪律，再考虑恢复进攻性配置。".to_string());
-    }
+fn default_stop_loss_pct() -> f64 {
+    0.05
+}
 
-    guidance
+fn default_target_return_pct() -> f64 {
+    0.12
 }
