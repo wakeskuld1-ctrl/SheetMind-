@@ -1072,3 +1072,144 @@
 ### 关闭项
 - foundation 上传前执行说明已补齐：`docs/execution-notes-2026-04-07-foundation-navigation-kernel.md`
 - foundation 上传准备已补任务日志：`.trae/CHANGELOG_TASK.md`
+## 2026-04-10
+### 修改内容
+- 更新 `docs/AI_HANDOFF.md`，追加“CLI 历史分支承接关系”章节，明确 `codex/merge-cli-mod-batches` 与当前 `codex/foundation-navigation-kernel` 的真实关系。
+- 在交接手册中补入模块映射表，覆盖：
+  - 旧 CLI 分支的证券决策链模块
+  - foundation metadata / navigation 相关模块
+  - Python `cli/*` 与 `tradingagents/*` 历史资产的当前定位
+
+### 修改原因
+- 用户要求先把 CLI 分支和当前主线做一次承接整理，避免后续 AI 再把 `merge-cli-mod-batches` 误判成“更近的更新来源”。
+- 当前仓库长期并存多条历史证券/CLI 分支，如果不把“哪些已保留、哪些已替换、哪些不再建议继续”写进 handoff，后续很容易再次走回旧形态。
+
+### 方案还差什么
+- [ ] 当前只补了 handoff 层的映射结论，还没有单独拆成更细的“旧模块 -> 新模块”专项文档。
+- [ ] 如果后续要做更严格的历史追踪，还可以继续把每个旧模块的最后提交锚点和替代模块提交锚点补成独立清单。
+
+### 潜在问题
+- [ ] 模块映射是“当前主线视角下的工程判断”，不是逐行代码一一等价替换关系；后续如果做更细审计，需要继续按具体模块深入 diff。
+- [ ] `docs/AI_HANDOFF.md` 是持续追加型文档，后续 AI 应以最新日期章节为准，不要只看前面更早的 CLI 或证券历史章节。
+
+### 关闭项
+- CLI 历史分支承接关系已写入：`docs/AI_HANDOFF.md`
+- 本轮整理任务日志已追加：`.trae/CHANGELOG_TASK.md`
+
+## 2026-04-11
+### 修改内容
+- 更新 `docs/AI_HANDOFF.md`，在“CLI 历史分支承接关系”章节下追加“文件级映射表”。
+- 追加的映射范围覆盖：
+  - `security_committee_vote / security_decision_briefing / security_execution_record / security_post_trade_review / signal_outcome_research / security_analysis_resonance`
+  - `security_decision_package / security_decision_verify_package / security_decision_package_revision`
+  - foundation `metadata_schema / metadata_validator / repository_metadata_audit / navigation_pipeline`
+  - `catalog / dispatcher / stock_ops`
+  - Python `cli/*` 与 `tradingagents/*` 历史资产的当前定位
+
+### 修改原因
+- 用户批准继续按方案A整理，希望把“模块级承接”进一步细化到“文件级承接”，避免后续 AI 在具体文件层面再次迷路。
+- 当前仓库历史分支和当前主线长期并存，如果没有文件级映射，后续很容易重新打开旧 CLI 文件并误判为当前应继续开发的主入口。
+
+### 方案还差什么
+- [ ] 当前文件级映射表只覆盖了最容易误判的核心文件，还没有把所有历史测试夹具和运行时样本都做逐项映射。
+- [ ] 如果后续要做更严谨的历史治理，还可以继续补“旧文件最后有效提交 -> 新文件承接提交”的锚点清单。
+
+### 潜在问题
+- [ ] 文件级映射表是“当前主线的工程判断”，不是逐函数一一替换关系；后续做深度追溯时，仍需要结合具体 diff。
+- [ ] `docs/AI_HANDOFF.md` 为持续追加型文档，后续接手默认应读最新日期章节，不要只看早期证券/CLI 历史章节。
+
+### 关闭项
+- 文件级映射表已写入：`docs/AI_HANDOFF.md`
+- 本轮任务日志已追加：`.trae/CHANGELOG_TASK.md`
+## 2026-04-10
+### 修改内容
+- 更新 `docs/AI_HANDOFF.md`，追加“2026-04-10 条件复核中枢正式收口”章节，统一投中层最新事实、默认验证清单和后续边界。
+- 更新 `docs/交接摘要_证券分析_给后续AI.md`，追加证券专项条件复核中枢收口摘要，明确 `condition_review` 已进入 package、execution、review 主链。
+- 新增 `docs/execution-notes-2026-04-10-security-condition-review-closeout.md`，记录本轮文档收口范围、验证命令和后续风险。
+
+### 修改原因
+- 用户要求进入 Task 6 并推到 GitHub，因此需要先把条件复核中枢这轮主链进展写回正式交接文档，而不是只留在代码和测试里。
+- 如果 handoff 仍停留在旧口径，后续 AI 很容易误判“投中层还没正式落地”或“默认验证清单不含 security_condition_review_cli”。
+
+### 方案还差什么
+- [ ] 当前 handoff 已写明 `condition_review` 的正式边界，但还没有新增“按 ref 回仓储自动查 condition review 文档”的实现。
+- [ ] 当前同日同类型多次条件复核的版本策略仍未正式落地，后续若扩展复核频次，需要单独补设计和测试。
+
+### 潜在问题
+- [ ] `docs/AI_HANDOFF.md` 与证券专项交接摘要是持续追加型文档，旧章节里仍保留历史语境；后续接手时应以最新日期章节为准。
+- [ ] 当前默认验证清单虽然已经升级到 7 条，但它仍是“最小回归包”，不等于整仓全量绿。
+
+### 关闭项
+- Task 6 文档收口已补齐：`docs/AI_HANDOFF.md`
+- Task 6 证券专项交接已补齐：`docs/交接摘要_证券分析_给后续AI.md`
+- Task 6 执行记录已补齐：`docs/execution-notes-2026-04-10-security-condition-review-closeout.md`
+## 2026-04-10
+### 修改内容
+- 修正文档里的验证命令口径，把不存在的 `security_decision_package_cli` 替换为真实可跑的 `security_decision_verify_package_cli + security_decision_package_revision_cli`。
+- 更新 `docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md` 与 `docs/execution-notes-2026-04-10-security-condition-review-closeout.md`，补入本轮 fresh 验证的真实结果。
+
+### 修改原因
+- Task 6 fresh 验证时确认 `security_decision_package_cli` 在当前仓库并不存在，如果不纠正，后续 AI 会继续拿错误命令当默认验证入口。
+- 用户要求本轮直接推到 GitHub，因此上传前必须把“哪些已通过、哪些还没绿”写实，而不是只保留理想清单。
+
+### 方案还差什么
+- [ ] `security_scorecard_training_cli` 当前仍失败，若后续要恢复“默认最小验证清单全绿”，需要单独处理训练链回归。
+- [ ] 本轮没有顺手修复评分卡训练失败，因为它不属于条件复核中枢文档收口的直接边界。
+
+### 潜在问题
+- [ ] 即使本轮可以推送，分支状态也应视为“条件复核链已收口，但默认清单未全绿”，不要对外误报为整仓全绿。
+
+### 关闭项
+- 文档验证命令口径已纠正：`docs/AI_HANDOFF.md`
+- 证券专项验证命令口径已纠正：`docs/交接摘要_证券分析_给后续AI.md`
+- 本轮 fresh 验证结果已记入执行说明：`docs/execution-notes-2026-04-10-security-condition-review-closeout.md`
+## 2026-04-10
+### 修改内容
+- 在 `tests/security_scorecard_training_cli.rs` 新增 `build_trend_rows_keeps_low_series_variable_in_downtrend_fixture` 回归测试，锁定下跌夹具 low 序列不能塌成固定 `0.10` 楼板价。
+- 调整 `build_trend_rows(...)` 的 low 下限生成逻辑，把固定下限改成随样本推进而变化的动态正数底，只吸收 `snapshot` 中对证券训练夹具稳定性有价值的最小修复。
+- 在隔离 worktree 里先排查过 `snapshot` 与本地代码关系，确认真正应该回落到主工作区的是评分卡训练夹具修复，而不是整段 foundation 子树回退。
+
+### 修改原因
+- 用户要求继续处理 `snapshot` 分支并和本地代码合并，但实际排查发现 `snapshot` 的核心有效增量是 `security_scorecard_training` 夹具稳定化，而当前主工作区正好也复现了同一失败。
+- 如果继续把 `snapshot` 的 foundation 子树整段对齐到主工作区，会覆盖你本地尚未提交的 foundation 演进接口，反而扩大合并面并制造拆分成本。
+
+### 方案还差什么
+- [ ] 这次只把证券训练夹具修复吸收到本地代码，还没有把隔离 worktree 里的探索性 foundation 对齐结果落回主工作区，也不建议直接落回。
+- [ ] 当前没有顺手处理整仓全量测试，只验证了 `security_scorecard_training_cli` 这一条与本次合并目标直接相关的证券链路。
+
+### 潜在问题
+- [ ] `tests/security_scorecard_training_cli.rs` 当前仍带有历史乱码注释，这次没有顺手清理；如果后续继续维护这个测试文件，建议单独做一次 UTF-8 注释清整。
+- [ ] 主工作区本身仍有大量既有脏改动和未跟踪文件，本次只在目标测试文件上做了最小吸收，未处理其他历史现场。
+
+### 关闭项
+- `security_scorecard_training` 下跌夹具退化红测已补齐：`tests/security_scorecard_training_cli.rs`
+- `security_scorecard_training_generates_artifact_and_registers_refit_outputs` 已恢复通过：`tests/security_scorecard_training_cli.rs`
+- `snapshot` 的证券侧最小有效修复已吸收到主工作区：`tests/security_scorecard_training_cli.rs`
+## 2026-04-11
+### 修改内容
+- 新建 `docs/security-holding-ledger.md`，作为后续统一证券持仓台账，固定记录持仓计划、建仓事件、调仓事件与复盘编码。
+- 新建 `docs/execution-notes-2026-04-11-security-holding-ledger.md`，记录本轮台账初始化范围、已登记持仓编码和未完成项。
+- 新建 `docs/ai-handoff/AI_HANDOFF_SECURITY_HOLDING_LEDGER_2026-04-11.md`，给后续 AI 说明台账入口、落库位置和后续补录规则。
+
+### 修改原因
+- 用户要求新建一份固定文档，避免忘记当前保本优先版组合的持仓编码，并要求后续所有持仓继续写到同一文档里。
+- 当前总交接手册和主文档已有未提交修改，如果直接继续往里追加，容易把不属于本轮的现场一起带上 GitHub；因此改为新建独立台账和独立交接说明。
+
+### 方案还差什么
+- [ ] 当前台账只登记了 `position_plan_ref`，真实下单后的 `build` 事件还需要等成交信息补录。
+- [ ] 当前还没有把后续复盘模板扩成“组合级收益/回撤/执行偏差”汇总表，后面可以继续补。
+
+### 潜在问题
+- [ ] 如果后续真实成交日与计划日期不同，必须以真实成交日写 `position-adjustment:*:build:v1`，不能沿用计划日期。
+- [ ] 当前台账是人工交接入口，不会自动从运行库回填事件状态；后续每次真实操作后仍需要补记。
+
+### 关闭项
+- 统一证券持仓台账已建立：`docs/security-holding-ledger.md`
+- 本轮执行说明已建立：`docs/execution-notes-2026-04-11-security-holding-ledger.md`
+- 本轮 AI 交接说明已建立：`docs/ai-handoff/AI_HANDOFF_SECURITY_HOLDING_LEDGER_2026-04-11.md`
+
+## 2026-04-11 Task Journal
+- 任务：foundation 主线 `方案A`，扩展 locator 结构诊断。
+- 变更：新增 `RepositoryWeakLocatorReason::{SheetOnly, SingleCellOnly, AmbiguousKeyword, InvalidRangeFormat}`，并在 repository audit 中补齐最小结构判定逻辑。
+- 测试：`cargo test --test repository_metadata_audit_unit -- --nocapture`；`cargo test --test repository_metadata_audit_unit --test metadata_validator_unit --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_migration_contract_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`。
+- 结论：foundation locator hygiene 已从基础长度检查推进到基础结构检查，当前下一步仍是继续扩细 evidence hygiene 诊断，不进入 migration executor。
