@@ -20,6 +20,7 @@ thiserror = "2"
 regex = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 rust_xlsxwriter = "0.89"
+sha2 = "0.10"
 ureq = "2"
 # 2026-03-29 CST: 这里增加 eframe 依赖，原因是首发桌面 GUI 方案已确定为 Rust 原生 GUI 壳；
 # 目的：为 `sheetmind_app` 提供窗口运行时，同时不改动现有 CLI 主链。

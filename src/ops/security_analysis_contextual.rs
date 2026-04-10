@@ -5,6 +5,7 @@ use crate::ops::stock::technical_consultation_basic::{
     TechnicalConsultationBasicError, TechnicalConsultationBasicRequest,
     TechnicalConsultationBasicResult, technical_consultation_basic,
 };
+use crate::ops::stock::stock_analysis_data_guard::StockAnalysisDateGuard;
 
 const DEFAULT_LOOKBACK_DAYS: usize = 260;
 
@@ -29,11 +30,18 @@ pub struct SecurityAnalysisContextualRequest {
 
 // 2026-04-01 CST: 这里定义综合证券分析结果，原因是上层 Tool 不能只回三个子结果平铺，还要回传已收口的环境结论。
 // 目的：让 CLI / Skill / 后续 GUI 直接消费统一的综合证券分析合同。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityAnalysisContextualResult {
     pub symbol: String,
     pub market_symbol: String,
     pub sector_symbol: String,
+    // 2026-04-08 CST: 这里新增统一分析日期字段，原因是方案 C 要把 briefing 已有的公共合同下沉到 contextual 层；
+    // 目的：让调用方读取环境分析结果时，直接获得统一的 `analysis_date`，不必再从嵌套技术结果中反推日期。
+    pub analysis_date: String,
+    // 2026-04-08 CST: 这里新增证据版本字段，原因是 contextual 层也要向上游暴露稳定、可追踪的事实版本；
+    // 目的：让 fullstack/briefing/skill 能引用当前环境分析快照，而不是依赖隐式嵌套结构。
+    pub evidence_version: String,
+    pub analysis_date_guard: StockAnalysisDateGuard,
     pub stock_analysis: TechnicalConsultationBasicResult,
     pub market_analysis: TechnicalConsultationBasicResult,
     pub sector_analysis: TechnicalConsultationBasicResult,
@@ -42,7 +50,7 @@ pub struct SecurityAnalysisContextualResult {
 
 // 2026-04-01 CST: 这里定义综合结论对象，原因是方案 B 需要把顺风、逆风、混合环境稳定沉淀成正式合同。
 // 目的：统一 headline、rationale、risk_flags 的返回结构，降低上层重复解释成本。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityContextualConclusion {
     pub alignment: String,
     pub headline: String,
@@ -103,16 +111,41 @@ pub fn security_analysis_contextual(
 
     let contextual_conclusion =
         build_contextual_conclusion(&stock_analysis, &market_analysis, &sector_analysis);
+    // 2026-04-08 CST: 这里沿用个股技术层的统一日期生成 contextual 顶层合同字段，原因是环境层建立在同一批个股快照之上；
+    // 目的：保证 contextual 顶层 `analysis_date / evidence_version` 与底层技术分析保持同日、同版本语义。
+    let analysis_date = stock_analysis.analysis_date.clone();
+    let evidence_version = format!(
+        "security-analysis-contextual:{}:{}:v1",
+        request.symbol, analysis_date
+    );
 
     Ok(SecurityAnalysisContextualResult {
         symbol: request.symbol.clone(),
         market_symbol,
         sector_symbol,
+        analysis_date,
+        evidence_version,
+        analysis_date_guard: stock_analysis_date_guard(&stock_analysis),
         stock_analysis,
         market_analysis,
         sector_analysis,
         contextual_conclusion,
     })
+}
+
+fn stock_analysis_date_guard(
+    stock_analysis: &TechnicalConsultationBasicResult,
+) -> StockAnalysisDateGuard {
+    StockAnalysisDateGuard {
+        requested_as_of_date: stock_analysis.requested_as_of_date.clone(),
+        effective_analysis_date: stock_analysis.effective_analysis_date.clone(),
+        effective_trade_date: stock_analysis.effective_trade_date.clone(),
+        local_data_last_date: stock_analysis.local_data_last_date.clone(),
+        data_freshness_status: stock_analysis.data_freshness_status.clone(),
+        sync_attempted: stock_analysis.sync_attempted,
+        sync_result: stock_analysis.sync_result.clone(),
+        date_fallback_reason: stock_analysis.date_fallback_reason.clone(),
+    }
 }
 
 // 2026-04-01 CST: 这里统一下钻到底层技术面请求对象，原因是三层分析在当前阶段只差 symbol，其余窗口参数一致。

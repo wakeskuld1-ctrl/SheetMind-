@@ -121,14 +121,26 @@ fn security_scorecard_training_generates_artifact_and_registers_refit_outputs() 
     let market_csv = fixture_dir.join("market.csv");
     let sector_csv = fixture_dir.join("sector.csv");
 
-    fs::write(&stock_up_csv, build_trend_rows(420, 100.0, 0.9, 1.0).join("\n"))
-        .expect("upward symbol csv should be written");
-    fs::write(&stock_down_csv, build_trend_rows(420, 120.0, -0.7, 1.0).join("\n"))
-        .expect("downward symbol csv should be written");
-    fs::write(&market_csv, build_trend_rows(420, 3200.0, 2.5, 5.0).join("\n"))
-        .expect("market csv should be written");
-    fs::write(&sector_csv, build_trend_rows(420, 980.0, 1.4, 2.0).join("\n"))
-        .expect("sector csv should be written");
+    fs::write(
+        &stock_up_csv,
+        build_trend_rows(420, 100.0, 0.9, 1.0).join("\n"),
+    )
+    .expect("upward symbol csv should be written");
+    fs::write(
+        &stock_down_csv,
+        build_trend_rows(420, 120.0, -0.7, 1.0).join("\n"),
+    )
+    .expect("downward symbol csv should be written");
+    fs::write(
+        &market_csv,
+        build_trend_rows(420, 3200.0, 2.5, 5.0).join("\n"),
+    )
+    .expect("market csv should be written");
+    fs::write(
+        &sector_csv,
+        build_trend_rows(420, 980.0, 1.4, 2.0).join("\n"),
+    )
+    .expect("sector csv should be written");
 
     import_history_csv(&runtime_db_path, &stock_up_csv, "601916.SH");
     import_history_csv(&runtime_db_path, &stock_down_csv, "600000.SH");
@@ -241,10 +253,9 @@ fn security_scorecard_training_generates_artifact_and_registers_refit_outputs() 
     assert!(refit_run_path.exists());
     assert!(model_registry_path.exists());
 
-    let artifact_json: Value = serde_json::from_slice(
-        &fs::read(&artifact_path).expect("artifact should be readable"),
-    )
-    .expect("artifact should be valid json");
+    let artifact_json: Value =
+        serde_json::from_slice(&fs::read(&artifact_path).expect("artifact should be readable"))
+            .expect("artifact should be valid json");
     assert_eq!(
         artifact_json["model_id"],
         "a_share_equity_10d_direction_head"
@@ -253,14 +264,8 @@ fn security_scorecard_training_generates_artifact_and_registers_refit_outputs() 
         artifact_json["label_definition"],
         "security_forward_outcome.v1"
     );
-    assert_eq!(
-        artifact_json["training_window"],
-        "2025-03-01..2025-08-31"
-    );
-    assert_eq!(
-        artifact_json["oot_window"],
-        "2025-12-01..2026-01-31"
-    );
+    assert_eq!(artifact_json["training_window"], "2025-03-01..2025-08-31");
+    assert_eq!(artifact_json["oot_window"], "2025-12-01..2026-01-31");
     assert!(artifact_json["features"].is_array());
     assert!(
         artifact_json["features"]
@@ -287,10 +292,7 @@ fn security_scorecard_training_generates_artifact_and_registers_refit_outputs() 
         persisted_model_registry["artifact_path"],
         Value::String(artifact_path.to_string_lossy().to_string())
     );
-    assert_eq!(
-        persisted_model_registry["target_head"],
-        "direction_head"
-    );
+    assert_eq!(persisted_model_registry["target_head"], "direction_head");
 }
 
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {
@@ -328,7 +330,10 @@ fn build_trend_rows(
         let next_close = (close + daily_drift).max(1.0);
         let open = close;
         let high = open.max(next_close) + intraday_padding;
-        let low = (open.min(next_close) - intraday_padding).max(0.1);
+        // 2026-04-09 CST: 这里把训练夹具的 low 下限改成“动态正数底”，原因是固定 0.10 会让长下跌样本后段低点完全失去波动，
+        // 目的：保留 CSV 夹具在极端下跌段的低点变化，避免 RSRS 窗口被测试数据人为压成分母为 0 的假退化形态。
+        let dynamic_low_floor = (start_close * 0.01).max(0.05) + offset as f64 * 0.001;
+        let low = (open.min(next_close) - intraday_padding).max(dynamic_low_floor);
         let volume = 900_000 + offset as i64 * 8_000;
         rows.push(format!(
             "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{next_close:.2},{volume}",
@@ -338,4 +343,22 @@ fn build_trend_rows(
     }
 
     rows
+}
+
+#[test]
+fn build_trend_rows_keeps_low_series_variable_in_downtrend_fixture() {
+    // 2026-04-09 CST: 这里先补训练夹具退化根因的失败测试，原因是 Task 5 的真实问题不是训练器本身，
+    // 而是下跌样本在构造 CSV 时把 low 长时间钉死到同一楼板价，进一步把 RSRS 窗口压成分母为 0。
+    // 目的：先锁住“下跌夹具也必须保留低点变化”这个约束，避免后续再用表面通过的训练结果掩盖数据构造缺陷。
+    let rows = build_trend_rows(420, 120.0, -0.7, 1.0);
+    let collapsed_low_count = rows
+        .iter()
+        .skip(1)
+        .filter(|line| line.split(',').nth(3) == Some("0.10"))
+        .count();
+
+    assert_eq!(
+        collapsed_low_count, 0,
+        "下跌夹具不应该把 low 压成重复的 0.10 楼板价"
+    );
 }

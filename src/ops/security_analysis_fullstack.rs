@@ -7,6 +7,7 @@ use crate::ops::stock::security_analysis_contextual::{
     SecurityAnalysisContextualError, SecurityAnalysisContextualRequest,
     SecurityAnalysisContextualResult, security_analysis_contextual,
 };
+use crate::ops::stock::stock_analysis_data_guard::StockAnalysisDateGuard;
 
 const DEFAULT_DISCLOSURE_LIMIT: usize = 8;
 const DEFAULT_SINA_FINANCIAL_URL_BASE: &str =
@@ -35,9 +36,16 @@ pub struct SecurityAnalysisFullstackRequest {
     pub disclosure_limit: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityAnalysisFullstackResult {
     pub symbol: String,
+    // 2026-04-08 CST: 这里新增统一分析日期字段，原因是方案 C 要把公共合同从 briefing 下沉到 fullstack 层；
+    // 目的：让后续 briefing / committee / agent 可以直接消费 fullstack 顶层日期，而不必回钻 nested technical_context。
+    pub analysis_date: String,
+    // 2026-04-08 CST: 这里新增证据版本字段，原因是 fullstack 聚合了技术面、财报和公告，需要稳定的证据快照版本号；
+    // 目的：为后续链路提供统一的事实版本引用，避免只靠 symbol 或隐式嵌套字段判断版本。
+    pub evidence_version: String,
+    pub analysis_date_guard: StockAnalysisDateGuard,
     pub technical_context: SecurityAnalysisContextualResult,
     pub fundamental_context: FundamentalContext,
     pub disclosure_context: DisclosureContext,
@@ -45,7 +53,7 @@ pub struct SecurityAnalysisFullstackResult {
     pub integrated_conclusion: IntegratedConclusion,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct FundamentalContext {
     pub status: String,
     pub source: String,
@@ -58,7 +66,7 @@ pub struct FundamentalContext {
     pub risk_flags: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct FundamentalMetrics {
     pub revenue: Option<f64>,
     pub revenue_yoy_pct: Option<f64>,
@@ -67,7 +75,7 @@ pub struct FundamentalMetrics {
     pub roe_pct: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DisclosureContext {
     pub status: String,
     pub source: String,
@@ -78,7 +86,7 @@ pub struct DisclosureContext {
     pub risk_flags: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DisclosureAnnouncement {
     pub published_at: String,
     pub title: String,
@@ -86,7 +94,7 @@ pub struct DisclosureAnnouncement {
     pub category: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct IndustryContext {
     pub sector_symbol: String,
     pub proxy_bias: String,
@@ -95,7 +103,7 @@ pub struct IndustryContext {
     pub risk_flags: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct IntegratedConclusion {
     pub stance: String,
     pub headline: String,
@@ -172,9 +180,19 @@ pub fn security_analysis_fullstack(
         &disclosure_context,
         &industry_context,
     );
+    // 2026-04-08 CST: 这里沿用技术上下文的统一日期生成 fullstack 顶层合同字段，原因是聚合链路必须对齐同一分析时点；
+    // 目的：确保顶层 fullstack 合同能稳定暴露 `analysis_date / evidence_version`，供更高层直接复用。
+    let analysis_date = technical_context.analysis_date.clone();
+    let evidence_version = format!(
+        "security-analysis-fullstack:{}:{}:v1",
+        request.symbol, analysis_date
+    );
 
     Ok(SecurityAnalysisFullstackResult {
         symbol: request.symbol.clone(),
+        analysis_date,
+        evidence_version,
+        analysis_date_guard: technical_context.analysis_date_guard.clone(),
         technical_context,
         fundamental_context,
         disclosure_context,

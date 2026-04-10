@@ -1503,6 +1503,7 @@ dependencies = [
  "rust_xlsxwriter",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
  "ureq",
  "zip 2.4.2",

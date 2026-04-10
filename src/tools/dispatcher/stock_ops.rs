@@ -16,9 +16,11 @@ use crate::ops::stock::security_analysis_resonance::{
     append_resonance_factor_series, bootstrap_resonance_template_factors,
     evaluate_security_resonance, register_resonance_factor, security_analysis_resonance,
 };
+use crate::ops::stock::security_chair_resolution::{
+    SecurityChairResolutionRequest, security_chair_resolution,
+};
 use crate::ops::stock::security_committee_vote::{
-    SecurityCommitteeMemberAgentRequest, SecurityCommitteeVoteRequest,
-    security_committee_member_agent, security_committee_vote,
+    SecurityCommitteeVoteRequest, security_committee_vote,
 };
 use crate::ops::stock::security_decision_briefing::{
     SecurityDecisionBriefingRequest, security_decision_briefing,
@@ -26,11 +28,56 @@ use crate::ops::stock::security_decision_briefing::{
 use crate::ops::stock::security_position_plan_record::{
     security_position_plan_record,
 };
-use crate::ops::stock::security_post_trade_review::{
-    security_post_trade_review,
-};
 use crate::ops::stock::security_record_position_adjustment::{
     security_record_position_adjustment,
+};
+use crate::ops::stock::security_decision_committee::{
+    SecurityCommitteeMemberAgentRequest as SecurityDecisionCommitteeMemberAgentRequest,
+    SecurityDecisionCommitteeRequest,
+    security_committee_member_agent as security_decision_committee_member_agent,
+    security_decision_committee,
+};
+use crate::ops::stock::security_decision_evidence_bundle::{
+    SecurityDecisionEvidenceBundleRequest, security_decision_evidence_bundle,
+};
+use crate::ops::stock::security_decision_package::{
+    SecurityDecisionPackageRequest, security_decision_package,
+};
+use crate::ops::stock::security_decision_package_revision::{
+    SecurityDecisionPackageRevisionRequest, security_decision_package_revision,
+};
+use crate::ops::stock::security_decision_verify_package::{
+    SecurityDecisionVerifyPackageRequest, security_decision_verify_package,
+};
+use crate::ops::stock::security_execution_journal::{
+    SecurityExecutionJournalRequest, security_execution_journal,
+};
+use crate::ops::stock::security_execution_record::{
+    SecurityExecutionRecordRequest, security_execution_record,
+};
+use crate::ops::stock::security_feature_snapshot::{
+    SecurityFeatureSnapshotRequest, security_feature_snapshot,
+};
+use crate::ops::stock::security_forward_outcome::{
+    SecurityForwardOutcomeRequest, security_forward_outcome,
+};
+use crate::ops::stock::security_portfolio_position_plan::{
+    SecurityPortfolioPositionPlanRequest, security_portfolio_position_plan,
+};
+use crate::ops::stock::security_position_plan::{
+    SecurityPositionPlanRequest, security_position_plan,
+};
+use crate::ops::stock::security_post_trade_review::{
+    SecurityPostTradeReviewRequest, security_post_trade_review,
+};
+use crate::ops::stock::security_record_post_meeting_conclusion::{
+    SecurityPostMeetingConclusionRequest, security_record_post_meeting_conclusion,
+};
+use crate::ops::stock::security_scorecard_refit_run::{
+    SecurityScorecardRefitRequest, security_scorecard_refit,
+};
+use crate::ops::stock::security_scorecard_training::{
+    SecurityScorecardTrainingRequest, security_scorecard_training,
 };
 use crate::ops::stock::signal_outcome_research::{
     BackfillSecuritySignalOutcomesRequest, RecordSecuritySignalSnapshotRequest,
@@ -48,8 +95,7 @@ use crate::ops::stock::technical_consultation_basic::{
     TechnicalConsultationBasicRequest, technical_consultation_basic,
 };
 use crate::tools::contracts::{
-    SecurityPositionPlanRecordRequest, SecurityPostTradeReviewRequest,
-    SecurityRecordPositionAdjustmentRequest, ToolResponse,
+    SecurityPositionPlanRecordRequest, SecurityRecordPositionAdjustmentRequest, ToolResponse,
 };
 
 pub(super) fn dispatch_import_stock_price_history(args: Value) -> ToolResponse {
@@ -136,6 +182,30 @@ pub(super) fn dispatch_security_analysis_fullstack(args: Value) -> ToolResponse 
     }
 }
 
+pub(super) fn dispatch_security_decision_evidence_bundle(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityDecisionEvidenceBundleRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_decision_evidence_bundle(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_decision_committee(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityDecisionCommitteeRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_decision_committee(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
 pub(super) fn dispatch_security_decision_briefing(args: Value) -> ToolResponse {
     // 2026-04-02 CST: 这里接入 security_decision_briefing 的 stock dispatcher 分支，原因是统一 briefing 已经成为咨询与投决共用的事实入口；
     // 目的：让 CLI / Skill 可以直接走正式 Tool 主链拿到单一 briefing，而不是在外层手工串 fullstack 与 resonance。
@@ -166,7 +236,39 @@ pub(super) fn dispatch_security_position_plan_record(args: Value) -> ToolRespons
 
 // 2026-04-08 CST: 这里接入 security_post_trade_review 的 stock dispatcher 分支，原因是投后复盘必须沿证券主链正式入口暴露；
 // 目的：让 CLI / Skill 能只传 position_plan_ref 与 adjustment_event_refs 就拿到结构化复盘，而不是在外层手工拼总结文本。
+// 2026-04-02 CST: 这里接入 security_committee_vote 的 stock dispatcher，原因是投决会必须沿正式 Tool 主链暴露，
+// 目的：让上层只传 committee payload / committee_mode 就能拿到结构化表决结果，而不是再去拼第二套流程。
+pub(super) fn dispatch_security_position_plan(args: Value) -> ToolResponse {
+    // 2026-04-09 CST: 这里接入 security_position_plan 的 stock dispatcher 分支，原因是 Task 7 要把 briefing 内仓位层正式升级为独立 Tool；
+    // 目的：让 CLI / Skill 直接消费正式仓位文档，同时保持事实源仍来自统一 briefing 主链。
+    let request = match serde_json::from_value::<SecurityPositionPlanRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_position_plan(&request) {
+        Ok(result) => ToolResponse::ok_serialized(&result),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_portfolio_position_plan(args: Value) -> ToolResponse {
+    // 2026-04-09 CST: 这里接入 security_portfolio_position_plan 的 stock dispatcher 分支，原因是方案A要把账户级仓位建议升级为正式 Tool；
+    // 目的：让 CLI / Skill 直接消费账户级配置建议，而不是继续在对话里手工算总仓和单票上限。
+    let request = match serde_json::from_value::<SecurityPortfolioPositionPlanRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_portfolio_position_plan(&request) {
+        Ok(result) => ToolResponse::ok_serialized(&result),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
 pub(super) fn dispatch_security_post_trade_review(args: Value) -> ToolResponse {
+    // 2026-04-09 CST: 这里接入 security_post_trade_review 的 stock dispatcher 分支，原因是 Task 8 要把投后复盘升级为正式 Tool；
+    // 目的：让 CLI / Skill 直接消费正式复盘文档，并保持其事实源复用 position_plan 与 forward_outcome 主链。
     let request = match serde_json::from_value::<SecurityPostTradeReviewRequest>(args) {
         Ok(request) => request,
         Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
@@ -178,8 +280,34 @@ pub(super) fn dispatch_security_post_trade_review(args: Value) -> ToolResponse {
     }
 }
 
-// 2026-04-02 CST: 这里接入 security_committee_vote 的 stock dispatcher，原因是投决会必须沿正式 Tool 主链暴露，
-// 目的：让上层只传 committee payload / committee_mode 就能拿到结构化表决结果，而不是再去拼第二套流程。
+pub(super) fn dispatch_security_execution_record(args: Value) -> ToolResponse {
+    // 2026-04-09 CST: 这里接入 security_execution_record 的 stock dispatcher 分支，原因是 Task 10 要把真实执行对象升级为正式 Tool；
+    // 目的：让 CLI / Skill 直接消费正式执行归因文档，并沿统一主链进入 review/package/governance。
+    let request = match serde_json::from_value::<SecurityExecutionRecordRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_execution_record(&request) {
+        Ok(result) => ToolResponse::ok_serialized(&result),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_execution_journal(args: Value) -> ToolResponse {
+    // 2026-04-09 CST: 这里接入 security_execution_journal 的 stock dispatcher 分支，原因是 P1 要让多笔成交成为正式 Tool；
+    // 目的：让 CLI / Skill 直接消费结构化 journal，并把它作为 execution_record 的事实底座。
+    let request = match serde_json::from_value::<SecurityExecutionJournalRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_execution_journal(&request) {
+        Ok(result) => ToolResponse::ok_serialized(&result),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
 pub(super) fn dispatch_security_committee_vote(args: Value) -> ToolResponse {
     let request = match serde_json::from_value::<SecurityCommitteeVoteRequest>(args) {
         Ok(request) => request,
@@ -195,13 +323,118 @@ pub(super) fn dispatch_security_committee_vote(args: Value) -> ToolResponse {
 // 2026-04-08 CST: 这里补七席委员会内部 seat agent 分发，原因是独立执行证明要求每个委员都经由单独 CLI 子进程产出投票；
 // 目的：把内部子进程调用也绑定在现有 stock dispatcher 上，保证委员会正式入口仍然只有 briefing 与 vote 两层，对外不新增目录噪音。
 pub(super) fn dispatch_security_committee_member_agent(args: Value) -> ToolResponse {
-    let request = match serde_json::from_value::<SecurityCommitteeMemberAgentRequest>(args) {
+    let request = match serde_json::from_value::<SecurityDecisionCommitteeMemberAgentRequest>(args)
+    {
         Ok(request) => request,
         Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
     };
 
-    match security_committee_member_agent(&request) {
+    match security_decision_committee_member_agent(&request) {
         Ok(result) => ToolResponse::ok_serialized(&result),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_chair_resolution(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityChairResolutionRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_chair_resolution(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_record_post_meeting_conclusion(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityPostMeetingConclusionRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_record_post_meeting_conclusion(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_decision_package(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityDecisionPackageRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_decision_package(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_decision_verify_package(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityDecisionVerifyPackageRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    ToolResponse::ok(json!(security_decision_verify_package(&request)))
+}
+
+pub(super) fn dispatch_security_decision_package_revision(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityDecisionPackageRevisionRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    ToolResponse::ok(json!(security_decision_package_revision(&request)))
+}
+
+pub(super) fn dispatch_security_feature_snapshot(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityFeatureSnapshotRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_feature_snapshot(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_forward_outcome(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityForwardOutcomeRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_forward_outcome(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_scorecard_refit(args: Value) -> ToolResponse {
+    let request = match serde_json::from_value::<SecurityScorecardRefitRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_scorecard_refit(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_scorecard_training(args: Value) -> ToolResponse {
+    // 2026-04-09 CST: 这里新增正式 scorecard training dispatcher 入口，原因是 Task 5 需要把训练主链接入统一 stock 路由；
+    // 目的：让 CLI / Skill / 回算编排都能通过同一个 dispatcher 获取 artifact、refit_run 与 model_registry。
+    let request = match serde_json::from_value::<SecurityScorecardTrainingRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_scorecard_training(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
         Err(error) => ToolResponse::error(error.to_string()),
     }
 }

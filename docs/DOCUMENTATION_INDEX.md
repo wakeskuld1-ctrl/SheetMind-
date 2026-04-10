@@ -1,65 +1,67 @@
 # 文档索引
 
-<!-- 2026-04-02 CST: 新增文档索引。原因：docs 目录已包含计划、验收、历史交接和执行记录，入口分散。目的：为开发者与 AI 提供一份可维护的导航清单。 -->
+<!-- 2026-04-09 CST: 重写文档索引。原因：当前 docs 目录已有多轮并行交接与计划文档，旧索引入口分散且有乱码风险。目的：统一给出当前主入口、证券主线入口、foundation 入口和任务日志入口。 -->
 
 ## 1. 必看入口
 
 - [README.md](/E:/TradingAgents/TradingAgents/README.md)
-  - 项目级入口说明。
+  - 仓库总入口
 - [AI_HANDOFF.md](/E:/TradingAgents/TradingAgents/docs/AI_HANDOFF.md)
-  - 后续 AI / 开发者接手手册。
-- [DOC_UPDATE_POLICY.md](/E:/TradingAgents/TradingAgents/docs/DOC_UPDATE_POLICY.md)
-  - 文档更新规则。
+  - 当前统一 AI 交接手册
 - [CHANGELOG_TASK.MD](/E:/TradingAgents/TradingAgents/CHANGELOG_TASK.MD)
-  - 任务日志与记忆点沉淀。
+  - 最近任务、风险、验证与记忆点
 
-## 2. docs 目录说明
+## 2. 证券主线入口
 
-- `docs/acceptance/`
-  - 分阶段验收文档。
-- `docs/plans/`
-  - 计划类文档与路线拆解。
-- [plans/2026-04-08-closed-loop-investment-research-roadmap.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-closed-loop-investment-research-roadmap.md)
-  - 证券分析主链从“投前分析”升级到“赔率系统 + 仓位管理 + 投后复盘 + 市场结构 + 深层信息面”的正式路线图。
-- [plans/2026-04-08-odds-position-system-design.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-odds-position-system-design.md)
-  - 基于既有 `signal_outcome_research` 的赔率系统与仓位管理设计，明确研究层复用边界、briefing 顶层新字段和 committee 同源摘要方案。
-- [plans/2026-04-08-foundation-navigation-kernel-phase1.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-navigation-kernel-phase1.md)
-  - foundation 最小导航内核阶段计划。
-- [plans/2026-04-08-foundation-standard-capabilities-phase2.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-standard-capabilities-phase2.md)
-  - foundation Phase 2 第一阶段通用标准能力计划与交接文档。
-- [plans/2026-04-08-foundation-knowledge-ingestion-phase2-stage2.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-knowledge-ingestion-phase2-stage2.md)
-  - foundation Phase 2 第二阶段 knowledge_ingestion 计划与交接文档。
-- [plans/2026-04-08-foundation-metadata-filter-phase2-stage3.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-metadata-filter-phase2-stage3.md)
-  - foundation Phase 2 第三阶段 metadata filter 扩展计划与交接文档。
-- [plans/2026-04-08-foundation-repository-layout-phase2-stage4.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-repository-layout-phase2-stage4.md)
-  - foundation Phase 2 第四阶段 repository layout 标准化计划与交接文档。
-- [plans/2026-04-08-foundation-metadata-schema-registry-phase3-stage1.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-metadata-schema-registry-phase3-stage1.md)
-  - foundation Phase 3 第一阶段 metadata schema registry 计划与交接文档。
-- [plans/2026-04-08-foundation-metadata-validator-phase3-stage2.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-metadata-validator-phase3-stage2.md)
-  - foundation Phase 3 第二阶段 metadata validator 计划与交接文档。
-- [plans/2026-04-08-foundation-metadata-schema-versioning-phase3-stage3.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-metadata-schema-versioning-phase3-stage3.md)
-  - foundation Phase 3 第三阶段 metadata schema versioning 计划与交接文档。
-- [plans/2026-04-08-foundation-metadata-migration-contract-phase3-stage4.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-foundation-metadata-migration-contract-phase3-stage4.md)
-  - foundation Phase 3 第四阶段 metadata migration contract 计划与交接文档。
-- `docs/architecture/`
-  - 架构类说明。
-- `docs/marketing/`
-  - 市场或对外表达材料。
-- `docs/execution-notes-2026-03-30.md`
-  - 历史执行记录，可作为背景补充，不是当前权威入口。
+- [交接摘要_证券分析_给后续AI.md](/E:/TradingAgents/TradingAgents/docs/交接摘要_证券分析_给后续AI.md)
+  - 证券治理链、评分卡链、已知尾项与后续接续入口
+- [2026-04-08-security-investment-lifecycle-roadmap.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-security-investment-lifecycle-roadmap.md)
+  - 证券投前、投中、投后、ETF 补洞路线图
+- [2026-04-08-security-post-meeting-conclusion-design.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-security-post-meeting-conclusion-design.md)
+  - 会后结论设计
+- [2026-04-08-security-post-meeting-conclusion-plan.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-08-security-post-meeting-conclusion-plan.md)
+  - 会后结论实施计划
+- [2026-04-09-security-scorecard-direction-plan.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-09-security-scorecard-direction-plan.md)
+  - 评分卡方向语义与正式挂接计划
+- [2026-04-09-master-balance-scorecard-system-plan.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-09-master-balance-scorecard-system-plan.md)
+  - 评分卡系统计划
 
-## 3. 历史交接文档处理方式
+## 3. foundation 入口
 
-- `docs/交接摘要_给后续AI.md`
-  - 现在保留为跳转页，不再作为主维护文档。
-- `docs/交接摘要_证券分析_给后续AI.md`
-  - 现在保留为跳转页，不再单独扩展。
+- [repo-and-branch-governance.md](/E:/TradingAgents/TradingAgents/docs/architecture/repo-and-branch-governance.md)
+  - 仓库与分支治理
 
-## 4. 维护原则
+说明：
 
-- 新功能如果改变正式主链、流程门禁、Tool 合同或推荐入口，先更新权威入口文档，再考虑是否补历史说明。
-- 旧文档可保留，但必须明确它是不是“当前权威入口”。
-- 如果用户要求“随时更新”，默认指的是：
+- foundation 文档仍保留，但当前默认不是第一开发入口
+- 如果用户明确要求继续 foundation，再进入对应 `docs/plans/2026-04-07*` 与 `2026-04-08*` 文档
+
+## 4. 历史交接文档
+
+- [交接摘要_给后续AI.md](/E:/TradingAgents/TradingAgents/docs/交接摘要_给后续AI.md)
+  - 历史总交接摘要，保留作背景补充
+
+## 5. 维护规则
+
+- 修改正式主线、正式 Tool、正式交接口径时，优先更新：
   - `README.md`
   - `docs/AI_HANDOFF.md`
+  - `docs/交接摘要_证券分析_给后续AI.md`
   - `CHANGELOG_TASK.MD`
+- 不再把关键交接信息只留在 worktree 或远端观察分支里
+## 6. 2026-04-09 证券主线增补入口
+
+- [2026-04-09-task7-security-position-plan.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-09-task7-security-position-plan.md)
+  - Task 7 仓位管理最小正式收口
+- [2026-04-09-task8-security-post-trade-review.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-09-task8-security-post-trade-review.md)
+  - Task 8 投后复盘最小正式收口
+- [2026-04-09-task9-post-trade-review-package-governance.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-09-task9-post-trade-review-package-governance.md)
+  - Task 9 投后复盘进入 package / verify / revision 的正式治理收口
+- [2026-04-09-task10-security-execution-record.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-09-task10-security-execution-record.md)
+  - Task 10 真实执行对象与收益归因的最小正式收口
+- [2026-04-09-task11-security-execution-journal.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-09-task11-security-execution-journal.md)
+  - Task 11 多笔成交 journal 与聚合 execution record 的最小正式收口
+## 7. 2026-04-09 证券主线新增入口
+
+- [2026-04-09-task12-security-portfolio-position-plan.md](/E:/TradingAgents/TradingAgents/docs/plans/2026-04-09-task12-security-portfolio-position-plan.md)
+  - Task 12 账户级仓位管理与增量资金分配的最小正式收口

@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ops::stock::stock_analysis_data_guard::{
+    StockAnalysisDataGuardError, StockAnalysisDataGuardRequest, StockAnalysisDateGuard,
+    StockAnalysisSyncResult, ensure_analysis_date_guard,
+};
 use crate::runtime::stock_history_store::{
     StockHistoryRow, StockHistoryStore, StockHistoryStoreError,
 };
@@ -27,15 +31,31 @@ pub struct TechnicalConsultationBasicRequest {
 // 目的：让调用方直接拿到量价是否共振的结构化判断，而不是只读文案。
 // 2026-03-29 CST：这里追加 `divergence_signal`，原因是量价确认之后下一步最自然的是补第一版价格-OBV 背离识别；
 // 目的：让上层能直接知道当前是否存在顶部或底部背离风险，而不需要再重复解析价格和 OBV 关系。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct TechnicalConsultationBasicResult {
     pub symbol: String,
     // 2026-04-08 CST: 这里把对外日期字段统一改为 analysis_date，原因是证券主链公共合同已经要求分析输出统一使用 analysis_date；
     // 目的：消除 as_of_date / analysis_date 双口径并避免后续 briefing、committee、post-trade review 再做字段兼容。
-    pub analysis_date: String,
     // 2026-04-08 CST: 这里补齐 evidence_version，原因是技术咨询结果已经进入证券主链证据链，后续审批、复盘都需要稳定引用；
     // 目的：让 technical_consultation_basic 也能像 briefing / committee 一样输出可审计的事实版本标识。
+    pub as_of_date: String,
+    // 2026-04-08 CST: 这里新增统一分析日期字段，原因是方案 C 要把上层公共合同前移到技术基础层；
+    // 目的：让 contextual/fullstack/resonance 不必再只认 `as_of_date` 这种历史命名，也能直接沿用统一的 `analysis_date`。
+    pub analysis_date: String,
+    // 2026-04-08 CST: 这里新增证据版本字段，原因是上层 Skill/Tool 需要一个稳定、可追踪的事实版本号；
+    // 目的：让后续链路可以按 `<tool>:<symbol>:<analysis_date>:v1` 识别当前分析快照，避免只带 symbol 时发生版本碰撞。
     pub evidence_version: String,
+    pub requested_as_of_date: String,
+    pub effective_analysis_date: String,
+    pub effective_trade_date: String,
+    #[serde(default)]
+    pub local_data_last_date: Option<String>,
+    pub data_freshness_status: String,
+    pub sync_attempted: bool,
+    #[serde(default)]
+    pub sync_result: Option<StockAnalysisSyncResult>,
+    #[serde(default)]
+    pub date_fallback_reason: Option<String>,
     pub history_row_count: usize,
     pub trend_bias: String,
     pub trend_strength: String,
@@ -64,6 +84,9 @@ pub struct TechnicalConsultationBasicResult {
     pub divergence_signal: String,
     pub timing_signal: String,
     pub rsrs_signal: String,
+    // 2026-04-09 CST: 这里新增 RSRS 可用性状态，原因是用户要求分母为 0 这类数学退化不能再伪装成正常中性信号；
+    // 目的：让上层明确知道当前 RSRS 是可用还是退化，从而在投决链里做到“不可修复则不作为输入”。
+    pub rsrs_status: String,
     pub momentum_signal: String,
     pub volatility_state: String,
     // 2026-04-01 CST: 这里新增组合结论层，原因是方案 A 要把既有趋势/量能/关键位信号正式上提成更易消费的证券分析输出；
@@ -78,7 +101,7 @@ pub struct TechnicalConsultationBasicResult {
 
 // 2026-04-01 CST: 这里定义技术面组合结论对象，原因是当前 `summary / recommended_actions / watch_points` 更偏展示文案，
 // 目的：补一层稳定的证券分析语义合同，给后续 Skill / AI / GUI 直接消费“偏向、置信度、核心理由、主要风险”。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct TechnicalConsultationConclusion {
     pub bias: String,
     pub confidence: String,
@@ -93,7 +116,7 @@ pub struct TechnicalConsultationConclusion {
 // 目的：让下游 AI 能直接拿到趋势强度快照，而不是再次自己解释 OHLC 序列。
 // 2026-03-29 CST：这里追加 OBV 与量能均值快照，原因是本轮要补量价确认能力；
 // 目的：把“价格方向是否得到量能配合”正式暴露给上层，避免外部自己重复计算成交量特征。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct TechnicalIndicatorSnapshot {
     pub close: f64,
     pub ema_10: f64,
@@ -126,6 +149,9 @@ pub struct TechnicalIndicatorSnapshot {
     pub j_9: f64,
     pub rsrs_beta_18: f64,
     pub rsrs_zscore_18_60: f64,
+    // 2026-04-09 CST: 这里把 RSRS 状态下沉到指标快照，原因是分类、摘要、动作和观察点都基于同一份快照工作；
+    // 目的：避免把“RSRS 是否可用”的判断散落到多个文案函数里，降低后续继续扩展退化处理时的耦合度。
+    pub rsrs_status: String,
     pub boll_upper: f64,
     pub boll_middle: f64,
     pub boll_lower: f64,
@@ -138,12 +164,19 @@ pub struct TechnicalIndicatorSnapshot {
 
 // 2026-03-28 CST：这里补充数据窗口摘要，原因是技术咨询结论必须让后续 AI 知道本次判断覆盖了多长历史；
 // 目的：减少排障时反复追问“这次结论到底基于多少数据、截止到哪一天”。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct DataWindowSummary {
     pub requested_lookback_days: usize,
     pub loaded_row_count: usize,
     pub start_date: String,
     pub end_date: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct RsrsSnapshotComputation {
+    beta: f64,
+    zscore: f64,
+    status: &'static str,
 }
 
 // 2026-03-28 CST：这里集中定义咨询层错误，原因是读取历史、数据不足、指标计算都可能失败；
@@ -152,6 +185,8 @@ pub struct DataWindowSummary {
 pub enum TechnicalConsultationBasicError {
     #[error("{0}")]
     Store(#[from] StockHistoryStoreError),
+    #[error("{0}")]
+    DataGuard(#[from] StockAnalysisDataGuardError),
     #[error("股票 `{symbol}` 没有可用的历史数据")]
     EmptyHistory { symbol: String },
     #[error("历史数据不足，至少需要 {required} 条，当前只有 {actual} 条")]
@@ -167,9 +202,17 @@ pub fn technical_consultation_basic(
 ) -> Result<TechnicalConsultationBasicResult, TechnicalConsultationBasicError> {
     let store = StockHistoryStore::workspace_default()?;
     let lookback_days = request.lookback_days.max(MIN_REQUIRED_HISTORY_ROWS);
+    let date_guard = ensure_analysis_date_guard(
+        &store,
+        &StockAnalysisDataGuardRequest {
+            symbol: request.symbol.clone(),
+            requested_as_of_date: request.as_of_date.clone(),
+            lookback_days,
+        },
+    )?;
     let rows = store.load_recent_rows(
         &request.symbol,
-        request.as_of_date.as_deref(),
+        Some(&date_guard.effective_trade_date),
         lookback_days,
     )?;
 
@@ -189,6 +232,7 @@ pub fn technical_consultation_basic(
     let indicator_snapshot = build_indicator_snapshot(&rows)?;
     Ok(build_consultation_result(
         request,
+        &date_guard,
         &rows,
         indicator_snapshot,
     ))
@@ -240,7 +284,7 @@ fn build_indicator_snapshot(
     let (k_9, d_9, j_9) = kdj_snapshot(rows, 9)?;
     // 2026-03-29 22:35 CST: 这里新增 RSRS beta/zscore 快照，原因是用户已确认 RSRS 要直接接进咨询输出；
     // 目的：继续沿同一份 OHLC 历史窗口产出中级指标，不新开额外实现或第二条数据链。
-    let (rsrs_beta_18, rsrs_zscore_18_60) = rsrs_snapshot(rows, 18, 60)?;
+    let rsrs_snapshot = rsrs_snapshot(rows, 18, 60)?;
     let (boll_upper, boll_middle, boll_lower) = bollinger_last(&closes, 20, 2.0)?;
     // 2026-03-29 23:25 CST: 这里新增布林带带宽快照计算，原因是这轮要基于现有上下轨/中轨快照补一层结构化带宽语义；
     // 目的：继续复用同一份 BOLL 结果，不重开第二套公式链路，同时给 summary / actions / watch_points 提供稳定阈值输入。
@@ -277,8 +321,9 @@ fn build_indicator_snapshot(
         k_9,
         d_9,
         j_9,
-        rsrs_beta_18,
-        rsrs_zscore_18_60,
+        rsrs_beta_18: rsrs_snapshot.beta,
+        rsrs_zscore_18_60: rsrs_snapshot.zscore,
+        rsrs_status: rsrs_snapshot.status.to_string(),
         boll_upper,
         boll_middle,
         boll_lower,
@@ -298,6 +343,7 @@ fn build_indicator_snapshot(
 // 目的：把价格与 OBV 的明显背离收口成稳定字段，便于后续 Skill / AI 直接消费。
 fn build_consultation_result(
     request: &TechnicalConsultationBasicRequest,
+    date_guard: &StockAnalysisDateGuard,
     rows: &[StockHistoryRow],
     indicator_snapshot: TechnicalIndicatorSnapshot,
 ) -> TechnicalConsultationBasicResult {
@@ -426,7 +472,7 @@ fn build_consultation_result(
         .unwrap_or_default();
     // 2026-04-08 CST: 这里统一以行情窗口终点作为 analysis_date，原因是方案 C 已明确 technical_consultation_basic 对外不再暴露 as_of_date；
     // 目的：保证技术咨询、简报、投决、投后复盘引用的是同一份分析日期口径。
-    let analysis_date = end_date.clone();
+    let analysis_date = date_guard.effective_analysis_date.clone();
     // 2026-04-08 CST: 这里补齐 technical_consultation_basic 的证据版本号，原因是外层合同已经开始要求 evidence_version；
     // 目的：让后续 decision package / post_trade_review 可以稳定回指这次技术分析事实底稿。
     let evidence_version = format!(
@@ -434,10 +480,21 @@ fn build_consultation_result(
         request.symbol, analysis_date
     );
 
-    return TechnicalConsultationBasicResult {
+    // 2026-04-08 CST: 这里先收口统一合同字段，原因是方案 C 第一批要求技术层就产出 analysis_date / evidence_version；
+    // 目的：保持 `as_of_date` 兼容的同时，为上层所有证券分析链路提供统一日期与证据版本来源。
+    TechnicalConsultationBasicResult {
         symbol: request.symbol.clone(),
+        as_of_date: end_date.clone(),
         analysis_date,
         evidence_version,
+        requested_as_of_date: date_guard.requested_as_of_date.clone(),
+        effective_analysis_date: date_guard.effective_analysis_date.clone(),
+        effective_trade_date: date_guard.effective_trade_date.clone(),
+        local_data_last_date: date_guard.local_data_last_date.clone(),
+        data_freshness_status: date_guard.data_freshness_status.clone(),
+        sync_attempted: date_guard.sync_attempted,
+        sync_result: date_guard.sync_result.clone(),
+        date_fallback_reason: date_guard.date_fallback_reason.clone(),
         history_row_count: rows.len(),
         trend_bias,
         trend_strength,
@@ -452,6 +509,7 @@ fn build_consultation_result(
         divergence_signal,
         timing_signal,
         rsrs_signal,
+        rsrs_status: indicator_snapshot.rsrs_status.clone(),
         momentum_signal,
         volatility_state,
         consultation_conclusion,
@@ -465,7 +523,7 @@ fn build_consultation_result(
             start_date,
             end_date,
         },
-    };
+    }
 }
 
 // 2026-04-01 CST: 这里新增组合结论构造器，原因是当前底层信号已经足够丰富，但上层仍缺一层稳定的证券分析归纳；
@@ -1226,7 +1284,11 @@ fn classify_timing_signal(snapshot: &TechnicalIndicatorSnapshot) -> &'static str
 // 2026-03-29 22:35 CST: 这里新增 RSRS 第一版信号分类，原因是 RSRS 不能只停留在两个数值快照上；
 // 目的：先用 beta + zscore 的可解释规则把“斜率强化 / 压力转强 / 中性”稳定收口，后续再按样本继续细化。
 fn classify_rsrs_signal(snapshot: &TechnicalIndicatorSnapshot) -> &'static str {
-    if snapshot.rsrs_zscore_18_60 >= 0.7 && snapshot.rsrs_beta_18 >= 1.0 {
+    // 2026-04-09 CST: 这里先判断 RSRS 状态，原因是退化窗口不能再沿用 neutral 分支继续参与方向解释；
+    // 目的：把“不可用”显式收口成 degraded，让上层可以稳定剔除该指标，而不是误以为它给出了中性意见。
+    if snapshot.rsrs_status != "available" {
+        "degraded"
+    } else if snapshot.rsrs_zscore_18_60 >= 0.7 && snapshot.rsrs_beta_18 >= 1.0 {
         "bullish_breakout"
     } else if snapshot.rsrs_zscore_18_60 <= -0.7 && snapshot.rsrs_beta_18 <= 1.0 {
         "bearish_pressure"
@@ -1889,6 +1951,7 @@ fn build_summary_with_timing_and_rsrs(
         "bearish_pressure" => "RSRS 显示近期斜率走弱，短线压力正在抬升。",
         // 2026-03-30 00:18 CST: 这里把 neutral 文案改成“未形成共振”，原因是方案 A 这轮要先锁 RSRS 方向不一致边界；
         // 目的：让上层明确知道 neutral 不只是“没有信号”，还可能是 beta 与 zscore 尚未同向共振。
+        "degraded" => "RSRS 窗口出现退化，本次不把该指标作为方向判断依据。",
         _ => "RSRS 暂未形成 beta 与 zscore 的同向共振，斜率结构仍待确认。",
     };
 
@@ -2185,6 +2248,9 @@ fn build_recommended_actions_with_timing_and_rsrs(
         }
         // 2026-03-30 00:18 CST: 这里补 neutral“共振未形成”提示，原因是仅写中性区间不足以解释 mismatch 边界；
         // 目的：让调用方知道下一步该观察的是 beta 与 zscore 是否同向，而不是把 neutral 误读成完全无效信号。
+        "degraded" => {
+            "RSRS 窗口当前已退化，建议先按趋势、量能与关键价位推进，本次不要把 RSRS 当成加减仓方向依据"
+        }
         _ => {
             "RSRS 暂未形成 beta 与 zscore 的同向共振，建议继续结合趋势、量能和关键价位确认是否出现新的斜率强化"
         }
@@ -2500,6 +2566,9 @@ fn build_watch_points_with_timing_and_rsrs(
         }
         // 2026-03-30 00:18 CST: 这里把 neutral 观察点改成“关注共振形成”，原因是方案 A 本轮优先补的是 mismatch 边界；
         // 目的：把后续监控口径明确收敛到 beta 与 zscore 是否完成同向共振，而不是泛泛观察中性区间。
+        "degraded" => {
+            "留意后续窗口低点是否重新恢复波动，待 RSRS 重新可用后再把它纳入方向确认，不要用本次退化结果做投决依据"
+        }
         _ => {
             "留意 RSRS 的 beta 与 zscore 是否开始形成同向共振，判断斜率结构是否从当前中性状态转向强化或走弱"
         }
@@ -3098,7 +3167,7 @@ fn rsrs_snapshot(
     rows: &[StockHistoryRow],
     regression_period: usize,
     zscore_period: usize,
-) -> Result<(f64, f64), TechnicalConsultationBasicError> {
+) -> Result<RsrsSnapshotComputation, TechnicalConsultationBasicError> {
     let required = regression_period + zscore_period - 1;
     if rows.len() < required {
         return Err(TechnicalConsultationBasicError::InsufficientHistory {
@@ -3110,7 +3179,16 @@ fn rsrs_snapshot(
     let mut beta_series = Vec::with_capacity(rows.len() - regression_period + 1);
     for index in (regression_period - 1)..rows.len() {
         let window = &rows[index + 1 - regression_period..=index];
-        beta_series.push(regression_slope_high_on_low(window)?);
+        // 2026-04-09 CST: 这里对单个退化窗口做显式短路，原因是只要窗口低点完全失去波动，RSRS 这个周期就已经失真；
+        // 目的：避免继续用人为填补的 beta/zscore 混入历史分布，直接把整次 RSRS 快照标成 degraded。
+        let Some(beta) = regression_slope_high_on_low(window)? else {
+            return Ok(RsrsSnapshotComputation {
+                beta: 1.0,
+                zscore: 0.0,
+                status: "degraded",
+            });
+        };
+        beta_series.push(beta);
     }
 
     let latest_beta = *beta_series.last().ok_or_else(|| {
@@ -3133,14 +3211,18 @@ fn rsrs_snapshot(
         (latest_beta - mean) / std_dev
     };
 
-    Ok((latest_beta, zscore))
+    Ok(RsrsSnapshotComputation {
+        beta: latest_beta,
+        zscore,
+        status: "available",
+    })
 }
 
 // 2026-03-29 22:35 CST: 这里单独抽出高点对低点的回归斜率，原因是 RSRS 计算需要稳定、可复核的核心公式；
 // 目的：把 beta 口径收口到一个函数里，后续即使要补 R² 或修正项，也不需要在快照函数中散改。
 fn regression_slope_high_on_low(
     window: &[StockHistoryRow],
-) -> Result<f64, TechnicalConsultationBasicError> {
+) -> Result<Option<f64>, TechnicalConsultationBasicError> {
     let mean_low = window.iter().map(|row| row.low).sum::<f64>() / window.len() as f64;
     let mean_high = window.iter().map(|row| row.high).sum::<f64>() / window.len() as f64;
     let denominator = window
@@ -3152,9 +3234,9 @@ fn regression_slope_high_on_low(
         .sum::<f64>();
 
     if denominator.abs() <= f64::EPSILON {
-        return Err(TechnicalConsultationBasicError::IndicatorCalculation(
-            "RSRS 回归斜率分母为 0".to_string(),
-        ));
+        // 2026-04-09 CST: 这里把 RSRS 分母为 0 改成显式退化而不是伪造 beta=1，原因是用户明确要求先修正，修不了就不要伪装成正常信号；
+        // 目的：让上游窗口在数学上不可判时返回 None，由快照层统一标记 degraded 并退出方向判断链路。
+        return Ok(None);
     }
 
     let numerator = window
@@ -3162,7 +3244,7 @@ fn regression_slope_high_on_low(
         .map(|row| (row.low - mean_low) * (row.high - mean_high))
         .sum::<f64>();
 
-    Ok(numerator / denominator)
+    Ok(Some(numerator / denominator))
 }
 
 fn kdj_snapshot(
@@ -3347,6 +3429,9 @@ mod tests {
             j_9: 58.0,
             rsrs_beta_18: beta,
             rsrs_zscore_18_60: zscore,
+            // 2026-04-09 CST: 这里默认把测试快照标成 available，原因是既有 RSRS 阈值与文案测试仍然验证“正常可用窗口”语义；
+            // 目的：把退化场景与正常场景分开表达，避免后续新增 degraded 测试时污染原有边界测试意图。
+            rsrs_status: "available".to_string(),
             boll_upper: 104.0,
             boll_middle: 100.0,
             boll_lower: 96.0,
@@ -3393,6 +3478,32 @@ mod tests {
             .collect()
     }
 
+    fn history_rows_with_flat_low(day_count: usize, low: f64) -> Vec<StockHistoryRow> {
+        (0..day_count)
+            .map(|offset| {
+                let open = 100.0 + offset as f64 * 0.5;
+                let close = open + 0.3;
+                StockHistoryRow {
+                    trade_date: format!("2025-03-{:02}", (offset % 28) + 1),
+                    open,
+                    high: close + 1.0,
+                    low,
+                    close,
+                    adj_close: close,
+                    volume: 1_200_000 + offset as i64 * 5_000,
+                }
+            })
+            .collect()
+    }
+
+    fn degraded_rsrs_snapshot() -> TechnicalIndicatorSnapshot {
+        let mut snapshot = rsrs_test_snapshot(1.0, 0.0);
+        // 2026-04-09 CST: 这里单独构造 RSRS 退化快照，原因是我们要验证 degraded 不再被误解释成 neutral；
+        // 目的：把“RSRS 不可用时的文案/动作/观察点合同”用最小夹具锁住，避免未来回归时重新混入方向判断。
+        snapshot.rsrs_status = "degraded".to_string();
+        snapshot
+    }
+
     #[test]
     fn breakout_signal_stays_range_bound_when_close_only_touches_resistance_without_anchor() {
         let rows = history_rows_from_closes(&[
@@ -3418,6 +3529,72 @@ mod tests {
         assert_eq!(
             classify_confirmed_retest_signal(&rows, &snapshot),
             Some("confirmed_resistance_retest_hold")
+        );
+    }
+
+    #[test]
+    fn rsrs_snapshot_stays_computable_when_low_window_collapses_to_same_floor() {
+        // 2026-04-09 CST: 这里补 RSRS 分母为 0 的复现单测，原因是 Task 5 训练夹具中的单边下跌样本会把 low 压到同一价格下限；
+        // 目的：确保退化窗口不会再把 snapshot/fullstack/training 主链直接打断，而是稳定退化为 degraded 状态并退出方向判断。
+        let rows = history_rows_with_flat_low(90, 0.1);
+        let rsrs =
+            rsrs_snapshot(&rows, 18, 60).expect("flat-low rsrs snapshot should stay computable");
+
+        assert_eq!(rsrs.status, "degraded");
+        assert!(rsrs.beta.is_finite());
+        assert!(rsrs.zscore.is_finite());
+        assert_eq!(rsrs.beta, 1.0);
+        assert_eq!(rsrs.zscore, 0.0);
+    }
+
+    #[test]
+    fn rsrs_degraded_guidance_explicitly_excludes_directional_use() {
+        let snapshot = degraded_rsrs_snapshot();
+        let rsrs_signal = classify_rsrs_signal(&snapshot);
+
+        // 2026-04-09 CST: 这里补 degraded 合同测试，原因是用户已经明确要求“修不了就不要作为投决输入”；
+        // 目的：锁住 RSRS 退化时的对外口径，避免未来又退回 neutral/共振这类会误导方向判断的文案。
+        assert_eq!(rsrs_signal, "degraded");
+        assert!(
+            build_summary_with_timing_and_rsrs(
+                "bullish",
+                "strong",
+                "confirmed",
+                "none",
+                "neutral",
+                rsrs_signal,
+                "positive",
+                "normal"
+            )
+            .contains("不把该指标作为方向判断依据")
+        );
+        assert!(
+            build_recommended_actions_with_timing_and_rsrs(
+                "bullish",
+                "strong",
+                "confirmed",
+                "none",
+                "neutral",
+                rsrs_signal,
+                "positive",
+                "normal"
+            )
+            .iter()
+            .any(|item| item.contains("不要把 RSRS 当成加减仓方向依据"))
+        );
+        assert!(
+            build_watch_points_with_timing_and_rsrs(
+                "bullish",
+                "strong",
+                "confirmed",
+                "none",
+                "neutral",
+                rsrs_signal,
+                &snapshot,
+                "normal"
+            )
+            .iter()
+            .any(|item| item.contains("不要用本次退化结果做投决依据"))
         );
     }
 

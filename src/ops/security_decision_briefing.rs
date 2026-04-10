@@ -6,6 +6,7 @@ use crate::ops::stock::security_analysis_resonance::{
     SecurityAnalysisResonanceError, SecurityAnalysisResonanceRequest,
     SecurityAnalysisResonanceResult, security_analysis_resonance,
 };
+use crate::ops::stock::stock_analysis_data_guard::StockAnalysisDateGuard;
 use crate::ops::stock::security_committee_vote::{
     SecurityCommitteeVoteError, SecurityCommitteeVoteRequest, SecurityCommitteeVoteResult,
     security_committee_vote,
@@ -41,6 +42,7 @@ pub struct SecurityDecisionBriefingRequest {
 pub struct SecurityDecisionBriefingResult {
     pub symbol: String,
     pub analysis_date: String,
+    pub analysis_date_guard: StockAnalysisDateGuard,
     pub summary: String,
     pub evidence_version: String,
     // 2026-04-08 CST: 这里补充分析对象画像，原因是 ETF 与个股后续会共用同一条 briefing 主链；
@@ -58,6 +60,25 @@ pub struct SecurityDecisionBriefingResult {
     pub position_plan: PositionPlan,
     pub committee_payload: CommitteePayload,
     pub committee_recommendations: CommitteeRecommendations,
+}
+
+// 2026-04-09 CST: 这里抽出 briefing 核心事实层，原因是 Task 7 的独立仓位计划只需要复用 briefing 的统一事实源，
+// 目的：把“核心事实装配”和“默认投决建议生成”解耦，避免仓位/赔率链被不需要的 committee recommendation 阻塞。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SecurityDecisionBriefingCore {
+    pub symbol: String,
+    pub analysis_date: String,
+    pub analysis_date_guard: StockAnalysisDateGuard,
+    pub summary: String,
+    pub evidence_version: String,
+    pub subject_profile: CommitteeSubjectProfile,
+    pub fundamental_brief: BriefingLayer,
+    pub technical_brief: BriefingLayer,
+    pub resonance_brief: BriefingLayer,
+    pub execution_plan: ExecutionPlan,
+    pub odds_brief: OddsBrief,
+    pub position_plan: PositionPlan,
+    pub committee_payload: CommitteePayload,
 }
 
 // 2026-04-02 CST: 这里新增 briefing 默认携带的投决会建议集合，原因是用户明确要求普通个股分析报告也要默认带出投决建议，
@@ -199,6 +220,7 @@ impl PositionPlan {
 pub struct CommitteePayload {
     pub symbol: String,
     pub analysis_date: String,
+    pub analysis_date_guard: StockAnalysisDateGuard,
     pub recommended_action: String,
     pub confidence: String,
     // 2026-04-08 CST: 这里补充投决对象画像，原因是 vote 层需要区分“个股基本面缺口”和“ETF 天然不按财报投决”；
@@ -357,6 +379,35 @@ pub type BriefingLayer = Value;
 pub fn security_decision_briefing(
     request: &SecurityDecisionBriefingRequest,
 ) -> Result<SecurityDecisionBriefingResult, SecurityDecisionBriefingError> {
+    let briefing_core = security_decision_briefing_core(request)?;
+    let committee_recommendations = build_committee_recommendations(
+        &briefing_core.committee_payload,
+        &briefing_core.subject_profile,
+    )?;
+
+    Ok(SecurityDecisionBriefingResult {
+        symbol: briefing_core.symbol,
+        analysis_date: briefing_core.analysis_date,
+        analysis_date_guard: briefing_core.analysis_date_guard,
+        summary: briefing_core.summary,
+        evidence_version: briefing_core.evidence_version,
+        subject_profile: briefing_core.subject_profile,
+        fundamental_brief: briefing_core.fundamental_brief,
+        technical_brief: briefing_core.technical_brief,
+        resonance_brief: briefing_core.resonance_brief,
+        execution_plan: briefing_core.execution_plan,
+        odds_brief: briefing_core.odds_brief,
+        position_plan: briefing_core.position_plan,
+        committee_payload: briefing_core.committee_payload,
+        committee_recommendations,
+    })
+}
+
+// 2026-04-09 CST: 这里暴露不含默认投决建议的 briefing 核心装配入口，原因是独立仓位计划与后续治理对象只需要统一事实层；
+// 目的：继续复用同一份 technical/fundamental/resonance/odds/position/committee payload，而不是复制一套平行装配逻辑。
+pub fn security_decision_briefing_core(
+    request: &SecurityDecisionBriefingRequest,
+) -> Result<SecurityDecisionBriefingCore, SecurityDecisionBriefingError> {
     let resonance_request = SecurityAnalysisResonanceRequest {
         symbol: request.symbol.clone(),
         market_symbol: request.market_symbol.clone(),
@@ -369,14 +420,14 @@ pub fn security_decision_briefing(
         disclosure_limit: request.disclosure_limit,
     };
     let resonance_analysis = security_analysis_resonance(&resonance_request)?;
-    assemble_security_decision_briefing(resonance_analysis)
+    assemble_security_decision_briefing_core(resonance_analysis)
 }
 
 // 2026-04-02 CST: 这里把 assembler 收口成单独函数，原因是后续还要继续给 execution_plan 与 committee_payload 做增量增强；
 // 目的：让“复用既有事实层”和“生成 briefing 子层”分离，降低后续扩展交易执行层时的修改面。
-fn assemble_security_decision_briefing(
+fn assemble_security_decision_briefing_core(
     analysis: SecurityAnalysisResonanceResult,
-) -> Result<SecurityDecisionBriefingResult, SecurityDecisionBriefingError> {
+) -> Result<SecurityDecisionBriefingCore, SecurityDecisionBriefingError> {
     // 2026-04-08 CST: 这里先推断分析对象画像，原因是 ETF 与个股需要共用 briefing 主链但解释口径不同；
     // 目的：让 summary、committee payload 与默认投决建议都能按同一份画像做最小分流。
     let subject_profile = infer_subject_profile(&analysis.symbol);
@@ -386,6 +437,7 @@ fn assemble_security_decision_briefing(
         .stock_analysis
         .analysis_date
         .clone();
+    let analysis_date_guard = analysis.base_analysis.analysis_date_guard.clone();
     let evidence_version = build_evidence_version(&analysis.symbol, &analysis_date);
     let summary = build_summary(&analysis, &subject_profile);
     let technical_brief =
@@ -416,12 +468,10 @@ fn assemble_security_decision_briefing(
         &odds_brief,
         &position_plan,
     );
-    let committee_recommendations =
-        build_committee_recommendations(&committee_payload, &subject_profile)?;
-
-    Ok(SecurityDecisionBriefingResult {
+    Ok(SecurityDecisionBriefingCore {
         symbol: analysis.symbol,
         analysis_date,
+        analysis_date_guard,
         summary,
         evidence_version,
         subject_profile,
@@ -432,7 +482,6 @@ fn assemble_security_decision_briefing(
         odds_brief,
         position_plan,
         committee_payload,
-        committee_recommendations,
     })
 }
 
@@ -1020,6 +1069,7 @@ fn build_committee_payload(
     CommitteePayload {
         symbol: analysis.symbol.clone(),
         analysis_date: analysis_date.to_string(),
+        analysis_date_guard: analysis.base_analysis.analysis_date_guard.clone(),
         recommended_action: analysis.resonance_context.action_bias.clone(),
         confidence: analysis
             .base_analysis

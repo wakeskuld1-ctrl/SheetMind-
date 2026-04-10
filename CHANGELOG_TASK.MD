@@ -1,5 +1,34 @@
 ## 2026-04-10
 ### 修改内容
+- `src/ops/security_scorecard.rs`：修复多周期投决卡对客视图收口过程中出现的编译破损，恢复 `build_security_scorecard(...)`、`build_security_scorecard_client_view(...)` 与多周期概率函数可编译、可输出状态。目的：把内部评分卡与对客投决卡重新拉回同一条稳定主链。
+- `src/ops/security_scorecard.rs`：把多周期对客字段中的乱码标签收敛为稳定可读值，包含 `risk_level`、`trade_value`、`horizon_label` 以及 `action_advice` 的输出文案。目的：避免出现“测试能过但客户看不懂”的伪完成状态。
+- `tests/security_decision_submit_approval_cli.rs`：修复本地 HTTP 假服务 404 JSON 字符串、拆开注释与代码粘连，并将 `approval_brief.entry_summary / stop_loss_summary` 的断言从锁死中文片段改成“字段存在且非空”。目的：让回归测试校验正式合同，而不是被编码差异或展示文案误伤。
+
+### 修改原因
+- 本轮在推进“多周期投决卡”时，测试文件和 `security_scorecard.rs` 同时出现了乱码注释、字符串损坏和注释粘连，导致先是无法编译，后是测试被旧展示文案锁死。
+- 用户已明确要求先推一个不落到 `codex/merge-cli-mod-batches` 的 GitHub 快照，然后继续修改并再次推送；因此需要先收敛最小可交付范围，再做精准提交。
+- 用户同时强调客户视角只关心能否看懂与能否用，不能把模型内部字段和乱码展示带到最终交付层。
+
+### 方案还差什么?
+- [ ] 还没有把同样的多周期客户视图继续同步到 `security_chair_resolution`、`security_decision_briefing` 等其它上游展示链路。
+- [ ] 还没有补针对更多真实样本的“多周期投决卡显示值”回放校验，当前只锁住了审批提交主链的两条关键用例。
+- [ ] 还没有系统清理 `security_scorecard.rs` 内部历史乱码注释，只处理了影响本轮编译与对客输出的最小范围。
+
+### 潜在问题
+- [ ] 当前 `risk_level / trade_value / horizon_label` 的新值已可读，但仍属于启发式映射，不代表训练器输出的真实收益分布；后续如果训练口径调整，展示层阈值也需要同步复核。
+- [ ] 仓库当前工作区依旧很脏，存在大量与本轮无关的已修改或未跟踪文件；后续提交时仍必须按路径精确收口，不能整仓提交。
+- [ ] `CHANGELOG_TASK.MD` 历史内容本身存在编码异常，本轮仅追加 UTF-8 新日志，未回头清洗旧记录。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_decision_submit_approval_cli security_decision_submit_approval_writes_runtime_files_for_ready_case -- --nocapture`
+- 已通过 `cargo test --test security_decision_submit_approval_cli security_decision_submit_approval_scorecard_reuses_evidence_seed_and_matches_bool_bins -- --nocapture`
+- 已完成安全快照推送：`handoff/codex/security-mainline-snapshot-20260410`
+
+### 记忆点（可选）
+- 用户再次明确：推送 GitHub 时不要落到 `codex/merge-cli-mod-batches`，应先推安全快照分支，再继续开发并二次推送。
+- 用户再次明确：客户交付层要优先保证可读、可用，不要把模型内部字段或乱码文本直接暴露出去。
+### 修改内容
 - `src/tools/catalog.rs`：补充 `foundation_repository_metadata_audit_gate` 到 `FOUNDATION_TOOL_NAMES` 与 `TOOL_NAMES`，目的：让 gate 正式进入 foundation 通用能力目录并能被 `tool_catalog` 发现。
 - `src/tools/contracts.rs`：新增 `FoundationRepositoryMetadataAuditGateResult`，收口 `gate_passed`、阻塞/非阻塞计数和问题列表，目的：把 audit 的消费层输出固定成标准合同。
 - `src/tools/dispatcher/foundation_ops.rs`：重写 foundation metadata dispatcher 小文件，保留原有 audit 输出，同时新增 `dispatch_foundation_repository_metadata_audit_gate`、共享 audit 执行 helper、阻塞分级函数，目的：复用同一条整库审计执行链并避免 audit/gate 漂移。

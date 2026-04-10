@@ -93,6 +93,40 @@ fn spawn_http_route_server(routes: Vec<(&str, &str, &str, &str)>) -> String {
     address
 }
 
+// 2026-04-09 CST: 杩欓噷琛ヤ竴涓彲澶氭鍛戒腑鐨勫崟璺緞 HTTP 鍋囨湇鍔★紝鍘熷洜鏄棩鏈熼棬绂佸洖褰掓祴璇曚細瑙﹀彂涓偂銆佸ぇ鐩樸€佹澘鍧楀娆℃湰鍦颁笉瓒虫椂鐨勮ˉ鏁拌姹傘€?
+// 鐩殑锛氳娴嬭瘯鍙互绋冲畾閲嶆斁鈥滃悓涓€ provider 琚娆¤皟鐢ㄢ€濈殑鐪熷疄鍦烘櫙锛岃€屼笉琚亣鏈嶅姟鐨勬帴鍏ユ鏁伴檺鍒惰浼ゅ洖褰掔粨鏋溿€?
+fn spawn_http_server(status_line: &str, body: &str, content_type: &str, accept_count: usize) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test http server should bind");
+    let address = format!(
+        "http://{}",
+        listener
+            .local_addr()
+            .expect("test http server should have local addr")
+    );
+    let status_line = status_line.to_string();
+    let body = body.to_string();
+    let content_type = content_type.to_string();
+
+    thread::spawn(move || {
+        for _ in 0..accept_count {
+            let Ok((mut stream, _)) = listener.accept() else {
+                break;
+            };
+            let mut buffer = [0_u8; 4096];
+            let _ = stream.read(&mut buffer);
+            let response = format!(
+                "{status_line}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = stream.flush();
+        }
+    });
+
+    address
+}
+
 #[test]
 fn tool_catalog_includes_security_analysis_fullstack() {
     let output = run_cli_with_json("");
@@ -209,6 +243,29 @@ fn security_analysis_fullstack_aggregates_technical_fundamental_and_disclosures(
     // 目的：确保上层调用方只打一枪就能拿到完整证券分析骨架，而不是继续手工拼多个 Tool 结果。
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["symbol"], "002352.SZ");
+    // 2026-04-08 CST: 这里补 fullstack 顶层公共合同红测，原因是方案 C 第一批要求 fullstack 直接暴露统一 analysis_date / evidence_version；
+    // 目的：让 briefing 与后续 Agent 不用再从 nested technical_context 里回捞日期和事实版本。
+    assert_eq!(
+        output["data"]["analysis_date"],
+        output["data"]["technical_context"]["analysis_date"]
+    );
+    assert_eq!(
+        output["data"]["evidence_version"],
+        format!(
+            "security-analysis-fullstack:002352.SZ:{}:v1",
+            output["data"]["analysis_date"]
+                .as_str()
+                .expect("analysis_date should exist")
+        )
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["effective_trade_date"],
+        output["data"]["analysis_date"]
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"],
+        output["data"]["technical_context"]["analysis_date_guard"]
+    );
     assert_eq!(
         output["data"]["technical_context"]["contextual_conclusion"]["alignment"],
         "mixed"
@@ -903,6 +960,221 @@ fn build_sina_all_bulletin_fixture() -> String {
     </html>
     "#
     .to_string()
+}
+
+// 2026-04-09 CST: 杩欓噷琛ュ彲鎺у埌鈥滄埅姝㈡棩鈥濈殑琛屾儏鏍锋湰鐢熸垚鍣紝鍘熷洜鏄棩鏈熼棬绂佽鍒欓渶瑕佹槑纭帶鍒舵湰鍦版渶鍚庝竴鏉¤鎯呭拰璇锋眰鏃ョ殑鍏崇郴銆?
+// 鐩殑锛氳娴嬭瘯鍙互绮剧‘楠岃瘉鈥滄湰鍦版湁鏁版嵁涓嶅悓姝ャ€佹湰鍦版棤璇锋眰鏃ユ敹鐩樿琛ユ暟鍐嶅洖閫€鈥濊繖绫绘椂鐐硅鍒欍€?
+fn build_rows_ending_at(end_date: &str, day_count: usize, start_close: f64) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let end_date =
+        NaiveDate::parse_from_str(end_date, "%Y-%m-%d").expect("end_date should be valid");
+    let start_date = end_date - Duration::days((day_count.saturating_sub(1)) as i64);
+    let mut close = start_close;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let (next_close, volume): (f64, i64) = if offset < day_count - 12 {
+            (close + 0.16, 720_000 + offset as i64 * 6_000)
+        } else {
+            let phase = offset - (day_count - 12);
+            match phase % 4 {
+                0 => (close + 0.28, 1_220_000 + phase as i64 * 12_000),
+                1 => (close - 0.04, 860_000),
+                2 => (close + 0.21, 1_060_000 + phase as i64 * 10_000),
+                _ => (close + 0.09, 940_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 0.22;
+        let low = next_close.min(open) - 0.18;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{next_close:.2},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+#[test]
+fn security_analysis_fullstack_prefers_local_exact_trade_date_without_sync() {
+    let runtime_db_path = create_test_runtime_db("security_analysis_fullstack_local_exact");
+
+    let stock_csv = create_stock_history_csv(
+        "security_analysis_fullstack_local_exact",
+        "stock.csv",
+        &build_rows_ending_at("2026-04-08", 220, 22.4),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_analysis_fullstack_local_exact",
+        "market.csv",
+        &build_rows_ending_at("2026-04-08", 220, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_analysis_fullstack_local_exact",
+        "sector.csv",
+        &build_rows_ending_at("2026-04-08", 220, 980.0),
+    );
+    import_history_csv(&runtime_db_path, &stock_csv, "002352.SZ");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "516530.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 200 OK",
+            r#"[{"REPORT_DATE":"2025-12-31","NOTICE_DATE":"2026-03-28","TOTAL_OPERATE_INCOME":308227000000.0,"YSTZ":8.37,"PARENT_NETPROFIT":11117000000.0,"SJLTZ":9.31,"ROEJQ":14.8}]"#,
+            "application/json",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[{"notice_date":"2026-03-28","title":"2025年年度报告","art_code":"AN202603281234567890","columns":[{"column_name":"定期报告"}]}]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_analysis_fullstack",
+        "args": {
+            "symbol": "002352.SZ",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "516530.SH",
+            "as_of_date": "2026-04-08",
+            "disclosure_limit": 1
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            ("EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE", format!("{server}/financials")),
+            ("EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE", format!("{server}/announcements")),
+            ("EXCEL_SKILL_OFFICIAL_FINANCIAL_URL_BASE", format!("{server}/financials")),
+            ("EXCEL_SKILL_OFFICIAL_ANNOUNCEMENT_URL_BASE", format!("{server}/announcements")),
+            ("EXCEL_SKILL_SINA_FINANCIAL_URL_BASE", format!("{server}/financials")),
+            ("EXCEL_SKILL_SINA_ANNOUNCEMENT_URL_BASE", format!("{server}/announcements")),
+        ],
+    );
+
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["requested_as_of_date"],
+        "2026-04-08"
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["effective_trade_date"],
+        "2026-04-08"
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["sync_attempted"],
+        false
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["data_freshness_status"],
+        "local_exact_requested_date"
+    );
+}
+
+#[test]
+fn security_analysis_fullstack_falls_back_to_latest_trade_date_after_sync_when_requested_day_has_no_close() {
+    let runtime_db_path = create_test_runtime_db("security_analysis_fullstack_requested_day_gap");
+
+    let stock_csv = create_stock_history_csv(
+        "security_analysis_fullstack_requested_day_gap",
+        "stock.csv",
+        &build_rows_ending_at("2026-04-07", 220, 22.4),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_analysis_fullstack_requested_day_gap",
+        "market.csv",
+        &build_rows_ending_at("2026-04-07", 220, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_analysis_fullstack_requested_day_gap",
+        "sector.csv",
+        &build_rows_ending_at("2026-04-07", 220, 980.0),
+    );
+    import_history_csv(&runtime_db_path, &stock_csv, "002352.SZ");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "516530.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 200 OK",
+            r#"[{"REPORT_DATE":"2025-12-31","NOTICE_DATE":"2026-03-28","TOTAL_OPERATE_INCOME":308227000000.0,"YSTZ":8.37,"PARENT_NETPROFIT":11117000000.0,"SJLTZ":9.31,"ROEJQ":14.8}]"#,
+            "application/json",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[{"notice_date":"2026-03-28","title":"2025年年度报告","art_code":"AN202603281234567890","columns":[{"column_name":"定期报告"}]}]}}"#,
+            "application/json",
+        ),
+    ]);
+    let tencent_url = spawn_http_server(
+        "HTTP/1.1 200 OK",
+        r#"{"code":0,"msg":"","data":{"sz002352":{"qfqday":[["2026-04-08","58.10","58.48","58.86","57.92","1280000.000"]]},"sh510300":{"qfqday":[["2026-04-08","3205.10","3207.80","3212.40","3201.50","1880000.000"]]},"sh516530":{"qfqday":[["2026-04-08","981.10","982.60","983.10","979.80","1560000.000"]]}}}"#,
+        "application/json",
+        8,
+    );
+
+    let request = json!({
+        "tool": "security_analysis_fullstack",
+        "args": {
+            "symbol": "002352.SZ",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "516530.SH",
+            "as_of_date": "2026-04-09",
+            "disclosure_limit": 1
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            ("EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE", format!("{server}/financials")),
+            ("EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE", format!("{server}/announcements")),
+            ("EXCEL_SKILL_OFFICIAL_FINANCIAL_URL_BASE", format!("{server}/financials")),
+            ("EXCEL_SKILL_OFFICIAL_ANNOUNCEMENT_URL_BASE", format!("{server}/announcements")),
+            ("EXCEL_SKILL_SINA_FINANCIAL_URL_BASE", format!("{server}/financials")),
+            ("EXCEL_SKILL_SINA_ANNOUNCEMENT_URL_BASE", format!("{server}/announcements")),
+            ("EXCEL_SKILL_TENCENT_KLINE_URL", tencent_url),
+            ("EXCEL_SKILL_SINA_KLINE_URL", "http://127.0.0.1:9".to_string()),
+        ],
+    );
+
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["requested_as_of_date"],
+        "2026-04-09"
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["effective_trade_date"],
+        "2026-04-08"
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["effective_analysis_date"],
+        "2026-04-08"
+    );
+    assert_eq!(output["data"]["analysis_date"], "2026-04-08");
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["sync_attempted"],
+        true
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["sync_result"]["status"],
+        "synced"
+    );
+    assert_eq!(
+        output["data"]["analysis_date_guard"]["date_fallback_reason"],
+        "requested_date_has_no_valid_close_after_sync"
+    );
 }
 
 // 2026-04-01 CST: 这里补区间震荡样本，原因是顺丰当前真实场景更接近“区间上沿待选边”而不是单边突破；

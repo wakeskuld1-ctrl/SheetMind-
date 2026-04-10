@@ -214,12 +214,103 @@ fn validate_committee_payload(
             "symbol 与 analysis_date 不能为空".to_string(),
         ));
     }
-    if payload.key_risks.is_empty() {
+    // 2026-04-08 CST: 这里把 risk_breakdown 提升为 committee_payload 门禁主源，原因是方案 B 要求所有风险摘要必须先被结构化合同吸收；
+    // 目的：在 vote 入口层直接拒绝分类错桶、必填字段缺失与 key_risks 漂移，避免脏 payload 进入投决会。
+    validate_risk_breakdown_consistency(payload)?;
+    if effective_key_risks(payload).is_empty() {
         return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
             "key_risks 不能为空".to_string(),
         ));
     }
     Ok(())
+}
+
+// 2026-04-08 CST: 这里对 risk_breakdown 做强一致性校验，原因是 committee_payload 现在要把它作为投决主合同；
+// 目的：确保每个分类桶里的风险项字段完整且分类正确，同时锁住 key_risks 只能来自同一份结构化风险事实。
+fn validate_risk_breakdown_consistency(
+    payload: &CommitteePayload,
+) -> Result<(), SecurityCommitteeVoteError> {
+    let buckets = [
+        ("technical", &payload.risk_breakdown.technical),
+        ("fundamental", &payload.risk_breakdown.fundamental),
+        ("resonance", &payload.risk_breakdown.resonance),
+        ("execution", &payload.risk_breakdown.execution),
+    ];
+    if buckets.iter().all(|(_, items)| items.is_empty()) {
+        return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
+            "risk_breakdown 不能为空".to_string(),
+        ));
+    }
+
+    for (bucket_name, items) in buckets {
+        for (index, item) in items.iter().enumerate() {
+            let field_prefix = format!("risk_breakdown.{bucket_name}[{index}]");
+            if item.category.trim().is_empty() {
+                return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
+                    format!("{field_prefix} 的 category 不能为空"),
+                ));
+            }
+            if item.severity.trim().is_empty() {
+                return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
+                    format!("{field_prefix} 的 severity 不能为空"),
+                ));
+            }
+            if item.headline.trim().is_empty() {
+                return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
+                    format!("{field_prefix} 的 headline 不能为空"),
+                ));
+            }
+            if item.rationale.trim().is_empty() {
+                return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
+                    format!("{field_prefix} 的 rationale 不能为空"),
+                ));
+            }
+            if item.category.trim() != bucket_name {
+                return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
+                    format!("{field_prefix} 的 category 必须为 {bucket_name}"),
+                ));
+            }
+        }
+    }
+
+    let derived_key_risks = derive_key_risks_from_breakdown(payload);
+    if derived_key_risks.is_empty() {
+        return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
+            "risk_breakdown 无法派生 key_risks".to_string(),
+        ));
+    }
+    if !payload.key_risks.is_empty() && payload.key_risks != derived_key_risks {
+        return Err(SecurityCommitteeVoteError::IncompleteCommitteePayload(
+            "key_risks 必须与 risk_breakdown 严格一致".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+// 2026-04-08 CST: 这里统一从 risk_breakdown 派生扁平风险摘要，原因是方案 B 要求旧 key_risks 退化为兼容输出；
+// 目的：用固定的“每个分类取首条 headline”规则保持摘要口径稳定，避免外部再维护第二套事实。
+fn derive_key_risks_from_breakdown(payload: &CommitteePayload) -> Vec<String> {
+    let mut risks = Vec::new();
+    for items in [
+        &payload.risk_breakdown.technical,
+        &payload.risk_breakdown.fundamental,
+        &payload.risk_breakdown.resonance,
+        &payload.risk_breakdown.execution,
+    ] {
+        if let Some(item) = items.first() {
+            risks.push(item.headline.clone());
+        }
+    }
+    risks
+}
+
+// 2026-04-08 CST: 这里统一解析 committee payload 的有效风险摘要，原因是 vote 层仍要兼容旧 key_risks 读取方式；
+// 目的：在旧字段存在且已通过强一致性校验时直接复用，否则从 risk_breakdown 派生，保持对外口径不变。
+fn effective_key_risks(payload: &CommitteePayload) -> Vec<String> {
+    if !payload.key_risks.is_empty() {
+        return payload.key_risks.clone();
+    }
+    derive_key_risks_from_breakdown(payload)
 }
 
 // 2026-04-02 CST: 这里统一生成 warning，原因是历史研究 unavailable 与 readiness 边界应被显式暴露而不是默认吞掉；
@@ -454,7 +545,9 @@ fn run_child_process_member_vote(
             "seat={} returned status={} error={}",
             seat.role,
             response.status,
-            response.error.unwrap_or_else(|| "unknown child error".to_string())
+            response
+                .error
+                .unwrap_or_else(|| "unknown child error".to_string())
         )));
     }
 
@@ -482,10 +575,7 @@ fn evaluate_seat_opinion(
         _ => SeatOpinion {
             vote: "defer".to_string(),
             confidence: "low".to_string(),
-            rationale: format!(
-                "席位 {} 未配置分析逻辑，按保守原则自动 defer。",
-                seat.role
-            ),
+            rationale: format!("席位 {} 未配置分析逻辑，按保守原则自动 defer。", seat.role),
             focus_points: vec![seat.leaning.to_string(), seat.emphasis.to_string()],
             blockers: vec!["席位分析规则缺失".to_string()],
             conditions: Vec::new(),
@@ -546,12 +636,14 @@ fn build_chair_opinion(payload: &CommitteePayload) -> SeatOpinion {
     let mut conditions = standard_conditions(payload);
     let mut blockers = Vec::new();
     if !payload.evidence_checks.briefing_ready {
-        blockers.push("briefing 尚未通过 ready 校验，主席席位拒绝将草案升格为正式决议。".to_string());
+        blockers
+            .push("briefing 尚未通过 ready 校验，主席席位拒绝将草案升格为正式决议。".to_string());
     }
     if payload.recommendation_digest.action_bias == "reduce_or_exit" {
         push_unique_text(
             &mut conditions,
-            "综合结论已经转向 reduce_or_exit，需要重新确认是否还存在继续持有或加仓前提。".to_string(),
+            "综合结论已经转向 reduce_or_exit，需要重新确认是否还存在继续持有或加仓前提。"
+                .to_string(),
         );
     }
     let vote = if !blockers.is_empty() {
@@ -572,7 +664,7 @@ fn build_chair_opinion(payload: &CommitteePayload) -> SeatOpinion {
         focus_points: vec![
             payload.recommendation_digest.summary.clone(),
             payload.briefing_digest.clone(),
-            format!("key_risks={}", payload.key_risks.len()),
+            format!("key_risks={}", effective_key_risks(payload).len()),
         ],
         blockers,
         conditions,
@@ -582,8 +674,55 @@ fn build_chair_opinion(payload: &CommitteePayload) -> SeatOpinion {
 fn build_fundamental_opinion(payload: &CommitteePayload) -> SeatOpinion {
     let mut conditions = standard_conditions(payload);
     let mut blockers = Vec::new();
-    let has_financial_risk = payload.key_risks.iter().any(|risk| {
-        risk.contains("财报") || risk.contains("同比") || risk.contains("利润") || risk.contains("公告")
+    let key_risks = effective_key_risks(payload);
+    // 2026-04-08 CST: 这里先让 ETF 走独立基本面席位逻辑，原因是 ETF 不应再按个股财报完备度直接 defer。
+    // 目的：把 ETF 的基本面席位改成“基金/指数研究是否充分”的投决口径，避免主链误杀。
+    if is_etf_subject(payload) {
+        let has_etf_research_gap = key_risks.iter().any(|risk| {
+            risk.contains("ETF")
+                || risk.contains("跟踪")
+                || risk.contains("指数")
+                || risk.contains("申赎")
+        });
+        let vote = if payload.recommendation_digest.action_bias == "reduce_or_exit" {
+            push_unique_text(
+                &mut conditions,
+                "ETF 当前综合偏向 reduce_or_exit，基本面席位要求先确认底层指数与资金流是否仍支持继续持有。".to_string(),
+            );
+            "defer"
+        } else if has_etf_research_gap {
+            push_unique_text(
+                &mut conditions,
+                "ETF 仍需补齐跟踪误差、底层指数构成与申赎结构研究，扩大仓位前先完成专项复核。"
+                    .to_string(),
+            );
+            "conditional_approve"
+        } else {
+            "approve"
+        };
+
+        return SeatOpinion {
+            vote: vote.to_string(),
+            confidence: normalize_confidence(&payload.recommendation_digest.confidence).to_string(),
+            rationale: "ETF 基本面席位不再按单一公司财报投票，而是综合看底层指数、跟踪质量、结构风险与当前动作偏向。"
+                .to_string(),
+            focus_points: vec![
+                payload.recommendation_digest.summary.clone(),
+                key_risks
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "暂无 ETF 专项风险".to_string()),
+                format!("historical_status={}", payload.historical_digest.status),
+            ],
+            blockers,
+            conditions,
+        };
+    }
+    let has_financial_risk = key_risks.iter().any(|risk| {
+        risk.contains("财报")
+            || risk.contains("同比")
+            || risk.contains("利润")
+            || risk.contains("公告")
     });
     let vote = if !payload.evidence_checks.fundamental_ready {
         blockers.push("基本面证据未就绪，需先补齐财报与公告快照。".to_string());
@@ -671,7 +810,10 @@ fn build_technical_opinion(payload: &CommitteePayload) -> SeatOpinion {
                 .first()
                 .cloned()
                 .unwrap_or_else(|| "暂无明显负向驱动".to_string()),
-            format!("watch_points={}", payload.execution_digest.watch_points.len()),
+            format!(
+                "watch_points={}",
+                payload.execution_digest.watch_points.len()
+            ),
         ],
         blockers,
         conditions,
@@ -683,8 +825,11 @@ fn build_event_opinion(payload: &CommitteePayload, committee_mode: CommitteeMode
     let mut blockers = Vec::new();
     let event_count = payload.resonance_digest.event_override_titles.len();
     let objection_count = payload.minority_objection_points.len();
+    // 2026-04-08 CST: 这里统一通过兼容入口读取关键风险，原因是标准收口版已把 risk_breakdown 升级为主合同；
+    // 目的：让事件席位在新旧合同并存期内维持一致的风险计数规则。
+    let key_risks = effective_key_risks(payload);
     let vote = if event_count == 0 && objection_count == 0 {
-        if payload.key_risks.len() <= 2 {
+        if key_risks.len() <= 2 {
             "approve"
         } else {
             push_unique_text(
@@ -694,7 +839,8 @@ fn build_event_opinion(payload: &CommitteePayload, committee_mode: CommitteeMode
             "conditional_approve"
         }
     } else if matches!(committee_mode, CommitteeMode::Strict) && event_count >= 2 {
-        blockers.push("严格模式下事件覆盖项过多，事件席位要求延后到新公告确认后再表决。".to_string());
+        blockers
+            .push("严格模式下事件覆盖项过多，事件席位要求延后到新公告确认后再表决。".to_string());
         "defer"
     } else {
         push_unique_text(
@@ -757,7 +903,9 @@ fn build_valuation_opinion(
         );
         "conditional_approve"
     } else {
-        blockers.push("历史研究层可用但未形成有效胜率样本，估值席位拒绝把赔率结论说得过满。".to_string());
+        blockers.push(
+            "历史研究层可用但未形成有效胜率样本，估值席位拒绝把赔率结论说得过满。".to_string(),
+        );
         "defer"
     };
 
@@ -832,6 +980,9 @@ fn build_execution_opinion(
 fn build_risk_opinion(payload: &CommitteePayload, committee_mode: CommitteeMode) -> SeatOpinion {
     let mut conditions = standard_conditions(payload);
     let mut blockers = Vec::new();
+    // 2026-04-08 CST: 这里统一改走兼容风险入口，原因是风控席位的否决阈值不能继续只读旧扁平字段；
+    // 目的：让 risk_breakdown 与 key_risks 摘要在风控规则上保持一致。
+    let key_risks = effective_key_risks(payload);
     let execution_invalid = has_execution_red_flag(payload);
     let vote = if !payload.evidence_checks.briefing_ready || execution_invalid {
         blockers.push("事实包 readiness 或执行阈值存在硬缺口，风控席位直接否决。".to_string());
@@ -841,8 +992,7 @@ fn build_risk_opinion(payload: &CommitteePayload, committee_mode: CommitteeMode)
     {
         blockers.push("严格模式要求历史研究层 available，当前条件不足。".to_string());
         "defer"
-    } else if payload.key_risks.len() >= 4
-        || payload.recommendation_digest.action_bias == "reduce_or_exit"
+    } else if key_risks.len() >= 4 || payload.recommendation_digest.action_bias == "reduce_or_exit"
     {
         blockers.push("关键风险过多或综合建议已转向 reduce_or_exit，触发风控否决。".to_string());
         "reject"
@@ -862,7 +1012,7 @@ fn build_risk_opinion(payload: &CommitteePayload, committee_mode: CommitteeMode)
         rationale: "风控席位虽然更看重失败边界，但同样会基于同一份 payload 综合核查风险、执行、历史研究与推荐动作。"
             .to_string(),
         focus_points: vec![
-            format!("key_risks={}", payload.key_risks.len()),
+            format!("key_risks={}", key_risks.len()),
             format!("historical_status={}", payload.historical_digest.status),
             format!("briefing_ready={}", payload.evidence_checks.briefing_ready),
         ],
@@ -1144,13 +1294,16 @@ fn collect_key_disagreements(
 
 fn standard_conditions(payload: &CommitteePayload) -> Vec<String> {
     let mut conditions = Vec::new();
+    // 2026-04-08 CST: 这里统一从兼容入口判断关键风险是否存在，原因是标准条件也要接受结构化风险合同；
+    // 目的：避免 risk_breakdown 已有内容但旧 key_risks 为空时，执行条件被错误跳过。
+    let key_risks = effective_key_risks(payload);
     if payload.historical_digest.status != "available" {
         push_unique_text(
             &mut conditions,
             "历史研究层未接入前，应按较小仓位与更短复核节奏执行。".to_string(),
         );
     }
-    if !payload.key_risks.is_empty() {
+    if !key_risks.is_empty() {
         push_unique_text(
             &mut conditions,
             "严格遵守 execution_digest 中的加仓、减仓与止损阈值。".to_string(),
@@ -1163,6 +1316,12 @@ fn standard_conditions(payload: &CommitteePayload) -> Vec<String> {
         );
     }
     conditions
+}
+
+// 2026-04-08 CST: 这里集中判断是否为 ETF subject，原因是 vote 层多个席位后续都会复用同一资产类别判断。
+// 目的：先把 ETF 识别收口到单点 helper，避免后续继续散落写字符串判断。
+fn is_etf_subject(payload: &CommitteePayload) -> bool {
+    payload.subject_profile.asset_class == "etf"
 }
 
 fn has_execution_red_flag(payload: &CommitteePayload) -> bool {

@@ -127,6 +127,21 @@ fn security_analysis_contextual_uses_proxy_profiles_when_symbols_are_omitted() {
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["market_symbol"], "510300.SH");
     assert_eq!(output["data"]["sector_symbol"], "512800.SH");
+    // 2026-04-08 CST: 这里补 contextual 顶层公共合同红测，原因是方案 C 第一批要把 analysis_date / evidence_version 从 briefing 往下收口到环境层；
+    // 目的：确保调用方读取 contextual 顶层时就能拿到统一日期与证据版本，而不必再钻进 stock_analysis 内层猜字段。
+    assert_eq!(
+        output["data"]["analysis_date"],
+        output["data"]["stock_analysis"]["as_of_date"]
+    );
+    assert_eq!(
+        output["data"]["evidence_version"],
+        format!(
+            "security-analysis-contextual:601916.SH:{}:v1",
+            output["data"]["analysis_date"]
+                .as_str()
+                .expect("analysis_date should exist")
+        )
+    );
     assert_eq!(
         output["data"]["contextual_conclusion"]["alignment"],
         "tailwind"

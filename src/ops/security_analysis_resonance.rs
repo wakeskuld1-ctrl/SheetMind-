@@ -143,6 +143,12 @@ pub struct SecurityAnalysisResonanceRequest {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SecurityAnalysisResonanceResult {
     pub symbol: String,
+    // 2026-04-08 CST: 这里新增统一分析日期字段，原因是方案 C 要把公共合同继续下沉到 resonance 层；
+    // 目的：让共振层结果可被更高层直接消费，而不需要回钻 `base_analysis` 再找日期字段。
+    pub analysis_date: String,
+    // 2026-04-08 CST: 这里新增证据版本字段，原因是 resonance 层已经形成独立输出，需要稳定的事实版本号；
+    // 目的：为 briefing/committee/skill 提供明确的 resonance 快照版本引用。
+    pub evidence_version: String,
     pub base_analysis: SecurityAnalysisFullstackResult,
     pub resonance_context: ResonanceContext,
 }
@@ -369,9 +375,18 @@ pub fn security_analysis_resonance(
         request.factor_lookback_days,
         Some(&base_analysis),
     )?;
+    // 2026-04-08 CST: 这里沿用 base_analysis 的统一日期生成 resonance 顶层合同字段，原因是共振层必须和基础分析对齐同一时点；
+    // 目的：保证 resonance 顶层 `analysis_date / evidence_version` 可直接作为上层统一事实输入。
+    let analysis_date = base_analysis.analysis_date.clone();
+    let evidence_version = format!(
+        "security-analysis-resonance:{}:{}:v1",
+        request.symbol, analysis_date
+    );
 
     Ok(SecurityAnalysisResonanceResult {
         symbol: request.symbol.clone(),
+        analysis_date,
+        evidence_version,
         base_analysis,
         resonance_context,
     })

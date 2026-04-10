@@ -153,14 +153,23 @@ pub fn security_scorecard_training(
     let valid_range = parse_date_range(&request.valid_range)?;
     let test_range = parse_date_range(&request.test_range)?;
     let feature_configs = training_feature_configs();
-    let samples = collect_samples(request, &train_range, &valid_range, &test_range, &feature_configs)?;
+    let samples = collect_samples(
+        request,
+        &train_range,
+        &valid_range,
+        &test_range,
+        &feature_configs,
+    )?;
     let train_samples = samples_for_split(&samples, "train");
     if train_samples.len() < 2 {
         return Err(SecurityScorecardTrainingError::Build(
             "train split does not contain enough samples".to_string(),
         ));
     }
-    let positive_count = train_samples.iter().filter(|sample| sample.label >= 0.5).count();
+    let positive_count = train_samples
+        .iter()
+        .filter(|sample| sample.label >= 0.5)
+        .count();
     let negative_count = train_samples.len().saturating_sub(positive_count);
     if positive_count == 0 || negative_count == 0 {
         return Err(SecurityScorecardTrainingError::Build(
@@ -391,7 +400,8 @@ fn load_dates_in_range(
         if !is_in_range {
             continue;
         }
-        let history_rows = store.load_recent_rows(symbol, Some(&row.trade_date), min_history_rows)?;
+        let history_rows =
+            store.load_recent_rows(symbol, Some(&row.trade_date), min_history_rows)?;
         if history_rows.len() >= min_history_rows {
             qualified_dates.push(row.trade_date);
         }
@@ -458,7 +468,10 @@ fn extract_feature_values(
     Ok(feature_values)
 }
 
-fn samples_for_split<'a>(samples: &'a [TrainingSample], split_name: &str) -> Vec<&'a TrainingSample> {
+fn samples_for_split<'a>(
+    samples: &'a [TrainingSample],
+    split_name: &str,
+) -> Vec<&'a TrainingSample> {
     samples
         .iter()
         .filter(|sample| sample.split_name == split_name)
@@ -534,13 +547,20 @@ fn build_categorical_bins(
 
     Ok(bucket_counts
         .into_iter()
-        .map(|(value, (positive_count, negative_count))| FeatureBinModel {
-            bin_label: value.clone(),
-            match_values: vec![value],
-            min_inclusive: None,
-            max_exclusive: None,
-            woe: compute_woe(positive_count, negative_count, total_positive, total_negative),
-        })
+        .map(
+            |(value, (positive_count, negative_count))| FeatureBinModel {
+                bin_label: value.clone(),
+                match_values: vec![value],
+                min_inclusive: None,
+                max_exclusive: None,
+                woe: compute_woe(
+                    positive_count,
+                    negative_count,
+                    total_positive,
+                    total_negative,
+                ),
+            },
+        )
         .collect())
 }
 
@@ -632,10 +652,7 @@ fn build_numeric_thresholds(values: &[f64]) -> Vec<f64> {
         return Vec::new();
     }
 
-    let mut thresholds = vec![
-        sorted[sorted.len() / 3],
-        sorted[(sorted.len() * 2) / 3],
-    ];
+    let mut thresholds = vec![sorted[sorted.len() / 3], sorted[(sorted.len() * 2) / 3]];
     thresholds.sort_by(|left, right| left.total_cmp(right));
     thresholds.dedup_by(|left, right| (*left - *right).abs() <= 1e-9);
     thresholds
@@ -723,17 +740,23 @@ fn resolve_feature_woe(
         })?;
 
     match (&feature_model.kind, value) {
-        (TrainingFeatureKind::Categorical, TrainingFeatureValue::Category(category)) => feature_model
-            .bins
-            .iter()
-            .find(|bin| bin.match_values.iter().any(|candidate| candidate == category))
-            .map(|bin| bin.woe)
-            .ok_or_else(|| {
-                SecurityScorecardTrainingError::Build(format!(
-                    "no categorical bin matched feature `{}` value `{category}`",
-                    feature_model.feature_name
-                ))
-            }),
+        (TrainingFeatureKind::Categorical, TrainingFeatureValue::Category(category)) => {
+            feature_model
+                .bins
+                .iter()
+                .find(|bin| {
+                    bin.match_values
+                        .iter()
+                        .any(|candidate| candidate == category)
+                })
+                .map(|bin| bin.woe)
+                .ok_or_else(|| {
+                    SecurityScorecardTrainingError::Build(format!(
+                        "no categorical bin matched feature `{}` value `{category}`",
+                        feature_model.feature_name
+                    ))
+                })
+        }
         (TrainingFeatureKind::Numeric, TrainingFeatureValue::Numeric(number)) => feature_model
             .bins
             .iter()
@@ -811,7 +834,11 @@ fn build_artifact(
         .iter()
         .enumerate()
         .map(|(index, feature_model)| {
-            let coefficient = trained_model.coefficients.get(index).copied().unwrap_or(0.0);
+            let coefficient = trained_model
+                .coefficients
+                .get(index)
+                .copied()
+                .unwrap_or(0.0);
             SecurityScorecardModelFeatureSpec {
                 feature_name: feature_model.feature_name.clone(),
                 group_name: feature_model.group_name.clone(),
@@ -884,8 +911,7 @@ fn evaluate_split(
     let mut correct_count = 0_usize;
     let mut positive_count = 0_usize;
     for sample in &split_samples {
-        let probability = predict_probability(sample, feature_models, trained_model)
-            .unwrap_or(0.5);
+        let probability = predict_probability(sample, feature_models, trained_model).unwrap_or(0.5);
         let predicted = if probability >= 0.5 { 1.0 } else { 0.0 };
         if (predicted - sample.label).abs() <= 1e-9 {
             correct_count += 1;
@@ -909,7 +935,11 @@ fn predict_probability(
 ) -> Result<f64, SecurityScorecardTrainingError> {
     let mut logit = trained_model.intercept;
     for (index, feature_model) in feature_models.iter().enumerate() {
-        let coefficient = trained_model.coefficients.get(index).copied().unwrap_or(0.0);
+        let coefficient = trained_model
+            .coefficients
+            .get(index)
+            .copied()
+            .unwrap_or(0.0);
         logit += coefficient * resolve_feature_woe(feature_model, sample)?;
     }
     Ok(logistic(logit))
