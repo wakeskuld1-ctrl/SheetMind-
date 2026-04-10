@@ -1,6 +1,11 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::ops::foundation::metadata_schema::{
+    ConceptMetadataPolicy, MetadataFieldDefinition, MetadataSchema, MetadataSchemaError,
+};
 use crate::ops::stock::security_decision_briefing::PositionPlan;
 use crate::tools::catalog;
 
@@ -203,6 +208,29 @@ impl SecurityRecordPositionAdjustmentResult {
     }
 }
 
+// 2026-04-10 CST: 这里新增条件复核触发类型合同，原因是 condition_review 新模块已经进入证券主链，
+// 目的：把人工复核、收盘复核、事件复核、数据过期复核收口为统一可序列化枚举，避免 CLI/Tool 各自手写字符串。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SecurityConditionReviewTriggerType {
+    ManualReview,
+    EndOfDayReview,
+    EventReview,
+    DataStalenessReview,
+}
+
+// 2026-04-10 CST: 这里新增条件复核后续动作合同，原因是复核结果需要正式驱动后续研究、上会和执行控制，
+// 目的：让 condition_review 输出能被 approval / position_plan / review 主链稳定消费，而不是继续靠自然语言判断。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SecurityConditionReviewFollowUpAction {
+    KeepPlan,
+    UpdatePositionPlan,
+    ReopenResearch,
+    ReopenCommittee,
+    FreezeExecution,
+}
+
 // 2026-04-08 CST: 这里新增投后复盘总结果枚举，原因是 Task 5 需要先把“整体复盘结论”收口成稳定合同；
 // 目的：避免后续 Tool、审批简报与复盘报告各自手写 validated / mixed / invalidated，导致口径漂移。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -284,6 +312,243 @@ impl SecurityPostTradeReviewResult {
             risk_control_quality,
             correction_actions,
             next_cycle_guidance,
+        }
+    }
+}
+
+// 2026-04-10 CST: 这里新增可序列化 metadata schema contract，原因是内部 MetadataSchema 带有运行时索引，
+// 不能直接作为 CLI JSON 输入；目的：把 foundation repository audit 的外部输入限定为声明式 schema 载荷。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct MetadataSchemaContract {
+    pub schema_version: String,
+    pub fields: Vec<MetadataFieldDefinition>,
+    pub concept_policies: Vec<ConceptMetadataPolicy>,
+}
+
+impl MetadataSchemaContract {
+    // 2026-04-10 CST: 这里把 contract -> runtime schema 的装配收口到合同层，原因是 dispatcher 不应重复拼接 schema 构造逻辑，
+    // 目的：让 CLI、后续 Skill 与其它 tool 接入都复用同一套 schema 装配边界。
+    pub fn build_schema(&self) -> Result<MetadataSchema, MetadataSchemaError> {
+        MetadataSchema::new_with_version(
+            self.schema_version.clone(),
+            self.fields.clone(),
+            self.concept_policies.clone(),
+        )
+    }
+}
+
+// 2026-04-10 CST: 这里新增 foundation repository metadata audit 请求合同，原因是方案A要求把 repository 级治理入口正式工具化，
+// 目的：把工具输入边界最小化到“layout dir + metadata schema”，先不引入报告导出和自动修复。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryMetadataAuditRequest {
+    pub repository_layout_dir: String,
+    pub metadata_schema: MetadataSchemaContract,
+}
+
+// 2026-04-10 CST: 这里定义可序列化的 repository audit issue 合同，原因是内部审计 issue 枚举更适合 Rust 侧治理，
+// 但 CLI 输出需要稳定、扁平、可被外部直接消费；目的：统一对外的 issue kind 与字段载荷结构。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryMetadataAuditIssue {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub concept_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub canonical_field_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository_schema_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata_schema_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_values: Option<Vec<String>>,
+}
+
+// 2026-04-10 CST: 这里定义 foundation repository metadata audit 结果合同，原因是 repository 层当前只暴露 Rust 内部 report，
+// 还缺正式 Tool 输出对象；目的：为 CLI / Skill 提供稳定的 issue_count / is_clean / issues 审计结果。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryMetadataAuditResult {
+    pub repository_layout_dir: String,
+    pub repository_schema_version: String,
+    pub metadata_schema_version: String,
+    pub issue_count: usize,
+    pub is_clean: bool,
+    pub issues: Vec<FoundationRepositoryMetadataAuditIssue>,
+}
+
+impl FoundationRepositoryMetadataAuditResult {
+    // 2026-04-10 CST: 这里集中封装审计结果构造，原因是 issue_count 与 is_clean 都属于 report 的派生字段，
+    // 目的：避免 dispatcher、测试和后续调用方各自重复计算这些标准字段。
+    pub fn new(
+        repository_layout_dir: impl Into<String>,
+        repository_schema_version: impl Into<String>,
+        metadata_schema_version: impl Into<String>,
+        issues: Vec<FoundationRepositoryMetadataAuditIssue>,
+    ) -> Self {
+        Self {
+            repository_layout_dir: repository_layout_dir.into(),
+            repository_schema_version: repository_schema_version.into(),
+            metadata_schema_version: metadata_schema_version.into(),
+            issue_count: issues.len(),
+            is_clean: issues.is_empty(),
+            issues,
+        }
+    }
+}
+
+// 2026-04-10 CST: 这里新增 foundation repository metadata audit gate 结果合同，原因是方案A第二阶段不再只输出“审计报告”，
+// 还要输出“是否允许继续流转”的消费层判断；目的：把 gate_passed、阻塞问题与非阻塞问题固定成通用标准能力，而不是让调用方各自重写判定。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryMetadataAuditGateResult {
+    pub repository_layout_dir: String,
+    pub repository_schema_version: String,
+    pub metadata_schema_version: String,
+    pub gate_passed: bool,
+    pub blocking_issue_count: usize,
+    pub non_blocking_issue_count: usize,
+    pub blocking_issues: Vec<FoundationRepositoryMetadataAuditIssue>,
+    pub non_blocking_issues: Vec<FoundationRepositoryMetadataAuditIssue>,
+}
+
+impl FoundationRepositoryMetadataAuditGateResult {
+    // 2026-04-10 CST: 这里集中封装 gate 结果构造，原因是 gate_passed 与两类 issue_count 都是阻塞分级的派生字段，
+    // 目的：避免 dispatcher、测试和后续消费层重复手写计数与放行判定，保持 gate 语义单点收口。
+    pub fn new(
+        repository_layout_dir: impl Into<String>,
+        repository_schema_version: impl Into<String>,
+        metadata_schema_version: impl Into<String>,
+        blocking_issues: Vec<FoundationRepositoryMetadataAuditIssue>,
+        non_blocking_issues: Vec<FoundationRepositoryMetadataAuditIssue>,
+    ) -> Self {
+        Self {
+            repository_layout_dir: repository_layout_dir.into(),
+            repository_schema_version: repository_schema_version.into(),
+            metadata_schema_version: metadata_schema_version.into(),
+            gate_passed: blocking_issues.is_empty(),
+            blocking_issue_count: blocking_issues.len(),
+            non_blocking_issue_count: non_blocking_issues.len(),
+            blocking_issues,
+            non_blocking_issues,
+        }
+    }
+}
+
+// 2026-04-10 CST: 这里新增 foundation repository metadata audit batch 请求合同，原因是 A1 第一刀要把单仓库审计提升为批次级入口，
+// 目的：把批处理输入边界固定为“多个 repository layout dir + 一份共用 metadata schema”，先不扩到每仓库独立 schema。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryMetadataAuditBatchRequest {
+    pub repository_layout_dirs: Vec<String>,
+    pub metadata_schema: MetadataSchemaContract,
+}
+
+// 2026-04-10 CST: 这里新增 foundation repository metadata audit batch 结果合同，原因是 A1 需要批次摘要与逐仓库结果双层输出，
+// 目的：为后续导入链接入保留稳定的批次统计边界，而不是让调用方自己汇总多次 gate 结果。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryMetadataAuditBatchResult {
+    pub total_repository_count: usize,
+    pub passed_repository_count: usize,
+    pub failed_repository_count: usize,
+    pub blocking_issue_count_total: usize,
+    pub non_blocking_issue_count_total: usize,
+    pub repositories: Vec<FoundationRepositoryMetadataAuditGateResult>,
+}
+
+impl FoundationRepositoryMetadataAuditBatchResult {
+    // 2026-04-10 CST: 这里集中封装 batch 结果构造，原因是批次计数都属于逐仓库 gate 结果的派生字段，
+    // 目的：避免 dispatcher 和后续消费层重复手写 passed/failed 与 issue 总数汇总逻辑。
+    pub fn new(repositories: Vec<FoundationRepositoryMetadataAuditGateResult>) -> Self {
+        let total_repository_count = repositories.len();
+        let passed_repository_count = repositories.iter().filter(|item| item.gate_passed).count();
+        let failed_repository_count =
+            total_repository_count.saturating_sub(passed_repository_count);
+        let blocking_issue_count_total = repositories
+            .iter()
+            .map(|item| item.blocking_issue_count)
+            .sum();
+        let non_blocking_issue_count_total = repositories
+            .iter()
+            .map(|item| item.non_blocking_issue_count)
+            .sum();
+
+        Self {
+            total_repository_count,
+            passed_repository_count,
+            failed_repository_count,
+            blocking_issue_count_total,
+            non_blocking_issue_count_total,
+            repositories,
+        }
+    }
+}
+
+// 2026-04-10 CST: 这里新增 foundation repository import gate 请求合同，原因是方案B1要把 batch 审计结果提升为“导入接入层”正式入口，
+// 目的：继续沿用“多个 repository layout dir + 一份共用 metadata schema”的最小输入边界，不在消费层提前扩成对象持久化或每仓库独立 schema。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryImportGateRequest {
+    pub repository_layout_dirs: Vec<String>,
+    pub metadata_schema: MetadataSchemaContract,
+}
+
+// 2026-04-10 CST: 这里新增 foundation repository import gate 结果合同，原因是方案B1的目标不是重复暴露 batch 原始摘要，
+// 目的：而是把“accepted / rejected 列表 + 阻塞原因汇总 + 下一阶段是否允许继续”收口成上层可直接消费的标准能力。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryImportGateResult {
+    pub next_stage_allowed: bool,
+    pub all_repositories_accepted: bool,
+    pub accepted_repository_count: usize,
+    pub rejected_repository_count: usize,
+    pub blocking_issue_count_total: usize,
+    pub non_blocking_issue_count_total: usize,
+    pub blocking_issue_kind_summary: Vec<String>,
+    pub accepted_repositories: Vec<FoundationRepositoryMetadataAuditGateResult>,
+    pub rejected_repositories: Vec<FoundationRepositoryMetadataAuditGateResult>,
+}
+
+impl FoundationRepositoryImportGateResult {
+    // 2026-04-10 CST: 这里集中封装导入接入 gate 结果构造，原因是 next_stage_allowed、accepted/rejected 分流与阻塞原因汇总
+    // 都属于 batch gate 结果的派生语义；目的：避免 dispatcher 和后续调用方各自重复解释同一批治理结果。
+    pub fn new(repositories: Vec<FoundationRepositoryMetadataAuditGateResult>) -> Self {
+        let mut accepted_repositories = Vec::new();
+        let mut rejected_repositories = Vec::new();
+        let mut blocking_issue_kind_summary = BTreeSet::new();
+        let mut blocking_issue_count_total = 0usize;
+        let mut non_blocking_issue_count_total = 0usize;
+
+        for repository in repositories {
+            blocking_issue_count_total += repository.blocking_issue_count;
+            non_blocking_issue_count_total += repository.non_blocking_issue_count;
+            for issue in &repository.blocking_issues {
+                blocking_issue_kind_summary.insert(issue.kind.clone());
+            }
+
+            if repository.gate_passed {
+                accepted_repositories.push(repository);
+            } else {
+                rejected_repositories.push(repository);
+            }
+        }
+
+        let accepted_repository_count = accepted_repositories.len();
+        let rejected_repository_count = rejected_repositories.len();
+
+        Self {
+            next_stage_allowed: accepted_repository_count > 0,
+            all_repositories_accepted: rejected_repository_count == 0,
+            accepted_repository_count,
+            rejected_repository_count,
+            blocking_issue_count_total,
+            non_blocking_issue_count_total,
+            blocking_issue_kind_summary: blocking_issue_kind_summary.into_iter().collect(),
+            accepted_repositories,
+            rejected_repositories,
         }
     }
 }

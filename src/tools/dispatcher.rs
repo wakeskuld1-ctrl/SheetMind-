@@ -71,6 +71,7 @@ use crate::runtime::local_memory::{
 };
 use crate::tools::contracts::{ToolRequest, ToolResponse};
 mod analysis_ops;
+mod foundation_ops;
 mod multi_table;
 mod shared;
 mod single_table;
@@ -83,7 +84,27 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         // 2026-04-02 CST: 这里把 `tool_catalog` 作为正式 dispatcher 分支收口，原因是当前 CLI / GUI / 测试都已经把目录查询视为可显式调用的标准 Tool；
         // 目的：让“空输入兜底”和“显式 `tool_catalog` 请求”稳定复用同一份目录响应，避免目录发现链只在默认入口可用而在正式路由上漂移。
         "tool_catalog" => ToolResponse::tool_catalog(),
+        // 2026-04-10 CST: 这里接入 foundation repository metadata audit 分发分支，原因是当前元数据治理已经具备整库审计能力，
+        // 但还没有正式 Tool 入口；目的：让 CLI / Skill 可以沿统一 dispatcher 直接触发通用知识库元数据治理。
+        "foundation_repository_metadata_audit" => {
+            foundation_ops::dispatch_foundation_repository_metadata_audit(request.args)
+        }
         // 2026-03-25: 鏉╂瑩鍣烽弫鐗堝祦鐏炴墧顥呴梽鍛€瑰﹤鎮庨崝鐔诲厴鐟曚浇妞傞梿鍡氬敶娑擃厽鏋冩稉锟芥惔鏃堢秼閸欏倹鏆熼幍锟界痪?compose/report/chart 閻ㄥ嫭鏆熺紒鍕剁礉閻╊喚娈戦弰顖濐唨璇ユ牸鐞涘本鍎撮惄顔捐厬缂佹挻鐎幒銉ュ弳鐞涘本鏆熼敍宀勫暱閸欏倹鏆熺拠锟?
+        // 2026-04-10 CST: 这里接入 foundation repository metadata audit gate 分发分支，原因是方案A已进入“审计结果消费层”阶段，
+        // 目的：让 CLI / Skill 可以直接拿到 gate_passed 与阻塞分类，而不是先拿 audit 报告再在外部重复写治理规则。
+        "foundation_repository_metadata_audit_gate" => {
+            foundation_ops::dispatch_foundation_repository_metadata_audit_gate(request.args)
+        }
+        // 2026-04-10 CST: 这里接入 foundation repository metadata audit batch 分发分支，原因是方案A下一阶段已确定先做批量入口，
+        // 目的：让 CLI / Skill 能对多个 repository layout 直接执行统一批次审计，而不是在外层循环拼接多个单仓库调用。
+        "foundation_repository_metadata_audit_batch" => {
+            foundation_ops::dispatch_foundation_repository_metadata_audit_batch(request.args)
+        }
+        // 2026-04-10 CST: 这里接入 foundation repository import gate 分发分支，原因是方案B1已进入“批量结果消费层/导入接入层”阶段，
+        // 目的：让上层直接拿到 accepted / rejected 列表与阻塞原因汇总，而不是继续手工解释 batch 结果。
+        "foundation_repository_import_gate" => {
+            foundation_ops::dispatch_foundation_repository_import_gate(request.args)
+        }
         "open_workbook" => workbook_io::dispatch_open_workbook(request.args),
         // 2026-03-22: 杩欓噷鎺ュ叆鐙珛 list_sheets 鍏ュ彛锛岀洰鐨勬槸鎶婂伐浣滅翱缁撴瀯鎺㈡煡浠?open_workbook 涓樉寮忔媶鎴愭爣鍑?I/O Tool銆?
         "list_sheets" => workbook_io::dispatch_list_sheets(request.args),
@@ -151,23 +172,65 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "security_analysis_fullstack" => {
             stock_ops::dispatch_security_analysis_fullstack(request.args)
         }
+        "security_decision_evidence_bundle" => {
+            stock_ops::dispatch_security_decision_evidence_bundle(request.args)
+        }
+        "security_decision_committee" => {
+            stock_ops::dispatch_security_decision_committee(request.args)
+        }
         // 2026-04-02 CST: 这里把统一 briefing Tool 接入主 dispatcher，原因是 stock 侧已经有稳定 assembler，需要正式开放到 CLI / Skill 主链；
         // 目的：让上层不再手工拼接 technical/fullstack/resonance，而是直接消费单一 security_decision_briefing 入口。
         "security_decision_briefing" => {
             stock_ops::dispatch_security_decision_briefing(request.args)
+        }
+        // 2026-04-10 CST: 这里接入 security_decision_submit_approval 分发分支，原因是最小增量回补要把投决正式送进审批主线；
+        // 目的：让 CLI / Skill 可以沿统一 dispatcher 触发“投决 -> 审批工件落盘”而不是旁路调用内部模块。
+        "security_decision_submit_approval" => {
+            stock_ops::dispatch_security_decision_submit_approval(request.args)
+        }
+        // 2026-04-10 CST: 这里接入 security_condition_review 分发分支，原因是投中阶段需要正式 Tool 承接“条件是否仍成立”的复核动作；
+        // 目的：把 condition review 纳入主链入口，避免后续再退回对话式临时判断。
+        "security_condition_review" => stock_ops::dispatch_security_condition_review(request.args),
+        // 2026-04-10 CST: 这里接入轻量 security_post_meeting_conclusion 分发分支，原因是方案A只补独立对象，不替换旧 record Tool；
+        // 目的：让上层可以先生成正式会后结论对象，再决定是否进入更重的 revision / package / audit 主链。
+        "security_post_meeting_conclusion" => {
+            stock_ops::dispatch_security_post_meeting_conclusion(request.args)
         }
         // 2026-04-08 CST: 这里接入 security_position_plan_record 分发分支，原因是证券主链已进入“仓位计划正式化”阶段；
         // 目的：让 position_plan 不再只停留在 briefing 顶层，而是能通过正式 Tool 主链升级成后续调仓与复盘可引用对象。
         "security_position_plan_record" => {
             stock_ops::dispatch_security_position_plan_record(request.args)
         }
-        "security_post_trade_review" => {
-            stock_ops::dispatch_security_post_trade_review(request.args)
-        }
         // 2026-04-08 CST: 这里接入 security_record_position_adjustment 分发分支，原因是证券主链已从计划对象推进到执行事件对象，
         // 目的：让同一 position_plan_ref 下的实际调仓动作可以沿正式 dispatcher 主链被发现、校验和记录。
         "security_record_position_adjustment" => {
             stock_ops::dispatch_security_record_position_adjustment(request.args)
+        }
+        // 2026-04-09 CST: 这里把 security_position_plan 接入主 dispatcher，原因是 Task 7 要让仓位管理从 briefing 嵌套字段升级为正式 Tool；
+        // 目的：让上层调用方沿统一 CLI 主链直接拿到正式仓位文档，而不是继续手工拆 briefing。
+        "security_position_plan" => stock_ops::dispatch_security_position_plan(request.args),
+        // 2026-04-09 CST: 这里把 security_portfolio_position_plan 接入主 dispatcher，原因是方案A要正式补账户级仓位管理层；
+        // 目的：让上层调用方直接得到“账户总仓该怎么分配”的结构化结果，而不是只拿单票建议。
+        "security_portfolio_position_plan" => {
+            stock_ops::dispatch_security_portfolio_position_plan(request.args)
+        }
+        // 2026-04-10 CST: 这里把 security_account_open_position_snapshot 接入主 dispatcher，原因是方案B要让账户层自动回接上一轮 open execution_record；
+        // 目的：让上层调用方能显式先拿账户 open snapshot，再继续进入账户计划，而不是把读 runtime 藏成隐式副作用。
+        "security_account_open_position_snapshot" => {
+            stock_ops::dispatch_security_account_open_position_snapshot(request.args)
+        }
+        // 2026-04-09 CST: 这里把 security_post_trade_review 接入主 dispatcher，原因是 Task 8 要让投后复盘成为正式 Tool；
+        // 目的：让上层调用方沿统一 CLI 主链直接拿到正式复盘文档，而不是手工拼接仓位与未来结果。
+        "security_post_trade_review" => {
+            stock_ops::dispatch_security_post_trade_review(request.args)
+        }
+        // 2026-04-09 CST: 这里把 security_execution_record 接入主 dispatcher，原因是 Task 10 要让真实执行对象成为正式 Tool；
+        // 目的：让上层调用方沿统一 CLI 主链直接拿到执行归因文档，而不是继续把 execution 只留在 review 内部。
+        "security_execution_record" => stock_ops::dispatch_security_execution_record(request.args),
+        // 2026-04-09 CST: 这里把 security_execution_journal 接入主 dispatcher，原因是 P1 要先把多笔成交正式对象化；
+        // 目的：让上层可以先拿到明细级成交 journal，再由 execution_record 负责聚合执行摘要。
+        "security_execution_journal" => {
+            stock_ops::dispatch_security_execution_journal(request.args)
         }
         // 2026-04-02 CST: 这里接入 security_committee_vote 分发分支，原因是正式投决会已经进入可调用实现阶段，
         // 目的：让 CLI / Skill 可以沿统一 dispatcher 主链直接消费 committee payload 并获得结构化投票结果。
@@ -176,6 +239,25 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         // 目的：让父进程仍通过正式 CLI 主入口拉起子进程，而不是在投决会内部再维护第二套隐藏调用协议。
         "security_committee_member_agent" => {
             stock_ops::dispatch_security_committee_member_agent(request.args)
+        }
+        "security_chair_resolution" => stock_ops::dispatch_security_chair_resolution(request.args),
+        "security_record_post_meeting_conclusion" => {
+            stock_ops::dispatch_security_record_post_meeting_conclusion(request.args)
+        }
+        "security_decision_package" => stock_ops::dispatch_security_decision_package(request.args),
+        "security_decision_verify_package" => {
+            stock_ops::dispatch_security_decision_verify_package(request.args)
+        }
+        "security_decision_package_revision" => {
+            stock_ops::dispatch_security_decision_package_revision(request.args)
+        }
+        "security_feature_snapshot" => stock_ops::dispatch_security_feature_snapshot(request.args),
+        "security_forward_outcome" => stock_ops::dispatch_security_forward_outcome(request.args),
+        "security_scorecard_refit" => stock_ops::dispatch_security_scorecard_refit(request.args),
+        // 2026-04-09 CST: 这里把正式 scorecard training Tool 接入主 dispatcher，原因是 Task 5 需要让训练入口成为一等可路由能力；
+        // 目的：让训练主链可以像 snapshot/forward_outcome/refit 一样被 CLI 和 Skill 正式调度。
+        "security_scorecard_training" => {
+            stock_ops::dispatch_security_scorecard_training(request.args)
         }
         // 2026-04-02 CST：这里接入共振平台 Tool 家族，原因是方案 3 已确认先把“因子注册、序列落库、事件落库、共振分析”做成正式平台入口；
         // 目的：让 CLI / Skill 能沿现有主分发链直接使用共振研究与分析能力，而不是回到脚本式临时流程。

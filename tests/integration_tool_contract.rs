@@ -275,6 +275,146 @@ fn grouped_tool_catalog_matches_flat_catalog_without_overlap() {
     }
 }
 
+// 2026-04-10 CST: 这里补 foundation repository metadata audit 的 catalog 红测，原因是当前 repository audit 还停留在内部 API，
+// 方案A要求把它正式提升为 foundation Tool；目的：先锁住“工具可发现”这层对外契约，避免后续只接入 dispatcher 却漏掉 catalog 主线。
+#[test]
+fn foundation_repository_metadata_audit_is_cataloged_in_foundation_group() {
+    let response = ToolResponse::tool_catalog();
+    let tool_catalog = response.data["tool_catalog"]
+        .as_array()
+        .expect("tool catalog should be an array");
+    let foundation_catalog = response.data["tool_catalog_modules"]["foundation"]
+        .as_array()
+        .expect("foundation tool group should be an array");
+    let stock_catalog = response.data["tool_catalog_modules"]["stock"]
+        .as_array()
+        .expect("stock tool group should be an array");
+
+    assert!(
+        tool_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit")
+    );
+    assert!(
+        foundation_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit")
+    );
+    assert!(
+        !stock_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit")
+    );
+}
+
+// 2026-04-10 CST: 这里补 foundation repository metadata audit gate 的 catalog 红测，原因是下一阶段要把 repository audit
+// 从“报告工具”推进到“流程消费层”，因此 gate 入口也必须先进入正式 foundation 目录；目的：锁住可发现性，避免只做内部 helper。
+#[test]
+fn foundation_repository_metadata_audit_gate_is_cataloged_in_foundation_group() {
+    let response = ToolResponse::tool_catalog();
+    let tool_catalog = response.data["tool_catalog"]
+        .as_array()
+        .expect("tool catalog should be an array");
+    let foundation_catalog = response.data["tool_catalog_modules"]["foundation"]
+        .as_array()
+        .expect("foundation tool group should be an array");
+    let stock_catalog = response.data["tool_catalog_modules"]["stock"]
+        .as_array()
+        .expect("stock tool group should be an array");
+
+    assert!(
+        tool_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit_gate")
+    );
+    assert!(
+        foundation_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit_gate")
+    );
+    assert!(
+        !stock_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit_gate")
+    );
+}
+
+// 2026-04-10 CST: 这里补 foundation repository metadata audit batch 的 catalog 红测，原因是 A1 要把单仓库 gate 向上提升为批量入口，
+// 目的：先锁住 batch 入口也属于正式 foundation Tool，而不是只停留在内部批处理函数。
+#[test]
+fn foundation_repository_metadata_audit_batch_is_cataloged_in_foundation_group() {
+    let response = ToolResponse::tool_catalog();
+    let tool_catalog = response.data["tool_catalog"]
+        .as_array()
+        .expect("tool catalog should be an array");
+    let foundation_catalog = response.data["tool_catalog_modules"]["foundation"]
+        .as_array()
+        .expect("foundation tool group should be an array");
+    let stock_catalog = response.data["tool_catalog_modules"]["stock"]
+        .as_array()
+        .expect("stock tool group should be an array");
+
+    assert!(
+        tool_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit_batch")
+    );
+    assert!(
+        foundation_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit_batch")
+    );
+    assert!(
+        !stock_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_metadata_audit_batch")
+    );
+}
+
+// 2026-04-10 CST: 这里补 foundation repository import gate 的 catalog 红测，原因是方案B1要把 batch 消费层正式提升为“导入接入 gate”入口，
+// 目的：先锁住该入口属于 foundation 通用目录，而不是让上层继续手工解释 batch 结果。
+#[test]
+fn foundation_repository_import_gate_is_cataloged_in_foundation_group() {
+    let response = ToolResponse::tool_catalog();
+    let tool_catalog = response.data["tool_catalog"]
+        .as_array()
+        .expect("tool catalog should be an array");
+    let foundation_catalog = response.data["tool_catalog_modules"]["foundation"]
+        .as_array()
+        .expect("foundation tool group should be an array");
+    let stock_catalog = response.data["tool_catalog_modules"]["stock"]
+        .as_array()
+        .expect("stock tool group should be an array");
+
+    assert!(
+        tool_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_import_gate")
+    );
+    assert!(
+        foundation_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_import_gate")
+    );
+    assert!(
+        !stock_catalog
+            .iter()
+            .filter_map(|item| item.as_str())
+            .any(|item| item == "foundation_repository_import_gate")
+    );
+}
+
 #[test]
 fn technical_consultation_basic_contract_exposes_bullish_continuation_conclusion() {
     let runtime_db_path =
@@ -766,8 +906,8 @@ fn security_record_position_adjustment_contract_exposes_required_fields() {
         plan_alignment: PositionPlanAlignment::JustifiedDeviation,
     };
 
-    let serialized = serde_json::to_value(&result)
-        .expect("position adjustment event contract should serialize");
+    let serialized =
+        serde_json::to_value(&result).expect("position adjustment event contract should serialize");
 
     for field_name in [
         "adjustment_event_ref",
