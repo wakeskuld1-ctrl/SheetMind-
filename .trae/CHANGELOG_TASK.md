@@ -2922,3 +2922,548 @@
 ### 关闭项
 - A dedicated upload execution note now exists for this branch.
 - A dedicated AI handoff note now exists without touching the conflicted handoff file.
+
+## 2026-04-12 Foundation 漫游底座 source_ref 结构诊断
+### 修改内容
+- Restored the `foundation` exports in [`src/ops/foundation.rs`](D:/Rust/Excel_Skill/src/ops/foundation.rs) for:
+  - `knowledge_bundle`
+  - `knowledge_ingestion`
+  - `knowledge_repository`
+- Extended [`src/ops/foundation/repository_metadata_audit.rs`](D:/Rust/Excel_Skill/src/ops/foundation/repository_metadata_audit.rs):
+  - `RepositoryWeakSourceRefReason::EntityMissing`
+  - `RepositoryWeakSourceRefReason::ContainsWhitespace`
+  - `RepositoryWeakSourceRefReason::InvalidCharacter`
+  - `RepositoryWeakSourceRefReason::UnknownNamespace`
+- Added dedicated source-ref parsing helpers so repository evidence hygiene can classify weak source refs without pulling in a heavier parser.
+- Added a focused handoff note:
+  - [`docs/ai-handoff-2026-04-12-foundation-source-ref-diagnostics.md`](D:/Rust/Excel_Skill/docs/ai-handoff-2026-04-12-foundation-source-ref-diagnostics.md)
+
+### 修改原因
+- The current task stayed on the foundation knowledge-roaming mainline, so the compile break caused by missing `foundation` re-exports had to be fixed before the approved `source_ref` diagnostics work could continue.
+- The repository audit already supported locator structure reasons, and this round completed the matching `source_ref` structure layer so hygiene output is more actionable for future governance work.
+
+### 方案还差什么
+- [ ] Shape severity / summary output for repository evidence hygiene diagnostics so downstream AI orchestration can consume the report more directly.
+- [ ] Decide whether namespace allowlist ownership should remain local to repository audit or move into a shared foundation governance contract once more source domains exist.
+
+### 潜在问题
+- [ ] The current invalid-character rule is intentionally minimal; if future source handles require extra allowed symbols, this rule and its tests must evolve together.
+- [ ] `docs/AI_HANDOFF.md` still looks conflicted/dirty in this workspace, so this task avoided editing it directly and used a dedicated handoff note instead.
+- [ ] The test suite still prints many unrelated dispatcher dead-code warnings; they did not block this task but they can hide new warnings if left unmanaged.
+
+### 关闭项
+- `cargo test --test repository_metadata_audit_unit -- --nocapture`
+- `cargo test --test metadata_validator_unit -- --nocapture`
+- `cargo test --test metadata_registry_unit -- --nocapture`
+- `cargo test --test metadata_scope_resolver_unit -- --nocapture`
+- `cargo test --test knowledge_record_unit -- --nocapture`
+- `cargo test --test knowledge_graph_store_unit -- --nocapture`
+- `cargo test --test ontology_schema_unit -- --nocapture`
+- `cargo test --test ontology_store_unit -- --nocapture`
+
+## 2026-04-12 Foundation hygiene reason views
+### 修改内容
+- Added reason-first hygiene governance views to the foundation repository audit report:
+  - `hygiene_reason_views.weak_locator_by_reason`
+  - `hygiene_reason_views.weak_source_ref_by_reason`
+- Extended the foundation audit model and local aggregation helpers in:
+  - `src/ops/foundation/repository_metadata_audit.rs`
+- Expanded the focused repository audit regression to verify reason grouping, severity ordering, and representative node lists:
+  - `tests/repository_metadata_audit_unit.rs`
+- Added dedicated design, plan, and handoff documents for this slice:
+  - `docs/plans/2026-04-12-foundation-hygiene-reason-views-design.md`
+  - `docs/plans/2026-04-12-foundation-hygiene-reason-views-plan.md`
+  - `docs/ai-handoff-2026-04-12-foundation-hygiene-reason-views.md`
+
+### 修改原因
+- The approved A2 design required one reason-first routing layer so downstream AI can prioritize remediation by weak-cause family instead of rebuilding that view outside foundation.
+- This round stayed additive: it preserved diagnostics, summary, and grouped views while filling the missing governance entry point for weak reasons.
+
+### 方案还差什么
+- [ ] Decide whether a future external export contract needs a slim DTO instead of the internal audit model.
+- [ ] Decide whether the next foundation slice should focus on large-repository stability coverage or deeper reason drill-down exports.
+
+### 潜在问题
+- [ ] The new reason groups currently count one node once per reason, which matches the current fixture shape; if future diagnostics can repeat the same reason multiple times per node, tests and aggregation semantics must be revisited together.
+- [ ] The locator reason groups are currently all `Warning`; if locator severity rules evolve later, the sorting assertions must evolve with them.
+- [ ] Repository verification still prints unrelated dispatcher dead-code warnings, which can dilute future warning signals.
+
+### 关闭项
+- `cargo test --test repository_metadata_audit_unit -- --nocapture`
+- `cargo test --test metadata_validator_unit -- --nocapture`
+- `cargo test --test metadata_registry_unit -- --nocapture`
+- `cargo test --test metadata_scope_resolver_unit -- --nocapture`
+- `cargo test --test knowledge_record_unit -- --nocapture`
+- `cargo test --test knowledge_graph_store_unit -- --nocapture`
+- `cargo test --test ontology_schema_unit -- --nocapture`
+- `cargo test --test ontology_store_unit -- --nocapture`
+
+## 2026-04-12 Foundation 漫游底座 hygiene severity summary
+### 修改内容
+- Added design and implementation plan documents:
+  - [`docs/plans/2026-04-12-foundation-hygiene-severity-summary-design.md`](D:/Rust/Excel_Skill/docs/plans/2026-04-12-foundation-hygiene-severity-summary-design.md)
+  - [`docs/plans/2026-04-12-foundation-hygiene-severity-summary-plan.md`](D:/Rust/Excel_Skill/docs/plans/2026-04-12-foundation-hygiene-severity-summary-plan.md)
+- Extended [`src/ops/foundation/repository_metadata_audit.rs`](D:/Rust/Excel_Skill/src/ops/foundation/repository_metadata_audit.rs) with:
+  - `RepositoryHygieneSeverity`
+  - `RepositoryEvidenceHygieneSummary`
+  - `RepositoryMetadataAuditReport.hygiene_summary`
+  - summary aggregation helpers for severity, diagnostic type, reason counts, and affected-node counting
+- Extended [`tests/repository_metadata_audit_unit.rs`](D:/Rust/Excel_Skill/tests/repository_metadata_audit_unit.rs) to cover the new summary contract
+- Added focused handoff note:
+  - [`docs/ai-handoff-2026-04-12-foundation-hygiene-severity-summary.md`](D:/Rust/Excel_Skill/docs/ai-handoff-2026-04-12-foundation-hygiene-severity-summary.md)
+
+### 修改原因
+- The foundation repository audit already had raw hygiene diagnostics, but downstream AI and governance flows still lacked a compact machine-readable summary layer.
+- This round closes that gap without changing the underlying detail list, so the roaming foundation now exposes both traceability and aggregate routing signals.
+
+### 方案还差什么
+- [ ] Decide whether future severity mapping should remain local to repository audit or move into a shared governance policy module when more report producers appear.
+- [ ] Consider a follow-up report presentation layer that groups diagnostics by node or severity for easier human review.
+
+### 潜在问题
+- [ ] The current severity mapping is intentionally heuristic and local; if governance thresholds change, tests and handoff docs must move in lockstep.
+- [ ] `Info` is reserved in the model but not emitted yet, so downstream code should not assume that all severities are always populated.
+- [ ] Existing dispatcher dead-code warnings remain outside this task and still add noise to test output.
+
+### 关闭项
+- `cargo test --test repository_metadata_audit_unit -- --nocapture`
+- `cargo test --test metadata_validator_unit -- --nocapture`
+- `cargo test --test metadata_registry_unit -- --nocapture`
+- `cargo test --test metadata_scope_resolver_unit -- --nocapture`
+- `cargo test --test knowledge_record_unit -- --nocapture`
+- `cargo test --test knowledge_graph_store_unit -- --nocapture`
+- `cargo test --test ontology_schema_unit -- --nocapture`
+- `cargo test --test ontology_store_unit -- --nocapture`
+
+## 2026-04-12 ETF 训练链路体检
+### 修改内容
+- Added one focused checkup plan for the approved ETF precision-diagnosis path:
+  - [`docs/plans/2026-04-12-etf-training-chain-checkup-plan.md`](D:/Rust/Excel_Skill/docs/plans/2026-04-12-etf-training-chain-checkup-plan.md)
+- Updated the file-based working memory with ETF training-chain findings:
+  - [`task_plan.md`](D:/Rust/Excel_Skill/task_plan.md)
+  - [`findings.md`](D:/Rust/Excel_Skill/findings.md)
+  - [`progress.md`](D:/Rust/Excel_Skill/progress.md)
+- Verified the training-governance chain with passing targeted suites:
+  - `security_scorecard_training_cli`
+  - `security_scorecard_refit_cli`
+  - `security_shadow_evaluation_cli`
+  - `security_model_promotion_cli`
+
+### 修改原因
+- The user approved option A, so the next step had to be a factual ETF training-chain checkup instead of another broad refactor.
+- This round needed durable evidence about whether the bottleneck is in data thickness, ETF end-to-end coverage, readiness gates, or runtime model landing.
+
+### 方案还差什么
+- [ ] Turn the diagnosis into one approved implementation slice for precision improvement.
+- [ ] Add the first ETF-specific end-to-end training regression coverage once the user approves the follow-up plan.
+- [ ] Decide whether to tighten regression readiness thresholds in the same slice or in the next one.
+
+### 潜在问题
+- [ ] The current training CLI regression coverage is still heavily equity-oriented, so ETF precision work may look healthier in unit tests than it does in true ETF training runs.
+- [ ] Regression heads can currently become `shadow_candidate_ready` without a stronger quality threshold than RMSE presence, which may overstate readiness.
+- [ ] Runtime scorecard consumption still relies on explicit model paths, so promotion outcomes are not yet guaranteed to land in inference automatically.
+
+### 关闭项
+- Confirmed that the ETF mainline and the training-governance chain are already operational on this branch.
+- Confirmed that the next profitable work should target precision bottlenecks rather than more architecture churn.
+
+## 2026-04-12 A1 ETF 端到端训练回归补强
+### 修改内容
+- Added one ETF end-to-end training regression in:
+  - [`tests/security_scorecard_training_cli.rs`](D:/Rust/Excel_Skill/tests/security_scorecard_training_cli.rs)
+- Fixed the classification artifact label contract in:
+  - [`src/ops/security_scorecard_training.rs`](D:/Rust/Excel_Skill/src/ops/security_scorecard_training.rs)
+- Updated working-memory files for the A1 result:
+  - [`task_plan.md`](D:/Rust/Excel_Skill/task_plan.md)
+  - [`findings.md`](D:/Rust/Excel_Skill/findings.md)
+  - [`progress.md`](D:/Rust/Excel_Skill/progress.md)
+
+### 修改原因
+- The approved A1 slice was to stop talking about ETF training coverage abstractly and land one real treasury-ETF end-to-end regression.
+- The new regression exposed one concrete contract bug: `upside_first_head` still published the generic positive-return label instead of the correct path-event label.
+
+### 方案还差什么
+- [ ] Add the symmetric ETF regression for `stop_first_head` so both ETF path-event heads are locked end-to-end.
+- [ ] Start the next approved slice for ETF sample thickening and stronger regression-head readiness gates.
+
+### 潜在问题
+- [ ] The new ETF regression currently covers treasury ETF only; cross-border, gold, and equity ETF still need equivalent end-to-end training coverage.
+- [ ] Runtime model selection is still explicit-path based, so improved training contracts are not yet auto-selected by registry / promotion governance.
+- [ ] Existing dispatcher dead-code warnings still add noise to verification output and can hide future warning regressions.
+
+### 关闭项
+- `cargo test --test security_scorecard_training_cli security_scorecard_training_supports_treasury_etf_upside_first_head_contract -- --nocapture --test-threads=1`
+- `cargo test --test security_scorecard_training_cli -- --nocapture --test-threads=1`
+- `cargo test --test security_master_scorecard_cli -- --nocapture --test-threads=1`
+- `cargo test --test security_chair_resolution_cli -- --nocapture --test-threads=1`
+
+## 2026-04-12 Foundation hygiene grouped views
+### 修改内容
+- Added grouped hygiene views to the foundation repository audit report:
+  - `hygiene_views.by_severity`
+  - `hygiene_views.by_node`
+- Kept the existing detailed and summary layers intact while wiring grouped outputs from the same diagnostic slice:
+  - `src/ops/foundation/repository_metadata_audit.rs`
+- Expanded the focused repository audit regression to verify grouped view counts, ordering, and node-level aggregation:
+  - `tests/repository_metadata_audit_unit.rs`
+- Added the handoff note for the grouped-view contract and routing rules:
+  - `docs/ai-handoff-2026-04-12-foundation-hygiene-grouped-views.md`
+
+### 修改原因
+- The approved Scheme C required foundation-level grouped governance views, not another raw-diagnostic expansion.
+- Downstream AI needs a stable routing surface that can answer both "which severity first" and "which node first" without rebuilding views on every call.
+
+### 方案还差什么
+- [ ] Decide whether the next foundation slice should add grouped drill-down by weak-reason family.
+- [ ] Decide whether an external export DTO is needed, or whether the internal grouped contract is already enough for the roaming layer.
+
+### 潜在问题
+- [ ] The grouped views currently classify only `Critical`, `Warning`, and `Info`; if a future task introduces a new severity tier, the sorting helpers and tests must be updated together.
+- [ ] The audit report still returns full diagnostics plus summary plus grouped views, so very large repositories may eventually need pagination or a slim export contract.
+- [ ] Repository verification still prints unrelated dispatcher dead-code warnings, which can hide future warning regressions in command output.
+
+### 关闭项
+- `cargo test --test repository_metadata_audit_unit -- --nocapture`
+- `cargo test --test metadata_validator_unit -- --nocapture`
+- `cargo test --test metadata_registry_unit -- --nocapture`
+- `cargo test --test metadata_scope_resolver_unit -- --nocapture`
+- `cargo test --test knowledge_record_unit -- --nocapture`
+- `cargo test --test knowledge_graph_store_unit -- --nocapture`
+- `cargo test --test ontology_schema_unit -- --nocapture`
+- `cargo test --test ontology_store_unit -- --nocapture`
+
+## 2026-04-12 A2 标准版回归收口
+### 修改内容
+- Restored the legacy regression readiness fixture to the intentional thin sample plan in:
+  - `tests/security_scorecard_training_cli.rs`
+- Added an in-place English governance comment beside the legacy sample-plan override so future bulk updates do not accidentally erase the thin-plan guardrail.
+
+### 修改原因
+- The only failing A2 regression was caused by fixture drift, not by a broken readiness gate.
+- The legacy regression test was accidentally upgraded to the new `8/4/4` plan, which made it correctly return `sample_ready` and invalidated the intended `6/3/3 -> sample_thin` governance assertion.
+
+### 方案还差什么
+- [ ] Decide whether the next slice should target training-chain precision improvements or automatic registry-based model landing for inference.
+- [ ] Add a cleanup policy for test runtime fixture directories if repository noise starts slowing local verification.
+
+### 潜在问题
+- [ ] Verification output still contains unrelated dispatcher dead-code warnings, which can hide future meaningful warnings.
+- [ ] Test-created runtime fixture directories continue to accumulate under `tests/runtime_fixtures`, which may make manual inspection noisier over time.
+
+### 关闭项
+- `cargo test --test security_scorecard_training_cli security_scorecard_training_marks_legacy_regression_sample_plan_as_research_only -- --nocapture --test-threads=1`
+- `cargo test --test security_scorecard_training_cli -- --nocapture --test-threads=1`
+- `cargo test --test security_master_scorecard_cli -- --nocapture --test-threads=1`
+- `cargo test --test security_chair_resolution_cli -- --nocapture --test-threads=1`
+
+## 2026-04-12 Regression Head Precision Scheme C
+### 修改内容
+- Added regression baseline-comparison metrics and quality gating in:
+  - `src/ops/security_scorecard_training.rs`
+- Added lightweight baseline shrinkage for thin-support regression bins in:
+  - `src/ops/security_scorecard_training.rs`
+- Extended the regression training contract coverage in:
+  - `tests/security_scorecard_training_cli.rs`
+- Added focused regression unit coverage for shrinkage and readiness governance in:
+  - `src/ops/security_scorecard_training.rs`
+- Saved the approved design and execution plan in:
+  - `docs/plans/2026-04-12-regression-head-precision-scheme-c-design.md`
+  - `docs/plans/2026-04-12-regression-head-precision-scheme-c-plan.md`
+
+### 修改原因
+- The user approved Scheme C instead of a broader architecture or model rewrite.
+- Regression heads were still too permissive because readiness only checked sample thickness plus RMSE presence.
+- Thin-support regression bins could still publish raw extreme means without any shrinkage back toward the governed baseline.
+
+### 方案还差什么
+- [ ] Decide whether the next precision slice should target ETF-specific regression end-to-end coverage expansion or runtime registry auto-landing.
+- [ ] Decide whether the regression quality gate should later add train-vs-valid/test drift control beyond the current baseline-improvement rule.
+
+### 潜在问题
+- [ ] The repository still has unrelated `integration_tool_contract` compile issues, so default broad `cargo test` runs can fail outside this slice.
+- [ ] Verification output still includes many unrelated dispatcher dead-code warnings, which reduce signal when reading test logs.
+- [ ] The current shrinkage prior is intentionally lightweight; if future real-data runs still show unstable regression tails, the prior weight may need recalibration.
+
+### 关闭项
+- `cargo test --test security_scorecard_training_cli security_scorecard_training_supports_return_head_with_regression_metrics -- --nocapture --test-threads=1`
+- `cargo test --lib regression_prediction_bins_shrink_thin_support_toward_baseline -- --nocapture`
+- `cargo test --lib regression_readiness_requires_quality_beyond_rmse_presence -- --nocapture`
+- `cargo test --test security_scorecard_training_cli -- --nocapture --test-threads=1`
+- `cargo test --test security_master_scorecard_cli -- --nocapture --test-threads=1`
+- `cargo test --test security_chair_resolution_cli -- --nocapture --test-threads=1`
+
+## 2026-04-12 Foundation Hygiene Stability Boundary A3
+### 修改内容
+- Added large-repository stability coverage in:
+  - `tests/repository_metadata_audit_unit.rs`
+- Added repeated-reason boundary coverage in:
+  - `tests/repository_metadata_audit_unit.rs`
+- Saved the approved design and implementation notes in:
+  - `docs/plans/2026-04-12-foundation-hygiene-stability-boundary-design.md`
+  - `docs/plans/2026-04-12-foundation-hygiene-stability-boundary-plan.md`
+- Added slice-specific AI handoff notes in:
+  - `docs/ai-handoff-2026-04-12-foundation-hygiene-stability-boundary.md`
+
+### 修改原因
+- The A3 standard slice needed a stable contract for repository hygiene outputs before downstream roaming logic builds on top of them.
+- The red test showed the mismatch was in test expectation versus existing semantics, not in production behavior.
+- Large-repository ordering and repeated-reason boundary behavior both needed to be locked so future extensions do not silently drift.
+
+### 方案还差什么
+- [ ] Decide whether the next foundation slice should expose a dedicated export DTO for hygiene outputs instead of relying on internal report shape.
+- [ ] Decide whether the next repository hygiene task should target warning-hygiene cleanup or downstream roaming adapters first.
+
+### 潜在问题
+- [ ] `hygiene_reason_views.*_by_reason[*].diagnostic_count` currently reflects deduplicated affected nodes, not raw diagnostic totals; any future rename or semantic change must update implementation and tests together.
+- [ ] Repository verification still prints unrelated dispatcher dead-code warnings, which can make future warning regressions harder to notice.
+- [ ] This slice intentionally did not change production code, so any later product expectation shift still needs a separate implementation task.
+
+### 关闭项
+- `cargo test --test repository_metadata_audit_unit -- --nocapture`
+- `cargo test --test metadata_validator_unit -- --nocapture`
+- `cargo test --test metadata_registry_unit -- --nocapture`
+- `cargo test --test metadata_scope_resolver_unit -- --nocapture`
+- `cargo test --test knowledge_record_unit -- --nocapture`
+- `cargo test --test knowledge_graph_store_unit -- --nocapture`
+- `cargo test --test ontology_schema_unit -- --nocapture`
+- `cargo test --test ontology_store_unit -- --nocapture`
+
+## 2026-04-12 Foundation Hygiene Export DTO V1
+### 修改内容
+- Added versioned export DTO modeling in:
+  - `src/ops/foundation/repository_metadata_audit.rs`
+- Added one-way conversion entry point:
+  - `RepositoryMetadataAuditExportDtoV1::from_report(&RepositoryMetadataAuditReport)`
+- Added DTO export coverage in:
+  - `tests/repository_metadata_audit_unit.rs`
+- Saved the approved design and implementation notes in:
+  - `docs/plans/2026-04-12-foundation-hygiene-export-dto-v1-design.md`
+  - `docs/plans/2026-04-12-foundation-hygiene-export-dto-v1-plan.md`
+- Added slice-specific AI handoff notes in:
+  - `docs/ai-handoff-2026-04-12-foundation-hygiene-export-dto-v1.md`
+
+### 修改原因
+- The foundation roaming mainline already had a rich internal repository hygiene report, but downstream AI and upper layers still lacked a stable export contract.
+- This slice was approved to stop external callers from binding to internal report structs directly.
+- The chosen approach stayed additive: keep the internal report, add one versioned DTO layer, and lock its semantics with TDD.
+
+### 方案还差什么
+- [ ] Decide whether the next slice should wire this `v1` DTO into an explicit CLI/export surface or keep it as a foundation-only contract for now.
+- [ ] Decide whether a future `v2` should slim the exported detail payload once real downstream consumers stabilize.
+
+### 潜在问题
+- [ ] The `v1` DTO intentionally mirrors the current report semantics, including the fact that reason-view `diagnostic_count` currently reflects deduplicated nodes rather than raw diagnostic totals.
+- [ ] New external callers can still bypass `v1` and read the internal report directly unless later slices route them through the DTO on purpose.
+- [ ] Verification output still includes unrelated dispatcher dead-code warnings, which remain outside this slice.
+
+### 关闭项
+- `cargo test --test repository_metadata_audit_unit -- --nocapture`
+- `cargo test --test metadata_validator_unit -- --nocapture`
+- `cargo test --test metadata_registry_unit -- --nocapture`
+- `cargo test --test metadata_scope_resolver_unit -- --nocapture`
+- `cargo test --test knowledge_record_unit -- --nocapture`
+- `cargo test --test knowledge_graph_store_unit -- --nocapture`
+- `cargo test --test ontology_schema_unit -- --nocapture`
+- `cargo test --test ontology_store_unit -- --nocapture`
+
+## 2026-04-12 Foundation Repository Metadata Audit Export Tool
+### 修改内容
+- Added a public foundation tool outlet in:
+  - `src/tools/catalog.rs`
+  - `src/tools/dispatcher.rs`
+- Added file-backed metadata schema loading in:
+  - `src/ops/foundation/metadata_schema.rs`
+- Added DTO serialization support for the export contract in:
+  - `src/ops/foundation/repository_metadata_audit.rs`
+- Added CLI contract coverage in:
+  - `tests/integration_cli_json.rs`
+- Added slice-specific AI handoff notes in:
+  - `docs/ai-handoff-2026-04-12-foundation-repository-metadata-audit-export-tool.md`
+
+### 修改原因
+- The previous slice finished the versioned DTO itself, but foundation still had no formal public tool that returned that DTO.
+- This slice was approved to move external callers onto a stable export contract instead of letting them bind to the internal repository audit report shape.
+- The tool also needed a schema-file loading boundary so CLI and future AI/GUI flows could use a persisted contract instead of test-only in-memory builders.
+
+### 方案还差什么
+- [ ] Decide whether the next foundation slice should expose the same export contract through higher-level roaming orchestration entrypoints.
+- [ ] Decide whether the schema-file contract should gain a dedicated sample fixture or docs page once external callers start depending on it.
+
+### 潜在问题
+- [ ] Verification still prints unrelated dispatcher dead-code warnings, which remain outside this slice.
+- [ ] The new tool currently accepts `bundle_path` and routes it through repository loading; if future callers need JSONL ingestion, that should be added in a separate additive slice.
+- [ ] The export contract is now public, so future semantic changes in DTO fields must be versioned instead of changed in place.
+
+### 关闭项
+- `cargo test --test integration_cli_json repository_metadata_audit_export_v1 -- --nocapture`
+- `cargo test --test repository_metadata_audit_unit -- --nocapture`
+- `cargo test --test metadata_validator_unit -- --nocapture`
+
+## 2026-04-12 Foundation Navigation Evidence Export Tool
+### 修改内容
+- Added public tool discovery for `navigation_evidence_export_v1` in:
+  - `src/tools/catalog.rs`
+- Added a thin file-backed dispatcher outlet in:
+  - `src/tools/dispatcher.rs`
+- Added CLI contract coverage in:
+  - `tests/integration_cli_json.rs`
+- Added slice-specific AI handoff notes in:
+  - `docs/ai-handoff-2026-04-12-foundation-navigation-evidence-export-tool.md`
+
+### 修改原因
+- The previous slice already established `NavigationEvidenceExportDtoV1` and `NavigationPipeline::run_export_v1(...)`, but external callers still had no formal public outlet.
+- This slice was approved to keep the foundation roaming mainline on a stable export DTO boundary instead of letting higher layers bind to internal structs.
+- The dispatcher path also needed a file-backed contract so later AI flows can start from persisted knowledge bundles instead of test-only in-memory fixtures.
+
+### 方案还差什么
+- [x] Extend the same public tool boundary to accept metadata-aware request input without exposing internal request structs.
+- [x] Decide whether the next additive slice should add richer public plan defaults when callers omit `seed_concept_ids` or relation filters.
+
+### 潜在问题
+- [x] The public tool currently supports tags but not full metadata-constraint input yet.
+- [ ] Verification still prints unrelated dispatcher dead-code warnings, which remain outside this slice.
+- [ ] The stable roaming DTO is now public, so any future semantic change must be versioned instead of changed in place.
+
+### 关闭项
+- `cargo test --test integration_cli_json tool_catalog_includes_navigation_evidence_export_v1 -- --nocapture`
+- `cargo test --test integration_cli_json navigation_evidence_export_v1_returns_navigation_dto_json_from_cli -- --nocapture`
+- `cargo test --test evidence_assembler_unit -- --nocapture`
+- `cargo test --test navigation_pipeline_integration -- --nocapture`
+
+## 2026-04-12
+### 修改内容
+- Added the governed direction-first training orchestration tool in:
+  - `src/ops/security_direction_first_training_run.rs`
+- Wired the new orchestration entry through:
+  - `src/ops/stock.rs`
+  - `src/ops/mod.rs`
+  - `src/tools/dispatcher/stock_ops.rs`
+  - `src/tools/dispatcher.rs`
+  - `src/tools/catalog.rs`
+- Added RED-to-GREEN contract coverage in:
+  - `tests/security_scorecard_training_cli.rs`
+- Added internal ranking unit coverage for:
+  - direction accuracy priority
+  - AUC tie-break behavior
+
+### 修改原因
+- The user approved continuing the direction-first training path without another architecture rewrite.
+- The existing training chain was already usable, but the seven-hour training loop still lacked one governed public entry for survivor ranking and resumable checkpoints.
+- This slice keeps the main training chain intact and only adds a thin orchestration layer above registry outputs and optional training requests.
+
+### 方案还差什么
+- [ ] Assemble one real multi-pool request covering `bank`, `treasury_etf`, `gold_etf`, `cross_border_etf`, and `equity_etf` across `5/10/15/30d`.
+- [ ] Decide the runtime checkpoint cadence and summary export format for the formal seven-hour run.
+- [ ] Add execution notes once the first real long-run training session is launched.
+
+### 潜在问题
+- [ ] The first version ranks correctly, but it does not yet include richer stage budgets or automatic retry governance for long-running training batches.
+- [ ] If callers provide malformed registry files, the new tool will fail fast during registry parsing instead of attempting recovery.
+- [ ] Verification still prints unrelated dispatcher dead-code warnings, which remain outside this slice.
+
+### 关闭项
+- `cargo test --test security_scorecard_training_cli tool_catalog_includes_security_direction_first_training_run -- --nocapture --test-threads=1`
+- `cargo test --test security_scorecard_training_cli security_direction_first_training_run_prefers_direction_accuracy_before_regression -- --nocapture --test-threads=1`
+- `cargo test security_direction_first_training_run --lib -- --nocapture`
+- `cargo test --test security_scorecard_training_cli -- --nocapture --test-threads=1`
+
+## 2026-04-13 Foundation Navigation Evidence Export Tool Error Contract
+### 修改内容
+- Added public bad-input contract coverage for `navigation_evidence_export_v1` in:
+  - `tests/integration_cli_json.rs`
+- Hardened dispatcher-side metadata request validation in:
+  - `src/tools/dispatcher.rs`
+- Updated slice-specific handoff notes to reflect `metadata_constraints`, `json/jsonl`, and error-contract status in:
+  - `docs/ai-handoff-2026-04-12-foundation-navigation-evidence-export-tool.md`
+
+### 修改原因
+- The public roaming DTO outlet was already live, but malformed metadata payloads could still fall through into ambiguous `RetrievalFailed` outcomes.
+- This slice keeps the foundation mainline intact and only tightens the public boundary so downstream AI and CLI callers get stable caller-facing errors for malformed requests.
+
+### 方案还差什么
+- [x] Add one more additive preflight layer for empty metadata field names and, if needed, schema-aware field validation on the same public boundary.
+- [x] Decide whether the next roaming slice should improve omitted-plan defaults such as `seed_concept_ids` and relation filters without changing the `v1` DTO.
+
+### 潜在问题
+- [ ] The current hardening covers unsupported operators, missing `equals.value`, empty `in/has_any.values`, and boundless `range`, but it does not yet validate every semantic mismatch.
+- [ ] Verification still prints unrelated dispatcher dead-code warnings, which remain outside this slice.
+- [ ] The roaming DTO is public, so any future success-payload semantic change still must be versioned instead of changed in place.
+
+### 关闭项
+- `cargo test --test integration_cli_json navigation_evidence_export_v1 -- --nocapture`
+
+## 2026-04-13 Foundation Repository Metadata Audit Export Boundary Alignment
+### 修改内容
+- Added public boundary contract coverage for `repository_metadata_audit_export_v1` JSONL bundle input and blank path preflight in:
+  - `tests/integration_cli_json.rs`
+- Hardened the dispatcher-side audit export boundary with trimmed required-path validation and shared JSON/JSONL repository loading in:
+  - `src/tools/dispatcher.rs`
+- Updated slice-specific handoff notes to reflect JSON/JSONL bundle support and blank path fail-fast behavior in:
+  - `docs/ai-handoff-2026-04-12-foundation-repository-metadata-audit-export-tool.md`
+- Closed already-completed historical Foundation navigation checklist items to reduce future AI rework in:
+  - `.trae/CHANGELOG_TASK.md`
+
+### 修改原因
+- The audit export public outlet had drifted below the navigation export boundary and still behaved like a JSON-only file loader with weak blank-input handling.
+- This slice keeps the foundation audit mainline unchanged and only aligns public export-tool behavior so downstream AI and CLI callers receive stable boundary semantics.
+
+### 方案还差什么
+- [ ] Add one additive public boundary slice later if the audit export needs schema-path format validation beyond blank-input preflight.
+- [ ] Decide whether future Foundation governance should expose one shared helper for cross-export file-boundary rules without widening this slice today.
+
+### 潜在问题
+- [ ] Verification still prints unrelated dispatcher dead-code warnings, which remain outside this slice.
+- [ ] The audit export still depends on the persisted schema JSON contract being structurally valid; this slice does not add schema auto-repair or recovery.
+- [ ] Any future semantic change to `RepositoryMetadataAuditExportDtoV1` still must be versioned instead of changed in place.
+
+### 关闭项
+- `cargo test --test integration_cli_json repository_metadata_audit_export_v1 -- --nocapture`
+
+## 2026-04-13 Foundation Navigation Evidence Export Tool Preflight Finish
+### 修改内容
+- Added public preflight contract coverage for blank `bundle_path`, blank `question`, blank metadata `field`, and omitted optional plan args in:
+  - `tests/integration_cli_json.rs`
+- Hardened dispatcher-side normalization and blank-input validation in:
+  - `src/tools/dispatcher.rs`
+- Updated the slice handoff note to reflect the finished public boundary status in:
+  - `docs/ai-handoff-2026-04-12-foundation-navigation-evidence-export-tool.md`
+
+### 修改原因
+- The foundation roaming DTO outlet was already usable, but the public boundary still leaked blank inputs into filesystem, route, or retrieval failures.
+- This finishing slice keeps the internal foundation mainline unchanged and closes the remaining obvious boundary gaps so later AI callers can treat the tool as a stable public contract.
+
+### 方案还差什么
+- [ ] If foundation work resumes later, decide whether to add an optional schema-aware metadata field validation contract at the dispatcher boundary.
+- [ ] If foundation work resumes later, decide whether to expose registry/schema wiring without changing the existing `v1` success payload.
+
+### 潜在问题
+- [ ] The current finish line intentionally stops short of schema-aware metadata validation, so unknown field semantics still belong to future optional registry wiring rather than this public thin boundary.
+- [ ] Verification still prints unrelated dispatcher dead-code warnings, which remain outside this slice.
+- [ ] The public roaming DTO contract is stable now, so any future success-payload semantic change still must be versioned instead of changed in place.
+
+### 关闭项
+- `cargo test --test integration_cli_json navigation_evidence_export_v1 -- --nocapture`
+
+## 2026-04-13 Foundation Github Upload Preparation
+### 修改内容
+- Prepared the Foundation public-export boundary slice for GitHub delivery by keeping the staged scope limited to:
+  - `src/tools/dispatcher.rs`
+  - `tests/integration_cli_json.rs`
+  - `docs/ai-handoff-2026-04-12-foundation-repository-metadata-audit-export-tool.md`
+  - `.trae/CHANGELOG_TASK.md`
+- Preserved the existing branch handoff trail so the next AI can see the verified audit-export boundary alignment before continuing on the Foundation line.
+
+### 修改原因
+- The workspace still contains unrelated dirty files, so this upload-preparation step must keep the Git payload narrow and traceable instead of mixing in other business lines.
+- The user explicitly requested a GitHub push after the Foundation boundary alignment was verified.
+
+### 方案还差什么
+- [ ] If the branch is merged later, decide whether to split older accumulated Foundation history into smaller commits or keep this branch as one rolling delivery branch.
+
+### 潜在问题
+- [ ] The worktree still contains many unrelated modified and generated files outside this staged upload scope.
+- [ ] Verification output still prints unrelated dispatcher dead-code warnings, which are not introduced by this upload step.
+
+### 关闭项
+- `cargo test --test integration_cli_json repository_metadata_audit_export_v1 -- --nocapture`
+- `cargo test --test repository_metadata_audit_unit -- --nocapture`

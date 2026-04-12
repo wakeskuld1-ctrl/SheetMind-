@@ -66,6 +66,18 @@ use crate::ops::table_workflow::suggest_table_workflow;
 use crate::ops::top_n::top_n_rows;
 use crate::ops::trend_analysis::trend_analysis;
 use crate::ops::window::{WindowCalculation, WindowOrderSpec, window_calculation};
+use crate::ops::foundation::capability_router::NavigationRequest;
+use crate::ops::foundation::knowledge_ingestion::{
+    load_repository_from_json_path, load_repository_from_jsonl_path,
+};
+use crate::ops::foundation::metadata_constraint::{MetadataConstraint, MetadataScope};
+use crate::ops::foundation::metadata_schema::load_metadata_schema_from_json_path;
+use crate::ops::foundation::navigation_pipeline::NavigationPipeline;
+use crate::ops::foundation::ontology_schema::OntologyRelationType;
+use crate::ops::foundation::repository_metadata_audit::{
+    RepositoryMetadataAudit, RepositoryMetadataAuditExportDtoV1,
+};
+use crate::ops::foundation::roaming_engine::RoamingPlan;
 use crate::runtime::local_memory::{
     EventLogInput, LocalMemoryRuntime, SchemaStatus, SessionStage, SessionStatePatch,
 };
@@ -133,6 +145,20 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         "outlier_detection" => analysis_ops::dispatch_outlier_detection(request.args),
         "distribution_analysis" => analysis_ops::dispatch_distribution_analysis(request.args),
         "trend_analysis" => analysis_ops::dispatch_trend_analysis(request.args),
+        // 2026-04-12 CST: Route the repository metadata audit DTO export through
+        // the main dispatcher because foundation governance now needs one stable
+        // public outlet. Purpose: let CLI and AI consume the versioned export
+        // contract without touching the internal report shape.
+        "repository_metadata_audit_export_v1" => {
+            dispatch_repository_metadata_audit_export_v1(request.args)
+        }
+        // 2026-04-12 CST: Added the public navigation export route because the
+        // foundation roaming mainline now needs one stable DTO-facing outlet
+        // above the internal NavigationEvidence struct. Purpose: let AI and
+        // CLI callers consume the versioned contract from the main dispatcher.
+        "navigation_evidence_export_v1" => {
+            dispatch_navigation_evidence_export_v1(request.args)
+        }
         // 2026-03-31 CST: 这里把股票技术面 Tool 明确切到 stock dispatcher，原因是股票业务域不应继续挂在通用分析 dispatcher 上。
         // 目的：先在分发入口建立 foundation / stock 边界，避免后续继续把股票能力写回 analysis_ops。
         "technical_consultation_basic" => {
@@ -241,6 +267,13 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
             stock_ops::dispatch_security_shadow_evaluation(request.args)
         }
         "security_model_promotion" => stock_ops::dispatch_security_model_promotion(request.args),
+        // 2026-04-12 CST: Route the direction-first training orchestration tool
+        // through the main dispatcher, because the seven-hour training loop now
+        // needs one governed public entry instead of shell-only selection logic.
+        // Purpose: keep long-run survivor ranking on the same public stock path as training and promotion.
+        "security_direction_first_training_run" => {
+            stock_ops::dispatch_security_direction_first_training_run(request.args)
+        }
         "security_forward_outcome" => stock_ops::dispatch_security_forward_outcome(request.args),
         // 2026-04-11 CST: 这里把 master_scorecard Tool 接入主 dispatcher，原因是方案 C 已确认要让
         // “未来几日赚钱效益总卡”成为正式主链能力。
@@ -3481,6 +3514,279 @@ fn planned_source_payload(reference: &str, source_payloads: &BTreeMap<String, Va
 }
 
 // 2026-03-22: 杩欓噷缁熶竴鍒涘缓鏈湴璁板繂灞傚叆鍙ｏ紝鐩殑鏄 dispatcher 鎵€鏈変細璇濈姸鎬佽鍐欏叡浜悓涓€濂楄矾寰勮В鏋愪笌閿欒鍑哄彛銆?
+// 2026-04-12 CST: Added a thin repository-audit export dispatcher because the
+// public tool layer should only load files, assemble the audit, and return the
+// versioned DTO. Purpose: keep foundation logic below the dispatcher boundary.
+fn dispatch_repository_metadata_audit_export_v1(args: Value) -> ToolResponse {
+    // 2026-04-13 CST: Added dispatcher-side whitespace normalization because
+    // the public audit export boundary should reject effectively-missing file
+    // inputs before any filesystem access. Purpose: keep caller-facing error
+    // semantics aligned with the navigation export tool without changing audit
+    // internals.
+    let Some(schema_path) = args.get("schema_path").and_then(Value::as_str) else {
+        return ToolResponse::error("repository_metadata_audit_export_v1 missing schema_path");
+    };
+    let Some(bundle_path) = args.get("bundle_path").and_then(Value::as_str) else {
+        return ToolResponse::error("repository_metadata_audit_export_v1 missing bundle_path");
+    };
+    let schema_path = schema_path.trim();
+    let bundle_path = bundle_path.trim();
+    if schema_path.is_empty() {
+        return ToolResponse::error("repository_metadata_audit_export_v1 missing schema_path");
+    }
+    if bundle_path.is_empty() {
+        return ToolResponse::error("repository_metadata_audit_export_v1 missing bundle_path");
+    }
+
+    let schema = match load_metadata_schema_from_json_path(Path::new(schema_path)) {
+        Ok(schema) => schema,
+        Err(error) => return ToolResponse::error(error.to_string()),
+    };
+    let repository = match load_repository_for_metadata_audit_export(bundle_path) {
+        Ok(repository) => repository,
+        Err(error) => return ToolResponse::error(error),
+    };
+
+    let audit = RepositoryMetadataAudit::new(&schema);
+    let report = audit.audit(&repository);
+    let export_dto = RepositoryMetadataAuditExportDtoV1::from_report(&report);
+
+    ToolResponse::ok(json!(export_dto))
+}
+
+// 2026-04-13 CST: Added a repository loader helper because the public audit
+// export tool should accept both JSON and JSONL repository bundles from the
+// same stable boundary. Purpose: keep file-format branching isolated in the
+// thin dispatcher layer and out of the audit mainline.
+fn load_repository_for_metadata_audit_export(
+    bundle_path: &str,
+) -> Result<crate::ops::foundation::knowledge_repository::KnowledgeRepository, String> {
+    let path = Path::new(bundle_path);
+    let is_jsonl = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("jsonl"));
+
+    if is_jsonl {
+        load_repository_from_jsonl_path(path).map_err(|error| format!("{error:?}"))
+    } else {
+        load_repository_from_json_path(path).map_err(|error| format!("{error:?}"))
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct NavigationEvidenceExportToolArgs {
+    bundle_path: String,
+    question: String,
+    #[serde(default)]
+    seed_concept_ids: Vec<String>,
+    #[serde(default)]
+    allowed_relation_types: Vec<OntologyRelationType>,
+    #[serde(default)]
+    max_depth: Option<usize>,
+    #[serde(default)]
+    max_concepts: Option<usize>,
+    #[serde(default)]
+    required_concept_tags: Vec<String>,
+    #[serde(default)]
+    metadata_constraints: Vec<NavigationMetadataConstraintArg>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct NavigationMetadataConstraintArg {
+    operator: String,
+    field: String,
+    #[serde(default)]
+    value: Option<String>,
+    #[serde(default)]
+    values: Vec<String>,
+    #[serde(default)]
+    min: Option<String>,
+    #[serde(default)]
+    max: Option<String>,
+}
+
+// 2026-04-12 CST: Added a thin navigation export dispatcher because the public
+// tool layer should only rebuild the foundation roaming pipeline from a file-
+// backed repository and return the versioned DTO. Purpose: keep the stable
+// export contract reachable without leaking internal pipeline structs.
+fn dispatch_navigation_evidence_export_v1(args: Value) -> ToolResponse {
+    let mut parsed_args: NavigationEvidenceExportToolArgs = match serde_json::from_value(args) {
+        Ok(value) => value,
+        Err(error) => {
+            return ToolResponse::error(format!(
+                "navigation_evidence_export_v1 参数解析失败: {error}"
+            ));
+        }
+    };
+
+    // 2026-04-13 CST: Added dispatcher-side blank-input normalization because
+    // the public DTO outlet should fail before routing or filesystem access
+    // when required text inputs are effectively missing. Purpose: keep caller-
+    // facing bad-input messages stable at the tool boundary.
+    parsed_args.bundle_path = parsed_args.bundle_path.trim().to_string();
+    parsed_args.question = parsed_args.question.trim().to_string();
+    if parsed_args.bundle_path.is_empty() {
+        return ToolResponse::error("navigation_evidence_export_v1 缺少 bundle_path 参数");
+    }
+    if parsed_args.question.is_empty() {
+        return ToolResponse::error("navigation_evidence_export_v1 缺少 question 参数");
+    }
+
+    let repository = match load_repository_for_navigation_export(&parsed_args.bundle_path) {
+        Ok(repository) => repository,
+        Err(error) => return ToolResponse::error(error),
+    };
+    let ontology_store = match repository.to_ontology_store() {
+        Ok(store) => store,
+        Err(error) => return ToolResponse::error(format!("{error:?}")),
+    };
+    let graph_store = repository.to_graph_store();
+    let metadata_scope = match parse_navigation_metadata_scope(&parsed_args.metadata_constraints) {
+        Ok(scope) => scope,
+        Err(error) => return ToolResponse::error(error),
+    };
+    let roaming_plan = RoamingPlan {
+        seed_concept_ids: parsed_args.seed_concept_ids,
+        allowed_relation_types: parsed_args.allowed_relation_types,
+        max_depth: parsed_args.max_depth.unwrap_or(0),
+        max_concepts: parsed_args.max_concepts.unwrap_or(usize::MAX),
+        metadata_scope: metadata_scope.clone(),
+    };
+    let pipeline = NavigationPipeline::new(ontology_store, graph_store, roaming_plan);
+    let mut request = NavigationRequest::new(parsed_args.question);
+    request.required_concept_tags = parsed_args.required_concept_tags;
+    request.metadata_scope = metadata_scope;
+
+    match pipeline.run_export_v1(&request) {
+        Ok(export_dto) => ToolResponse::ok(json!(export_dto)),
+        Err(error) => ToolResponse::error(format!("{error:?}")),
+    }
+}
+
+// 2026-04-12 CST: Added a repository loader helper because the navigation
+// export tool should accept either bundle JSON or bundle JSONL inputs from the
+// same public boundary. Purpose: keep file-format branching local to the thin
+// dispatcher layer.
+fn load_repository_for_navigation_export(
+    bundle_path: &str,
+) -> Result<crate::ops::foundation::knowledge_repository::KnowledgeRepository, String> {
+    let path = Path::new(bundle_path);
+    let is_jsonl = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("jsonl"));
+
+    if is_jsonl {
+        load_repository_from_jsonl_path(path).map_err(|error| format!("{error:?}"))
+    } else {
+        load_repository_from_json_path(path).map_err(|error| format!("{error:?}"))
+    }
+}
+
+// 2026-04-12 CST: Added a public metadata-constraint parser because the
+// navigation export tool should accept a stable external JSON contract without
+// leaking the internal enum shape. Purpose: keep request conversion localized
+// to the dispatcher boundary while preserving the existing foundation mainline.
+fn parse_navigation_metadata_scope(
+    raw_constraints: &[NavigationMetadataConstraintArg],
+) -> Result<MetadataScope, String> {
+    let mut constraints = Vec::new();
+
+    for raw_constraint in raw_constraints {
+        let normalized_operator = raw_constraint.operator.trim().to_ascii_lowercase();
+        let field = raw_constraint.field.trim().to_string();
+        if field.is_empty() {
+            return Err("navigation_evidence_export_v1 metadata_constraints 缺少 field".to_string());
+        }
+        let constraint = match normalized_operator.as_str() {
+            "equals" => MetadataConstraint::Equals {
+                field,
+                value: raw_constraint.value.clone().ok_or_else(|| {
+                    format!(
+                        "navigation_evidence_export_v1 metadata_constraints 缺少 value: {}",
+                        raw_constraint.field
+                    )
+                })?,
+            },
+            "in" => MetadataConstraint::In {
+                field,
+                // 2026-04-13 CST: Added dispatcher-side non-empty validation for
+                // set operators because the public metadata contract should
+                // reject malformed JSON before it degrades into an ambiguous
+                // retrieval miss. Purpose: keep `v1` error semantics stable for
+                // AI and CLI callers without changing internal foundation flow.
+                values: non_empty_navigation_metadata_values(raw_constraint)?,
+            },
+            "has_any" => MetadataConstraint::HasAny {
+                field,
+                // 2026-04-13 CST: Reused the same public set-operator guardrail
+                // here because `has_any` should share the same fail-fast
+                // contract as `in` at the dispatcher boundary. Purpose: avoid
+                // silent empty-set requests becoming accidental no-hit queries.
+                values: non_empty_navigation_metadata_values(raw_constraint)?,
+            },
+            "range" => MetadataConstraint::Range {
+                field,
+                // 2026-04-13 CST: Added an explicit empty-range guard because a
+                // public `range` clause without either bound is malformed input,
+                // not a meaningful filter. Purpose: make the DTO tool return a
+                // stable caller-facing error instead of an internal miss path.
+                min: navigation_metadata_range_bound(raw_constraint, true)?,
+                max: navigation_metadata_range_bound(raw_constraint, false)?,
+            },
+            _ => {
+                return Err(format!(
+                    "navigation_evidence_export_v1 metadata_constraints operator 不支持: {}",
+                    raw_constraint.operator
+                ));
+            }
+        };
+        constraints.push(constraint);
+    }
+
+    Ok(MetadataScope::from_constraints(constraints))
+}
+
+// 2026-04-13 CST: Added a shared set-operator validator because the public
+// navigation export contract should reject empty `values` payloads in one
+// place. Purpose: keep dispatcher-side input hardening minimal and consistent
+// across `in` and `has_any` without touching internal foundation models.
+fn non_empty_navigation_metadata_values(
+    raw_constraint: &NavigationMetadataConstraintArg,
+) -> Result<Vec<String>, String> {
+    if raw_constraint.values.is_empty() {
+        Err(format!(
+            "navigation_evidence_export_v1 metadata_constraints 缺少 values: {}",
+            raw_constraint.field
+        ))
+    } else {
+        Ok(raw_constraint.values.clone())
+    }
+}
+
+// 2026-04-13 CST: Added a range-bound helper because the dispatcher needs one
+// explicit place to reject boundless public `range` filters before they reach
+// retrieval. Purpose: preserve a stable bad-input contract while keeping the
+// internal `MetadataConstraint::Range` shape unchanged.
+fn navigation_metadata_range_bound(
+    raw_constraint: &NavigationMetadataConstraintArg,
+    is_min: bool,
+) -> Result<Option<String>, String> {
+    if raw_constraint.min.is_none() && raw_constraint.max.is_none() {
+        return Err(format!(
+            "navigation_evidence_export_v1 metadata_constraints range 缺少 min/max: {}",
+            raw_constraint.field
+        ));
+    }
+
+    Ok(if is_min {
+        raw_constraint.min.clone()
+    } else {
+        raw_constraint.max.clone()
+    })
+}
+
 fn memory_runtime() -> Result<LocalMemoryRuntime, ToolResponse> {
     LocalMemoryRuntime::workspace_default().map_err(|error| ToolResponse::error(error.to_string()))
 }
