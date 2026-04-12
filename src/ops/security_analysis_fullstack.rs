@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -6,6 +8,9 @@ use crate::ops::stock::security_analysis_contextual::{
     SecurityAnalysisContextualError, SecurityAnalysisContextualRequest,
     SecurityAnalysisContextualResult, security_analysis_contextual,
 };
+use crate::ops::stock::security_disclosure_history_backfill::load_historical_disclosure_context;
+use crate::ops::stock::security_external_proxy_backfill::resolve_effective_external_proxy_inputs;
+use crate::ops::stock::security_fundamental_history_backfill::load_historical_fundamental_context;
 
 const DEFAULT_DISCLOSURE_LIMIT: usize = 8;
 
@@ -140,6 +145,31 @@ enum DisclosureFetchError {
     Empty,
 }
 
+// 2026-04-12 CST: Add a governed-history row contract for live financial backfill,
+// because the new historical-data path must persist multiple provider periods
+// without duplicating field-normalization logic in every caller.
+// Purpose: let stock history tools reuse the same decoded multi-period financial rows.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub(crate) struct LiveFundamentalHistoryRow {
+    pub report_period: String,
+    pub notice_date: Option<String>,
+    pub source: String,
+    pub report_metrics: FundamentalMetrics,
+}
+
+// 2026-04-12 CST: Add a governed-history row contract for live disclosure backfill,
+// because the new historical-data path must persist paged announcement rows
+// without rebuilding parsing logic outside fullstack.
+// Purpose: let stock history tools reuse the same decoded multi-page announcement rows.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub(crate) struct LiveDisclosureHistoryRow {
+    pub published_at: String,
+    pub title: String,
+    pub article_code: Option<String>,
+    pub category: Option<String>,
+    pub source: String,
+}
+
 // 2026-04-01 CST: 这里实现 fullstack 主入口，原因是用户已确认要把大盘、行业、财报、公告并进产品主链；
 // 目的：在不污染底层技术面 Tool 的前提下，交付一个真正可直接面向产品调用的综合证券分析入口。
 pub fn security_analysis_fullstack(
@@ -155,14 +185,43 @@ pub fn security_analysis_fullstack(
         lookback_days: request.lookback_days,
     };
     let technical_context = security_analysis_contextual(&technical_request)?;
-    let fundamental_context = match fetch_fundamental_context(&request.symbol) {
-        Ok(context) => context,
-        Err(error) => build_unavailable_fundamental_context(error.to_string()),
-    };
-    let disclosure_context =
-        match fetch_disclosure_context(&request.symbol, request.disclosure_limit.max(1)) {
-            Ok(context) => context,
-            Err(error) => build_unavailable_disclosure_context(error.to_string()),
+    // 2026-04-13 CST: Prefer governed ETF-native information synthesis here, because
+    // the user explicitly required ETF symbols to stop inheriting stock-only
+    // information gaps once governed proxy history is already available.
+    // Purpose: let fullstack/committee/chair treat complete ETF proxy evidence as
+    // formal information input instead of auto-downgrading to `technical_only`.
+    let etf_information_context = synthesize_etf_information_context(request);
+    let (fundamental_context, disclosure_context) =
+        if let Some((fundamental_context, disclosure_context)) = etf_information_context {
+            (fundamental_context, disclosure_context)
+        } else {
+            let fundamental_context = match load_historical_fundamental_context(
+                &request.symbol,
+                request.as_of_date.as_deref(),
+            ) {
+                Ok(Some(context)) => context,
+                Ok(None) => match fetch_fundamental_context(&request.symbol) {
+                    Ok(context) => context,
+                    Err(error) => build_unavailable_fundamental_context(error.to_string()),
+                },
+                Err(error) => build_unavailable_fundamental_context(error.to_string()),
+            };
+            let disclosure_context = match load_historical_disclosure_context(
+                &request.symbol,
+                request.as_of_date.as_deref(),
+                request.disclosure_limit.max(1),
+            ) {
+                Ok(Some(context)) => context,
+                Ok(None) => {
+                    match fetch_disclosure_context(&request.symbol, request.disclosure_limit.max(1))
+                    {
+                        Ok(context) => context,
+                        Err(error) => build_unavailable_disclosure_context(error.to_string()),
+                    }
+                }
+                Err(error) => build_unavailable_disclosure_context(error.to_string()),
+            };
+            (fundamental_context, disclosure_context)
         };
     let industry_context = build_industry_context(&technical_context);
     let integrated_conclusion = build_integrated_conclusion(
@@ -236,6 +295,417 @@ fn fetch_fundamental_context(symbol: &str) -> Result<FundamentalContext, Fundame
     })
 }
 
+// 2026-04-13 CST: Add an ETF-native information synthesis branch, because governed
+// ETF proxy history now exists while stock-style financial/disclosure records do not.
+// Purpose: keep ETF conclusions from being permanently trapped in stock-only
+// information gaps when proxy evidence is already complete and auditable.
+fn synthesize_etf_information_context(
+    request: &SecurityAnalysisFullstackRequest,
+) -> Option<(FundamentalContext, DisclosureContext)> {
+    let instrument_subscope = resolve_fullstack_etf_subscope(
+        &request.symbol,
+        request.market_profile.as_deref(),
+        request.sector_profile.as_deref(),
+    )?;
+    let as_of_date = request.as_of_date.as_deref()?;
+    let proxy_inputs =
+        resolve_effective_external_proxy_inputs(&request.symbol, Some(as_of_date), None).ok()??;
+    if !etf_proxy_information_is_complete(instrument_subscope, &proxy_inputs) {
+        return None;
+    }
+
+    Some(build_etf_information_contexts(
+        instrument_subscope,
+        as_of_date,
+        &proxy_inputs,
+    ))
+}
+
+// 2026-04-13 CST: Keep ETF family detection local to fullstack, because this layer
+// must stay independent from the evidence-bundle module that already depends on it.
+// Purpose: avoid a circular dependency while still letting fullstack speak ETF-native
+// information semantics before the decision layer freezes the evidence bundle.
+fn resolve_fullstack_etf_subscope(
+    symbol: &str,
+    market_profile: Option<&str>,
+    sector_profile: Option<&str>,
+) -> Option<&'static str> {
+    let code = symbol.split('.').next().unwrap_or_default();
+    if !(code.starts_with('5') || code.starts_with('1')) {
+        return None;
+    }
+
+    let normalized_context = [market_profile, sector_profile]
+        .into_iter()
+        .flatten()
+        .map(|value| value.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let contains_any = |needles: &[&str]| {
+        normalized_context
+            .iter()
+            .any(|value| needles.iter().any(|needle| value.contains(needle)))
+    };
+
+    if contains_any(&[
+        "bond_etf",
+        "treasury",
+        "gov_bond",
+        "government_bond",
+        "local_gov",
+    ]) || matches!(code, "511010" | "511060")
+    {
+        Some("treasury_etf")
+    } else if contains_any(&["gold_etf", "gold", "precious_metal"]) || code.starts_with("518") {
+        Some("gold_etf")
+    } else if contains_any(&[
+        "cross_border",
+        "cross-border",
+        "qdii",
+        "nikkei",
+        "japan",
+        "nasdaq",
+        "sp500",
+        "overseas",
+        "global",
+        "foreign",
+    ]) {
+        Some("cross_border_etf")
+    } else {
+        Some("equity_etf")
+    }
+}
+
+// 2026-04-13 CST: Define one completeness gate for ETF proxy evidence, because the
+// synthesized ETF information layer should only claim availability when its required
+// proxy contracts are actually bound for the current replay date.
+// Purpose: stop ETF semantics from becoming too optimistic while still letting
+// complete governed proxy history count as formal information evidence.
+fn etf_proxy_information_is_complete(
+    instrument_subscope: &str,
+    proxy_inputs: &crate::ops::stock::security_decision_evidence_bundle::SecurityExternalProxyInputs,
+) -> bool {
+    match instrument_subscope {
+        "treasury_etf" => {
+            proxy_status_is_bound(proxy_inputs.yield_curve_proxy_status.as_deref())
+                && proxy_status_is_bound(proxy_inputs.funding_liquidity_proxy_status.as_deref())
+        }
+        "gold_etf" => {
+            proxy_status_is_bound(proxy_inputs.gold_spot_proxy_status.as_deref())
+                && proxy_status_is_bound(proxy_inputs.usd_index_proxy_status.as_deref())
+                && proxy_status_is_bound(proxy_inputs.real_rate_proxy_status.as_deref())
+        }
+        "cross_border_etf" => {
+            proxy_status_is_bound(proxy_inputs.fx_proxy_status.as_deref())
+                && proxy_status_is_bound(proxy_inputs.overseas_market_proxy_status.as_deref())
+                && proxy_status_is_bound(proxy_inputs.market_session_gap_status.as_deref())
+        }
+        "equity_etf" => {
+            proxy_status_is_bound(proxy_inputs.etf_fund_flow_proxy_status.as_deref())
+                && proxy_status_is_bound(proxy_inputs.premium_discount_proxy_status.as_deref())
+                && proxy_status_is_bound(proxy_inputs.benchmark_relative_strength_status.as_deref())
+        }
+        _ => false,
+    }
+}
+
+// 2026-04-13 CST: Normalize proxy binding state checks here, because ETF governed
+// history uses placeholder and not-applicable markers during earlier backfill stages.
+// Purpose: give the ETF information synthesis path one strict rule for when a proxy
+// field should count as real evidence instead of a placeholder contract.
+fn proxy_status_is_bound(status: Option<&str>) -> bool {
+    matches!(
+        status,
+        Some("manual_bound") | Some("historical_bound") | Some("bound")
+    )
+}
+
+// 2026-04-13 CST: Build ETF-native information contexts from governed proxy inputs,
+// because the current fullstack contract still expects fundamental/disclosure-style
+// slots even when the instrument is an ETF.
+// Purpose: let the rest of the mainline keep its existing contracts while consuming
+// ETF-specific evidence instead of forcing stock-only information semantics.
+fn build_etf_information_contexts(
+    instrument_subscope: &str,
+    as_of_date: &str,
+    proxy_inputs: &crate::ops::stock::security_decision_evidence_bundle::SecurityExternalProxyInputs,
+) -> (FundamentalContext, DisclosureContext) {
+    let (profit_signal, proxy_headline, proxy_keywords, proxy_risks) =
+        summarize_etf_proxy_signal(instrument_subscope, proxy_inputs);
+    let information_source = "governed_etf_proxy_information".to_string();
+    let narrative = vec![
+        format!(
+            "ETF information synthesis used governed proxy evidence for `{instrument_subscope}` at `{as_of_date}`."
+        ),
+        proxy_headline.clone(),
+    ];
+    let fundamental_context = FundamentalContext {
+        status: "available".to_string(),
+        source: information_source.clone(),
+        latest_report_period: Some(as_of_date.to_string()),
+        report_notice_date: Some(as_of_date.to_string()),
+        headline: format!("ETF proxy information is available: {proxy_headline}"),
+        profit_signal,
+        report_metrics: FundamentalMetrics {
+            revenue: None,
+            revenue_yoy_pct: None,
+            net_profit: None,
+            net_profit_yoy_pct: None,
+            roe_pct: None,
+        },
+        narrative,
+        risk_flags: proxy_risks.clone(),
+    };
+    let disclosure_context = DisclosureContext {
+        status: "available".to_string(),
+        source: information_source,
+        announcement_count: proxy_keywords.len(),
+        headline: format!(
+            "ETF proxy evidence covers {} signal dimensions",
+            proxy_keywords.len()
+        ),
+        keyword_summary: proxy_keywords,
+        recent_announcements: vec![],
+        risk_flags: proxy_risks,
+    };
+
+    (fundamental_context, disclosure_context)
+}
+
+// 2026-04-13 CST: Collapse ETF proxy values into one governed information summary,
+// because the current integrated conclusion path still expects a compact signal and
+// a small keyword/risk set instead of raw proxy fields.
+// Purpose: create one ETF-native summary that is auditable, compact, and stable
+// enough to enter the existing balanced-scorecard and chair chains.
+fn summarize_etf_proxy_signal(
+    instrument_subscope: &str,
+    proxy_inputs: &crate::ops::stock::security_decision_evidence_bundle::SecurityExternalProxyInputs,
+) -> (String, String, Vec<String>, Vec<String>) {
+    match instrument_subscope {
+        "treasury_etf" => {
+            let slope = proxy_inputs
+                .yield_curve_slope_delta_bp_5d
+                .unwrap_or_default();
+            let funding = proxy_inputs
+                .funding_liquidity_spread_delta_bp_5d
+                .unwrap_or_default();
+            let score = if slope <= 0.0 { 1 } else { -1 } + if funding <= 0.0 { 1 } else { -1 };
+            let profit_signal = if score > 0 {
+                "positive"
+            } else if score < 0 {
+                "negative"
+            } else {
+                "neutral"
+            };
+            let risks = if score < 0 {
+                vec!["Treasury ETF proxy mix is still cautious on rates/liquidity.".to_string()]
+            } else {
+                vec![]
+            };
+            (
+                profit_signal.to_string(),
+                format!(
+                    "yield-curve delta {:.2}bp and funding-liquidity delta {:.2}bp are governed and replayable",
+                    slope, funding
+                ),
+                vec![
+                    "yield_curve_proxy".to_string(),
+                    "funding_liquidity_proxy".to_string(),
+                ],
+                risks,
+            )
+        }
+        "gold_etf" => {
+            let gold = proxy_inputs.gold_spot_proxy_return_5d.unwrap_or_default();
+            let usd = proxy_inputs.usd_index_proxy_return_5d.unwrap_or_default();
+            let real_rate = proxy_inputs.real_rate_proxy_delta_bp_5d.unwrap_or_default();
+            let score = if gold > 0.0 { 1 } else { -1 }
+                + if usd < 0.0 { 1 } else { -1 }
+                + if real_rate < 0.0 { 1 } else { -1 };
+            let profit_signal = if score > 0 {
+                "positive"
+            } else if score < 0 {
+                "negative"
+            } else {
+                "neutral"
+            };
+            let risks = if score < 0 {
+                vec!["Gold ETF proxy mix is not yet supportive enough.".to_string()]
+            } else {
+                vec![]
+            };
+            (
+                profit_signal.to_string(),
+                format!(
+                    "gold {:.4}, USD {:.4}, and real-rate delta {:.2}bp are governed and replayable",
+                    gold, usd, real_rate
+                ),
+                vec![
+                    "gold_spot_proxy".to_string(),
+                    "usd_index_proxy".to_string(),
+                    "real_rate_proxy".to_string(),
+                ],
+                risks,
+            )
+        }
+        "cross_border_etf" => {
+            let fx = proxy_inputs.fx_return_5d.unwrap_or_default();
+            let overseas = proxy_inputs.overseas_market_return_5d.unwrap_or_default();
+            let gap = proxy_inputs.market_session_gap_days.unwrap_or_default();
+            let score = if overseas > 0.0 { 1 } else { -1 }
+                + if fx >= 0.0 { 1 } else { -1 }
+                + if gap <= 1.0 { 1 } else { -1 };
+            let profit_signal = if score > 0 {
+                "positive"
+            } else if score < 0 {
+                "negative"
+            } else {
+                "neutral"
+            };
+            let risks = if score < 0 {
+                vec![
+                    "Cross-border ETF proxy mix still shows fragile overseas alignment."
+                        .to_string(),
+                ]
+            } else {
+                vec![]
+            };
+            (
+                profit_signal.to_string(),
+                format!(
+                    "FX {:.4}, overseas market {:.4}, and session gap {:.0} day(s) are governed and replayable",
+                    fx, overseas, gap
+                ),
+                vec![
+                    "fx_proxy".to_string(),
+                    "overseas_market_proxy".to_string(),
+                    "market_session_gap".to_string(),
+                ],
+                risks,
+            )
+        }
+        _ => {
+            let fund_flow = proxy_inputs.etf_fund_flow_5d.unwrap_or_default();
+            let premium = proxy_inputs.premium_discount_pct.unwrap_or_default();
+            let relative = proxy_inputs
+                .benchmark_relative_return_5d
+                .unwrap_or_default();
+            let score = if fund_flow >= 0.0 { 1 } else { -1 }
+                + if premium.abs() <= 0.01 { 1 } else { -1 }
+                + if relative > 0.0 { 1 } else { -1 };
+            let profit_signal = if score > 0 {
+                "positive"
+            } else if score < 0 {
+                "negative"
+            } else {
+                "neutral"
+            };
+            let risks = if score < 0 {
+                vec![
+                    "Equity ETF proxy mix still lacks enough flow/relative-strength support."
+                        .to_string(),
+                ]
+            } else {
+                vec![]
+            };
+            (
+                profit_signal.to_string(),
+                format!(
+                    "fund flow {:.4}, premium-discount {:.4}, and benchmark-relative return {:.4} are governed and replayable",
+                    fund_flow, premium, relative
+                ),
+                vec![
+                    "etf_fund_flow_proxy".to_string(),
+                    "premium_discount_proxy".to_string(),
+                    "benchmark_relative_proxy".to_string(),
+                ],
+                risks,
+            )
+        }
+    }
+}
+
+// 2026-04-12 CST: Expose a governed-history helper for validation backfill,
+// because slice builders need one formal way to fetch live-compatible financial
+// context before persisting it into slice-local governed storage.
+// Purpose: avoid duplicating Eastmoney financial parsing outside fullstack.
+pub(crate) fn fetch_live_fundamental_context_for_governed_history(
+    symbol: &str,
+) -> Result<FundamentalContext, String> {
+    fetch_fundamental_context(symbol).map_err(|error| error.to_string())
+}
+
+// 2026-04-12 CST: Expose multi-period financial rows for governed backfill,
+// because the new stock history tool must capture more than the latest snapshot
+// before replay and promotion can trust the data thickness.
+// Purpose: centralize EastMoney multi-period financial parsing inside fullstack.
+pub(crate) fn fetch_live_fundamental_history_rows_for_governed_history(
+    symbol: &str,
+) -> Result<Vec<LiveFundamentalHistoryRow>, String> {
+    let url = build_financial_url(symbol);
+    let body = http_get_text(&url, "financials").map_err(|error| error.to_string())?;
+    let payload = serde_json::from_str::<Value>(&body)
+        .map_err(|error| format!("failed to parse financial payload: {error}"))?;
+    let rows = extract_financial_rows(&payload).map_err(|error| error.to_string())?;
+    let mut decoded_rows = Vec::new();
+    let mut covered_periods = BTreeSet::new();
+
+    for row in rows {
+        let Some(report_period) = financial_string(
+            row,
+            &["REPORT_DATE", "REPORTDATE", "REPORT_DATE_NAME", "date"],
+        )
+        .map(normalize_date_like) else {
+            continue;
+        };
+        if !covered_periods.insert(report_period.clone()) {
+            continue;
+        }
+        let notice_date = financial_string(row, &["NOTICE_DATE", "NOTICEDATE", "latestNoticeDate"])
+            .map(normalize_date_like);
+        let report_metrics = FundamentalMetrics {
+            revenue: financial_number(
+                row,
+                &[
+                    "TOTAL_OPERATE_INCOME",
+                    "TOTALOPERATEINCOME",
+                    "钀ヤ笟鎬绘敹鍏?",
+                    "yyzsr",
+                ],
+            ),
+            revenue_yoy_pct: financial_number(
+                row,
+                &["YSTZ", "YYZSR_GTHR", "钀ヤ笟鎬绘敹鍏ュ悓姣?"],
+            ),
+            net_profit: financial_number(
+                row,
+                &[
+                    "PARENT_NETPROFIT",
+                    "PARENTNETPROFIT",
+                    "褰掓瘝鍑€鍒╂鼎",
+                    "gsjlr",
+                ],
+            ),
+            net_profit_yoy_pct: financial_number(
+                row,
+                &["SJLTZ", "NETPROFIT_GTHR", "褰掓瘝鍑€鍒╂鼎鍚屾瘮"],
+            ),
+            roe_pct: financial_number(row, &["ROEJQ", "ROE_WEIGHTED", "jqjzcsyl"]),
+        };
+        decoded_rows.push(LiveFundamentalHistoryRow {
+            report_period,
+            notice_date,
+            source: "eastmoney_financials".to_string(),
+            report_metrics,
+        });
+    }
+
+    if decoded_rows.is_empty() {
+        return Err("no governed financial history rows were decoded".to_string());
+    }
+
+    Ok(decoded_rows)
+}
+
 // 2026-04-01 CST: 这里抓取最近公告摘要，原因是公告面是首版最有价值、且最适合走免费公开源的事件层信息；
 // 目的：让产品在技术面之外还能同步看见“最近披露了什么”，而不是继续人工外查。
 fn fetch_disclosure_context(
@@ -278,6 +748,82 @@ fn fetch_disclosure_context(
         recent_announcements,
         risk_flags,
     })
+}
+
+// 2026-04-12 CST: Expose a governed-history helper for validation backfill,
+// because slice builders need one formal way to fetch live-compatible disclosure
+// context before persisting it into slice-local governed storage.
+// Purpose: avoid duplicating announcement parsing outside fullstack.
+pub(crate) fn fetch_live_disclosure_context_for_governed_history(
+    symbol: &str,
+    disclosure_limit: usize,
+) -> Result<DisclosureContext, String> {
+    fetch_disclosure_context(symbol, disclosure_limit).map_err(|error| error.to_string())
+}
+
+// 2026-04-12 CST: Expose multi-page disclosure rows for governed backfill,
+// because the new stock history tool must capture more than one recent page
+// before replay can trust announcement coverage.
+// Purpose: centralize paged announcement parsing inside fullstack.
+pub(crate) fn fetch_live_disclosure_history_rows_for_governed_history(
+    symbol: &str,
+    page_size: usize,
+    max_pages: usize,
+) -> Result<Vec<LiveDisclosureHistoryRow>, String> {
+    let effective_page_size = page_size.max(1).min(50);
+    let effective_max_pages = max_pages.max(1);
+    let mut decoded_rows = Vec::new();
+    let mut seen_record_refs = BTreeSet::new();
+
+    for page_index in 1..=effective_max_pages {
+        let url = build_announcement_page_url(symbol, effective_page_size, page_index);
+        let body = http_get_text(&url, "announcements").map_err(|error| error.to_string())?;
+        let payload = serde_json::from_str::<Value>(&body)
+            .map_err(|error| format!("failed to parse disclosure payload: {error}"))?;
+        let notices = extract_announcement_list(&payload).map_err(|error| error.to_string())?;
+        if notices.is_empty() {
+            break;
+        }
+
+        let notice_count = notices.len();
+        for notice in notices {
+            let record_key = notice
+                .article_code
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| {
+                    format!(
+                        "{}:{}",
+                        notice.published_at.clone().unwrap_or_default(),
+                        notice.title
+                    )
+                });
+            if !seen_record_refs.insert(record_key) {
+                continue;
+            }
+            decoded_rows.push(LiveDisclosureHistoryRow {
+                published_at: notice
+                    .published_at
+                    .clone()
+                    .map(normalize_date_like)
+                    .unwrap_or_default(),
+                title: notice.title,
+                article_code: notice.article_code,
+                category: notice.category,
+                source: "eastmoney_announcements".to_string(),
+            });
+        }
+
+        if notice_count < effective_page_size {
+            break;
+        }
+    }
+
+    if decoded_rows.is_empty() {
+        return Err("no governed disclosure history rows were decoded".to_string());
+    }
+
+    Ok(decoded_rows)
 }
 
 // 2026-04-01 CST: 这里抽行业上下文，原因是行业代理当前已经由 contextual Tool 产出完整技术结论；
@@ -431,8 +977,11 @@ fn build_unavailable_disclosure_context(message: String) -> DisclosureContext {
 
 fn build_financial_url(symbol: &str) -> String {
     let base = std::env::var("EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE").unwrap_or_else(|_| {
-        "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/MainTargetAjax"
-            .to_string()
+        // 2026-04-12 CST: Switch the default EastMoney financial endpoint to ZYZBAjaxNew,
+        // because MainTargetAjax now returns 406/HTML in live traffic while the current
+        // finance-analysis page loads governed key metrics from ZYZBAjaxNew.
+        // Purpose: keep real governed financial-history backfill working outside mocked tests.
+        "https://emweb.securities.eastmoney.com/PC_HSF10/NewFinanceAnalysis/ZYZBAjaxNew".to_string()
     });
     let separator = if base.contains('?') { "&" } else { "?" };
     format!(
@@ -442,12 +991,21 @@ fn build_financial_url(symbol: &str) -> String {
 }
 
 fn build_announcement_url(symbol: &str, disclosure_limit: usize) -> String {
+    build_announcement_page_url(symbol, disclosure_limit.min(20), 1)
+}
+
+// 2026-04-12 CST: Split page-aware announcement URL building into one helper,
+// because multi-page governed backfill must request arbitrary page indexes
+// instead of being locked to the first page only.
+// Purpose: let recent-context fetch and historical backfill share one URL contract.
+fn build_announcement_page_url(symbol: &str, page_size: usize, page_index: usize) -> String {
     let base = std::env::var("EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE")
         .unwrap_or_else(|_| "https://np-anotice-stock.eastmoney.com/api/security/ann".to_string());
     let separator = if base.contains('?') { "&" } else { "?" };
     format!(
-        "{base}{separator}sr=-1&page_size={}&page_index=1&ann_type=A&stock_list={}",
-        disclosure_limit.min(20),
+        "{base}{separator}sr=-1&page_size={}&page_index={}&ann_type=A&stock_list={}",
+        page_size.min(50).max(1),
+        page_index.max(1),
         normalize_plain_stock_code(symbol)
     )
 }
@@ -470,11 +1028,20 @@ fn http_get_text(url: &str, source_label: &str) -> Result<String, String> {
 fn extract_latest_financial_row<'a>(
     payload: &'a Value,
 ) -> Result<&'a Value, FundamentalFetchError> {
+    let rows = extract_financial_rows(payload)?;
+    rows.first().copied().ok_or(FundamentalFetchError::Empty)
+}
+
+// 2026-04-12 CST: Centralize financial-row extraction, because the new live
+// history backfill must decode all available provider rows while the legacy
+// latest-context fetch still only needs the first row.
+// Purpose: avoid duplicating payload-shape handling for latest and historical paths.
+fn extract_financial_rows<'a>(payload: &'a Value) -> Result<Vec<&'a Value>, FundamentalFetchError> {
     if let Some(rows) = payload.as_array() {
-        return rows.first().ok_or(FundamentalFetchError::Empty);
+        return Ok(rows.iter().collect());
     }
     if let Some(rows) = payload.get("data").and_then(|value| value.as_array()) {
-        return rows.first().ok_or(FundamentalFetchError::Empty);
+        return Ok(rows.iter().collect());
     }
     Err(FundamentalFetchError::Parse(
         "财报源返回结构不符合预期".to_string(),

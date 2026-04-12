@@ -11,19 +11,33 @@ use crate::ops::stock::security_decision_approval_bridge::{
     PersistedApprovalPositionPlanBinding, PersistedDecisionAuditRecord,
     SecurityDecisionApprovalBridgeOptions, bridge_security_decision_to_approval,
 };
+use crate::ops::stock::security_decision_approval_brief::{
+    build_master_scorecard_summary, build_model_governance_summary, build_model_grade_summary,
+};
 use crate::ops::stock::security_decision_committee::{
     SecurityDecisionCommitteeError, SecurityDecisionCommitteeRequest,
     SecurityDecisionCommitteeResult, security_decision_committee,
 };
+use crate::ops::stock::security_decision_evidence_bundle::SecurityExternalProxyInputs;
 use crate::ops::stock::security_decision_package::{
     SecurityDecisionPackageArtifact, SecurityDecisionPackageBuildInput,
-    SecurityDecisionPackageDocument, build_security_decision_package, sha256_for_bytes,
+    SecurityDecisionPackageDocument, SecurityDecisionPackageModelGovernanceSummary,
+    SecurityDecisionPackageModelGradeSummary, build_security_decision_package, sha256_for_bytes,
     sha256_for_json_value,
 };
+use crate::ops::stock::security_forward_outcome::{
+    SecurityForwardOutcomeRequest, security_forward_outcome,
+};
+use crate::ops::stock::security_master_scorecard::{
+    build_security_master_scorecard_document, build_unavailable_security_master_scorecard_document,
+};
+use crate::ops::stock::security_model_promotion::SecurityModelPromotionDocument;
 use crate::ops::stock::security_scorecard::{
     SecurityScorecardBuildInput, SecurityScorecardDocument, SecurityScorecardError,
     build_security_scorecard,
 };
+use crate::ops::stock::security_scorecard_model_registry::SecurityScorecardModelRegistry;
+use crate::ops::stock::security_shadow_evaluation::SecurityShadowEvaluationDocument;
 
 // 2026-04-02 CST: 这里定义证券审批提交请求，原因是“提交到审批主线”除了投决参数，还需要审批运行时路径与治理默认值；
 // 目的：把提交阶段所需的附加控制面参数集中收口，避免外层调用方自己拼路径和默认审批规则。
@@ -68,6 +82,14 @@ pub struct SecurityDecisionSubmitApprovalRequest {
     pub approval_brief_signing_key_secret_env: Option<String>,
     #[serde(default)]
     pub scorecard_model_path: Option<String>,
+    #[serde(default)]
+    pub scorecard_model_registry_path: Option<String>,
+    #[serde(default)]
+    pub model_promotion_path: Option<String>,
+    #[serde(default)]
+    pub shadow_evaluation_path: Option<String>,
+    #[serde(default)]
+    pub external_proxy_inputs: Option<SecurityExternalProxyInputs>,
 }
 
 // 2026-04-02 CST: 这里定义证券审批提交结果，原因是调用方不仅需要看到 committee 结果，还需要知道具体写到了哪些审批工件；
@@ -81,6 +103,7 @@ pub struct SecurityDecisionSubmitApprovalResult {
     pub approval_request: serde_json::Value,
     pub position_plan: serde_json::Value,
     pub scorecard: serde_json::Value,
+    pub master_scorecard: serde_json::Value,
     pub decision_package: serde_json::Value,
     pub approval_brief_path: String,
     pub approval_brief_signature_path: Option<String>,
@@ -89,8 +112,27 @@ pub struct SecurityDecisionSubmitApprovalResult {
     pub approval_events_path: String,
     pub position_plan_path: String,
     pub scorecard_path: String,
+    pub master_scorecard_path: String,
     pub decision_package_path: String,
     pub audit_log_path: String,
+}
+
+// 2026-04-11 CST: Add a local approval-stage model-grade view, because P5 needs
+// approval and package builders to consume registry/promotion semantics without
+// exposing storage-path parsing logic everywhere.
+// Purpose: keep grade loading and approval-mode mapping centralized in this submit flow.
+#[derive(Debug, Clone, PartialEq)]
+struct LoadedModelGradeSummary {
+    model_grade: String,
+    grade_reason: String,
+    approval_consumption_mode: String,
+    shadow_observation_count: usize,
+    shadow_consistency_status: String,
+    shadow_window_count: usize,
+    oot_stability_status: String,
+    window_consistency_status: String,
+    promotion_blockers: Vec<String>,
+    promotion_evidence_notes: Vec<String>,
 }
 
 // 2026-04-02 CST: 这里定义提交错误边界，原因是提交阶段同时会触发投决计算与文件持久化；
@@ -122,6 +164,7 @@ pub fn security_decision_submit_approval(
         stop_loss_pct: request.stop_loss_pct,
         target_return_pct: request.target_return_pct,
         min_risk_reward_ratio: request.min_risk_reward_ratio,
+        external_proxy_inputs: request.external_proxy_inputs.clone(),
     };
     let committee_result = security_decision_committee(&committee_request)?;
     let mut bridge = bridge_security_decision_to_approval(
@@ -153,6 +196,9 @@ pub fn security_decision_submit_approval(
     let scorecard_path = runtime_root
         .join("scorecards")
         .join(format!("{}.json", bridge.decision_card.decision_id));
+    let master_scorecard_path = runtime_root
+        .join("master_scorecards")
+        .join(format!("{}.json", bridge.decision_card.decision_id));
     let decision_package_path = runtime_root
         .join("decision_packages")
         .join(format!("{}.json", bridge.decision_card.decision_id));
@@ -176,6 +222,74 @@ pub fn security_decision_submit_approval(
             scorecard_model_path: request.scorecard_model_path.clone(),
         },
     )?;
+    let master_scorecard = match security_forward_outcome(&SecurityForwardOutcomeRequest {
+        symbol: request.symbol.clone(),
+        market_symbol: request.market_symbol.clone(),
+        sector_symbol: request.sector_symbol.clone(),
+        market_profile: request.market_profile.clone(),
+        sector_profile: request.sector_profile.clone(),
+        as_of_date: request.as_of_date.clone(),
+        lookback_days: request.lookback_days,
+        disclosure_limit: request.disclosure_limit,
+        horizons: vec![5, 10, 20, 30, 60, 180],
+        stop_loss_pct: request.stop_loss_pct,
+        target_return_pct: request.target_return_pct,
+        label_definition_version: "security_forward_outcome.v1".to_string(),
+        external_proxy_inputs: request.external_proxy_inputs.clone(),
+    }) {
+        Ok(forward_outcome_result) => build_security_master_scorecard_document(
+            &committee_result,
+            &scorecard,
+            &forward_outcome_result.forward_outcomes,
+            request.stop_loss_pct,
+            request.target_return_pct,
+            &request.created_at,
+            None,
+        )
+        .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
+        Err(error) => {
+            // 2026-04-11 CST: Degrade instead of aborting when the approval snapshot
+            // does not have a complete replay window yet.
+            // Purpose: keep live approval flow operational while preserving an auditable
+            // marker that the master_scorecard is unavailable for replay.
+            build_unavailable_security_master_scorecard_document(
+                &committee_result,
+                &scorecard,
+                &request.created_at,
+                &error.to_string(),
+                None,
+            )
+        }
+    };
+    let model_grade_summary = load_model_grade_summary(request)?;
+    bridge.approval_brief.master_scorecard_summary =
+        Some(build_master_scorecard_summary(&master_scorecard));
+    bridge.approval_brief.model_grade_summary = model_grade_summary
+        .as_ref()
+        .map(|summary| build_model_grade_summary(&summary.model_grade, &summary.grade_reason));
+    bridge.approval_brief.model_governance_summary = model_grade_summary.as_ref().map(|summary| {
+        // 2026-04-11 CST: Mirror shadow-governance details into the approval
+        // brief, because P6 wants approval reviewers to see blocker and
+        // observation depth without opening promotion artifacts manually.
+        // Purpose: keep brief/package governance disclosure aligned on one
+        // loaded approval-stage summary.
+        build_model_governance_summary(
+            &summary.model_grade,
+            &summary.grade_reason,
+            summary.shadow_observation_count,
+            &summary.shadow_consistency_status,
+            summary.shadow_window_count,
+            &summary.oot_stability_status,
+            &summary.window_consistency_status,
+            &summary.promotion_blockers,
+            &summary.promotion_evidence_notes,
+        )
+    });
+    apply_training_guardrail_to_approval_brief(
+        &mut bridge.approval_brief,
+        &scorecard,
+        model_grade_summary.as_ref(),
+    );
 
     persist_json(&decision_path, &bridge.decision_card)?;
     persist_json(&approval_path, &bridge.approval_request)?;
@@ -183,6 +297,7 @@ pub fn security_decision_submit_approval(
     persist_json(&position_plan_path, &bridge.position_plan)?;
     persist_json(&approval_brief_path, &bridge.approval_brief)?;
     persist_json(&scorecard_path, &scorecard)?;
+    persist_json(&master_scorecard_path, &master_scorecard)?;
     let approval_brief_signature_path = maybe_persist_approval_brief_signature(
         &approval_brief_path,
         request,
@@ -205,6 +320,7 @@ pub fn security_decision_submit_approval(
         &audit_log_path,
         approval_brief_signature_path.as_deref(),
         approval_brief_signature_value.as_ref(),
+        model_grade_summary.as_ref(),
     )?;
     persist_json(&decision_package_path, &decision_package)?;
 
@@ -220,6 +336,8 @@ pub fn security_decision_submit_approval(
             .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
         scorecard: serde_json::to_value(&scorecard)
             .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
+        master_scorecard: serde_json::to_value(&master_scorecard)
+            .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
         decision_package: serde_json::to_value(&decision_package)
             .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?,
         approval_brief_path: approval_brief_path.to_string_lossy().to_string(),
@@ -229,6 +347,7 @@ pub fn security_decision_submit_approval(
         approval_events_path: approval_events_path.to_string_lossy().to_string(),
         position_plan_path: position_plan_path.to_string_lossy().to_string(),
         scorecard_path: scorecard_path.to_string_lossy().to_string(),
+        master_scorecard_path: master_scorecard_path.to_string_lossy().to_string(),
         decision_package_path: decision_package_path.to_string_lossy().to_string(),
         audit_log_path: audit_log_path.to_string_lossy().to_string(),
     })
@@ -250,6 +369,7 @@ fn build_decision_package_document(
     audit_log_path: &Path,
     approval_brief_signature_path: Option<&str>,
     approval_brief_signature_value: Option<&Value>,
+    model_grade_summary: Option<&LoadedModelGradeSummary>,
 ) -> Result<SecurityDecisionPackageDocument, SecurityDecisionSubmitApprovalError> {
     let decision_value = serde_json::to_value(&bridge.decision_card)
         .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
@@ -347,16 +467,53 @@ fn build_decision_package_document(
             analysis_date: committee_result.analysis_date.clone(),
             decision_status: committee_result.decision_card.status.clone(),
             approval_status: format!("{:?}", bridge.approval_request.status),
+            model_grade_summary: model_grade_summary.map(|summary| {
+                SecurityDecisionPackageModelGradeSummary {
+                    model_grade: summary.model_grade.clone(),
+                    grade_reason: summary.grade_reason.clone(),
+                    approval_consumption_mode: summary.approval_consumption_mode.clone(),
+                }
+            }),
             // 2026-04-08 CST: 这里把正式对象图一次性写入 package builder，原因是 Task 1 需要让 package 显式表达对象之间的稳定引用；
             // 目的：让后续 verify / revision 都消费统一的 object_graph，而不是继续从 artifact role 反推对象关系。
             position_plan_ref: bridge.position_plan.plan_id.clone(),
+            // 2026-04-11 CST: Persist richer governance details into the package,
+            // because P6 requires revision/audit consumers to retain blocker
+            // context instead of only the coarse model-grade label.
+            // Purpose: make shadow depth and promotion blockers part of the
+            // formal decision-package contract.
+            model_governance_summary: model_grade_summary.map(|summary| {
+                SecurityDecisionPackageModelGovernanceSummary {
+                    model_grade: summary.model_grade.clone(),
+                    grade_reason: summary.grade_reason.clone(),
+                    approval_consumption_mode: summary.approval_consumption_mode.clone(),
+                    shadow_observation_count: summary.shadow_observation_count,
+                    shadow_consistency_status: summary.shadow_consistency_status.clone(),
+                    shadow_window_count: summary.shadow_window_count,
+                    oot_stability_status: summary.oot_stability_status.clone(),
+                    window_consistency_status: summary.window_consistency_status.clone(),
+                    promotion_blockers: summary.promotion_blockers.clone(),
+                    promotion_evidence_notes: summary.promotion_evidence_notes.clone(),
+                }
+            }),
+            // 2026-04-12 CST: Keep lifecycle fields empty on the initial approval
+            // package, because P8 binds review/execution/post-trade artifacts only
+            // after those lifecycle events actually occur.
+            // Purpose: let later package revisions attach governed lifecycle documents without inventing them up front.
+            lifecycle_governance_summary: None,
             approval_brief_ref: bridge.approval_brief.brief_id.clone(),
             scorecard_ref: scorecard.scorecard_id.clone(),
+            condition_review_ref: None,
+            execution_record_ref: None,
+            post_trade_review_ref: None,
             decision_card_path: decision_path.to_string_lossy().to_string(),
             approval_request_path: approval_path.to_string_lossy().to_string(),
             position_plan_path: position_plan_path.to_string_lossy().to_string(),
             approval_brief_path: approval_brief_path.to_string_lossy().to_string(),
             scorecard_path: scorecard_path.to_string_lossy().to_string(),
+            condition_review_path: None,
+            execution_record_path: None,
+            post_trade_review_path: None,
             evidence_hash: committee_result.evidence_bundle.evidence_hash.clone(),
             governance_hash: bridge
                 .approval_request
@@ -395,6 +552,206 @@ fn load_optional_json_file(
     let value = serde_json::from_slice(&payload)
         .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
     Ok(Some(value))
+}
+
+fn load_model_grade_summary(
+    request: &SecurityDecisionSubmitApprovalRequest,
+) -> Result<Option<LoadedModelGradeSummary>, SecurityDecisionSubmitApprovalError> {
+    // 2026-04-11 CST: Prefer explicit promotion records over raw registry state,
+    // because P5 wants approval semantics to follow the latest governed grade decision.
+    // Purpose: let approval consume one authoritative model-grade summary without manual branching.
+    if let Some(path) = request
+        .model_promotion_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let promotion = load_json_file::<SecurityModelPromotionDocument>(path)?;
+        let summary = build_loaded_model_grade_summary(
+            &promotion.approved_model_grade,
+            &promotion.promotion_reason,
+        );
+        return Ok(Some(merge_shadow_governance_into_grade_summary(
+            request,
+            LoadedModelGradeSummary {
+                shadow_observation_count: promotion.shadow_observation_count,
+                shadow_consistency_status: promotion.shadow_consistency_status.clone(),
+                shadow_window_count: promotion.shadow_window_count,
+                oot_stability_status: promotion.oot_stability_status.clone(),
+                window_consistency_status: promotion.window_consistency_status.clone(),
+                promotion_blockers: promotion.promotion_blockers.clone(),
+                promotion_evidence_notes: promotion.promotion_evidence_notes.clone(),
+                ..summary
+            },
+        )?));
+    }
+
+    if let Some(path) = request
+        .scorecard_model_registry_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let registry = load_json_file::<SecurityScorecardModelRegistry>(path)?;
+        let summary =
+            build_loaded_model_grade_summary(&registry.model_grade, &registry.grade_reason);
+        return Ok(Some(merge_shadow_governance_into_grade_summary(
+            request, summary,
+        )?));
+    }
+
+    Ok(None)
+}
+
+fn build_loaded_model_grade_summary(
+    model_grade: &str,
+    grade_reason: &str,
+) -> LoadedModelGradeSummary {
+    let approval_consumption_mode = match model_grade {
+        "champion" => "full_release_quant_context",
+        "shadow" => "reference_only_quant_context",
+        _ => "governance_only_quant_context",
+    };
+    LoadedModelGradeSummary {
+        model_grade: model_grade.to_string(),
+        grade_reason: grade_reason.to_string(),
+        approval_consumption_mode: approval_consumption_mode.to_string(),
+        shadow_observation_count: 0,
+        shadow_consistency_status: "shadow_untracked".to_string(),
+        shadow_window_count: 0,
+        oot_stability_status: "oot_untracked".to_string(),
+        window_consistency_status: "window_untracked".to_string(),
+        promotion_blockers: Vec::new(),
+        promotion_evidence_notes: Vec::new(),
+    }
+}
+
+fn merge_shadow_governance_into_grade_summary(
+    request: &SecurityDecisionSubmitApprovalRequest,
+    mut summary: LoadedModelGradeSummary,
+) -> Result<LoadedModelGradeSummary, SecurityDecisionSubmitApprovalError> {
+    let Some(path) = request
+        .shadow_evaluation_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(summary);
+    };
+
+    // 2026-04-11 CST: Merge shadow-evaluation governance into the approval-stage
+    // grade snapshot, because P6 wants approval/package consumers to reuse one
+    // loaded summary instead of independently reopening shadow documents.
+    // Purpose: keep shadow count, consistency, and blockers synchronized across
+    // the approval brief, package, and guardrail logic.
+    let shadow_evaluation = load_json_file::<SecurityShadowEvaluationDocument>(path)?;
+    summary.shadow_observation_count = shadow_evaluation.shadow_observation_count;
+    summary.shadow_consistency_status = shadow_evaluation.shadow_consistency_status;
+    summary.shadow_window_count = shadow_evaluation.shadow_window_count;
+    summary.oot_stability_status = shadow_evaluation.oot_stability_status;
+    summary.window_consistency_status = shadow_evaluation.window_consistency_status;
+    summary.promotion_blockers = shadow_evaluation.promotion_blockers;
+    summary.promotion_evidence_notes = shadow_evaluation.promotion_evidence_notes;
+    Ok(summary)
+}
+
+fn load_json_file<T: serde::de::DeserializeOwned>(
+    path: &str,
+) -> Result<T, SecurityDecisionSubmitApprovalError> {
+    let payload = fs::read(path)
+        .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))?;
+    serde_json::from_slice::<T>(&payload)
+        .map_err(|error| SecurityDecisionSubmitApprovalError::Persist(error.to_string()))
+}
+
+// 2026-04-11 CST: Add approval-stage training disclosure guardrail, reason:
+// the user required approval objects to explicitly stop short of a normal
+// pass-through review when scorecard training support is unavailable.
+// Purpose: convert the brief into a "request more evidence" review mode and
+// append a stable remediation note for later audit and replay.
+fn apply_training_guardrail_to_approval_brief(
+    approval_brief: &mut crate::ops::stock::security_decision_approval_brief::SecurityDecisionApprovalBrief,
+    scorecard: &SecurityScorecardDocument,
+    model_grade_summary: Option<&LoadedModelGradeSummary>,
+) {
+    if scorecard.score_status != "ready" {
+        approval_brief.recommended_review_action = "request_more_evidence".to_string();
+        if !approval_brief
+            .required_next_actions
+            .iter()
+            .any(|item| item.contains("训练"))
+        {
+            approval_brief
+                .required_next_actions
+                .push("补齐训练 artifact 或继续回算后再提交审批".to_string());
+        }
+        if !approval_brief.final_recommendation.contains("训练支撑") {
+            approval_brief.final_recommendation = format!(
+                "{} 当前训练支撑尚未就绪，审批层不得按标准放行理解。",
+                approval_brief.final_recommendation
+            );
+        }
+        if !approval_brief.executive_summary.contains("训练支撑") {
+            approval_brief.executive_summary = format!(
+                "{} 当前训练支撑尚未就绪。",
+                approval_brief.executive_summary
+            );
+        }
+    }
+
+    let Some(model_grade_summary) = model_grade_summary else {
+        return;
+    };
+    if model_grade_summary.approval_consumption_mode == "full_release_quant_context" {
+        return;
+    }
+
+    approval_brief.recommended_review_action = "request_more_evidence".to_string();
+    let grade_note = match model_grade_summary.approval_consumption_mode.as_str() {
+        "reference_only_quant_context" => {
+            "当前量化模型仅处于 shadow 等级，只能作为参考上下文，不得单独放行。"
+        }
+        _ => "当前量化模型仍属 research/candidate 等级，仅可作为治理阻断信息。",
+    };
+    if !approval_brief.required_next_actions.iter().any(|item| {
+        item.contains("shadow") || item.contains("candidate") || item.contains("champion")
+    }) {
+        approval_brief
+            .required_next_actions
+            .push(grade_note.to_string());
+    }
+    for blocker in &model_grade_summary.promotion_blockers {
+        if approval_brief
+            .required_next_actions
+            .iter()
+            .any(|item| item == blocker)
+        {
+            continue;
+        }
+        // 2026-04-11 CST: Surface explicit promotion blockers into the approval
+        // action list, because P6 wants review follow-ups to preserve why a
+        // model remained shadow/candidate instead of silently downgrading it.
+        // Purpose: give approval reviewers a stable next-action queue that can
+        // later be audited and replayed.
+        approval_brief.required_next_actions.push(blocker.clone());
+    }
+    for evidence_note in &model_grade_summary.promotion_evidence_notes {
+        if approval_brief
+            .required_next_actions
+            .iter()
+            .any(|item| item == evidence_note)
+        {
+            continue;
+        }
+        // 2026-04-11 CST: Surface multi-window promotion evidence notes in the
+        // approval action list, because P7 champion gating now depends on
+        // comparison-window stability and OOT breadth in addition to blockers.
+        // Purpose: keep approval follow-ups explicit when champion evidence is
+        // still thin even though coarse blocker fields stayed empty.
+        approval_brief
+            .required_next_actions
+            .push(evidence_note.clone());
+    }
 }
 
 fn build_position_plan_binding(

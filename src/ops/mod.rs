@@ -67,15 +67,65 @@ pub use stock::security_decision_card;
 // 目的：不要求调用方立刻改路径，也能使用新的 decision package 构造能力。
 pub use stock::security_decision_package;
 pub use stock::security_scorecard;
+// 2026-04-11 CST: 这里导出正式 master_scorecard 能力，原因是现有外层兼容调用仍可能通过 `crate::ops::...`
+// 访问证券主链对象。
+// 目的：在不打断旧路径的前提下，让未来几日赚钱效益总卡进入统一兼容出口。
+pub use stock::security_master_scorecard;
 // 2026-04-09 CST: 这里导出主席正式裁决能力，原因是外层兼容调用仍可能走 `crate::ops::...`；
 // 目的：在不要求调用方立刻改路径的前提下，把主席线纳入正式兼容出口。
 pub use stock::security_chair_resolution;
 // 2026-04-09 CST: 这里导出正式特征快照能力，原因是后续训练/回算/治理层都可能通过兼容路径访问；
 // 目的：在不打断旧调用路径的前提下，把 feature_snapshot 纳入正式兼容出口。
 pub use stock::security_feature_snapshot;
+// 2026-04-12 CST: Re-export the formal condition-review capability, because
+// compatibility callers may still resolve stock lifecycle tools through `crate::ops::...`.
+// Purpose: keep the new review object reachable without import rewrites.
+pub use stock::security_condition_review;
+// 2026-04-12 CST: Re-export the formal execution-record capability, because
+// compatibility callers may still resolve stock lifecycle tools through `crate::ops::...`.
+// Purpose: keep the new execution object reachable without import rewrites.
+pub use stock::security_execution_record;
+// 2026-04-12 CST: Re-export the formal post-trade review capability, because
+// compatibility callers may still resolve stock lifecycle tools through `crate::ops::...`.
+// Purpose: keep the new review object reachable without import rewrites.
+pub use stock::security_post_trade_review;
 // 2026-04-09 CST: 这里导出正式未来标签回填能力，原因是后续训练/回算/复盘链路都可能先通过 `crate::ops::...` 兼容路径访问；
 // 目的：在不打断旧调用路径的前提下，把 forward_outcome 纳入统一兼容出口。
 pub use stock::security_forward_outcome;
+// 2026-04-11 CST: Re-export the dated external-proxy backfill capability,
+// because P4 historical replay consumers may still resolve stock tools via
+// `crate::ops::...` compatibility paths.
+// Purpose: keep the new governed proxy-backfill tool discoverable on the old path.
+pub use stock::security_external_proxy_backfill;
+// 2026-04-12 CST: Re-export the file-based proxy-history import capability, because
+// compatibility callers may still resolve new stock history tools through `crate::ops::...`.
+// Purpose: keep governed proxy-history import reachable without import rewrites.
+pub use stock::security_external_proxy_history_import;
+// 2026-04-12 CST: Re-export the live stock fundamental-history backfill capability,
+// because compatibility callers may still resolve new stock history tools through `crate::ops::...`.
+// Purpose: keep live-to-governed financial-history ingestion reachable without import rewrites.
+pub use stock::security_fundamental_history_live_backfill;
+// 2026-04-12 CST: Re-export the live stock disclosure-history backfill capability,
+// because compatibility callers may still resolve new stock history tools through `crate::ops::...`.
+// Purpose: keep live-to-governed disclosure-history ingestion reachable without import rewrites.
+pub use stock::security_disclosure_history_live_backfill;
+// 2026-04-12 CST: Re-export the governed real-data validation backfill capability,
+// because compatibility callers may still resolve new stock tools through `crate::ops::...`.
+// Purpose: keep the validation-slice refresh entry reachable without import rewrites.
+pub use stock::security_real_data_validation_backfill;
+// 2026-04-11 CST: Re-export the governed history-expansion capability, because
+// legacy compatibility paths may still resolve stock governance tools through
+// `crate::ops::...` during the P5 transition.
+// Purpose: keep history-expansion discoverable on the old compatibility path.
+pub use stock::security_history_expansion;
+// 2026-04-11 CST: Re-export the governed shadow-evaluation capability, because
+// approval and future orchestration may still use compatibility imports.
+// Purpose: preserve one stable access path while the stock domain evolves.
+pub use stock::security_shadow_evaluation;
+// 2026-04-11 CST: Re-export the governed model-promotion capability, because
+// P5 promotion consumers should remain reachable on existing compatibility paths.
+// Purpose: avoid forcing immediate import rewrites outside the stock module boundary.
+pub use stock::security_model_promotion;
 pub use stock::security_scorecard_refit_run;
 // 2026-04-09 CST: 这里导出正式训练入口能力，原因是外层兼容调用仍可能沿用 `crate::ops::...` 路径；
 // 目的：在不打断旧调用方式的前提下，把 Task 5 新能力纳入统一兼容出口。

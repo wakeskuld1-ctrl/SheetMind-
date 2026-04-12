@@ -142,6 +142,48 @@ fn import_stock_price_history_imports_csv_into_sqlite() {
 }
 
 #[test]
+fn import_stock_price_history_defaults_adj_close_to_close_when_missing() {
+    let runtime_db_path = create_test_runtime_db("stock_price_history_import_missing_adj_close");
+    let csv_path = create_stock_history_csv(
+        "stock_price_history_import_missing_adj_close",
+        "prices_missing_adj_close.csv",
+        &[
+            "trade_date,open,high,low,close,volume",
+            "2026-03-27,1516.80,1530.50,1510.00,1528.90,2700000",
+        ],
+    );
+    let request = json!({
+        "tool": "import_stock_price_history",
+        "args": {
+            "csv_path": csv_path.to_string_lossy(),
+            "symbol": "600519.SH",
+            "source": "manual_csv"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-12 CST: Lock the missing-adj-close fallback, because validation
+    // slices and lightweight fixtures often only provide close without a second
+    // adjusted-close column.
+    // Purpose: require the importer to reuse close as adj_close when the column is absent.
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["imported_row_count"], 1);
+
+    let database_path = stock_history_db_path(&runtime_db_path);
+    let connection = Connection::open(database_path).expect("stock history db should exist");
+    let adj_close: f64 = connection
+        .query_row(
+            "SELECT adj_close FROM stock_price_history WHERE symbol = '600519.SH' AND trade_date = '2026-03-27'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("adj close query should succeed");
+
+    assert!((adj_close - 1528.90).abs() < 0.0001);
+}
+
+#[test]
 fn import_stock_price_history_replaces_existing_symbol_trade_date_rows() {
     let runtime_db_path = create_test_runtime_db("stock_price_history_import_upsert");
     let first_csv_path = create_stock_history_csv(

@@ -11,7 +11,8 @@ use crate::ops::stock::security_decision_card::{
 };
 use crate::ops::stock::security_decision_evidence_bundle::{
     SecurityDecisionEvidenceBundleError, SecurityDecisionEvidenceBundleRequest,
-    SecurityDecisionEvidenceBundleResult, security_decision_evidence_bundle,
+    SecurityDecisionEvidenceBundleResult, SecurityExternalProxyInputs,
+    security_decision_evidence_bundle,
 };
 use crate::ops::stock::security_risk_gates::{
     SecurityDecisionRiskProfile, SecurityRiskGateResult, evaluate_security_risk_gates,
@@ -43,6 +44,8 @@ pub struct SecurityDecisionCommitteeRequest {
     pub target_return_pct: f64,
     #[serde(default = "default_min_risk_reward_ratio")]
     pub min_risk_reward_ratio: f64,
+    #[serde(default)]
+    pub external_proxy_inputs: Option<SecurityExternalProxyInputs>,
 }
 
 // 2026-04-01 CST: 这里定义证券投决会结果，原因是顶层 Tool 需要同时返回证据、正反方、闸门和投决卡；
@@ -96,6 +99,7 @@ pub fn security_decision_committee(
         as_of_date: request.as_of_date.clone(),
         lookback_days: request.lookback_days,
         disclosure_limit: request.disclosure_limit,
+        external_proxy_inputs: request.external_proxy_inputs.clone(),
     };
     let evidence_bundle = security_decision_evidence_bundle(&evidence_request)?;
 
@@ -125,6 +129,7 @@ pub fn security_decision_committee(
     );
     apply_committee_vote_to_decision_card(&mut decision_card, &vote_tally);
     apply_risk_veto_to_decision_card(&mut decision_card, &risk_veto);
+    apply_training_guardrail_to_decision_card(&mut decision_card);
 
     Ok(SecurityDecisionCommitteeResult {
         committee_engine: "seven_seat_committee_v3".to_string(),
@@ -671,6 +676,43 @@ fn apply_risk_veto_to_decision_card(
         );
     }
     sync_legacy_direction_alias(decision_card);
+}
+
+// 2026-04-11 CST: Add non-executable fallback when the committee result is not
+// ready_for_review, reason: the user required runtime enforcement so incomplete
+// evidence cannot keep a high-conviction action label.
+// Purpose: force blocked / needs_more_evidence states to carry neutral,
+// non-executable actions before the result reaches chair or approval stages.
+fn apply_training_guardrail_to_decision_card(decision_card: &mut SecurityDecisionCard) {
+    match decision_card.status.as_str() {
+        "blocked" => {
+            decision_card.recommendation_action = "avoid".to_string();
+            decision_card.exposure_side = "neutral".to_string();
+            decision_card.direction = "neutral".to_string();
+        }
+        "needs_more_evidence" => {
+            decision_card.recommendation_action = "abstain".to_string();
+            decision_card.exposure_side = "neutral".to_string();
+            decision_card.direction = "neutral".to_string();
+            decision_card.confidence_score = decision_card.confidence_score.min(0.49);
+            if !decision_card
+                .required_next_actions
+                .iter()
+                .any(|item| item.contains("训练"))
+            {
+                decision_card
+                    .required_next_actions
+                    .push("补齐训练样本或正式模型后再进入可执行审阅".to_string());
+            }
+            if !decision_card.final_recommendation.contains("训练支撑") {
+                decision_card.final_recommendation = format!(
+                    "{} 当前仍缺训练支撑，不进入高确定性执行建议。",
+                    decision_card.final_recommendation
+                );
+            }
+        }
+        _ => {}
+    }
 }
 
 // 2026-04-09 CST: 这里把委员会多数票写回 decision_card，原因是真实 bug 的根因就是 decision_card 没有吸收七席最终动作；

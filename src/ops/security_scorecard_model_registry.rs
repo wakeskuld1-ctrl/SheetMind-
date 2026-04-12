@@ -10,17 +10,37 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 pub struct SecurityScorecardModelRegistry {
     pub registry_id: String,
+    // 2026-04-11 CST: Added serde defaults for backward-compatible registry loading,
+    // because P5 submit_approval now consumes historical registry fixtures that may
+    // not carry the newly formalized governance metadata yet.
+    // Purpose: keep old registry documents readable while the approval chain upgrades
+    // to model-grade-aware governance semantics.
+    #[serde(default = "default_contract_version")]
     pub contract_version: String,
     pub document_type: String,
     pub model_id: String,
     pub market_scope: String,
     pub instrument_scope: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument_subscope: Option<String>,
     pub horizon_days: usize,
     pub target_head: String,
     pub model_version: String,
     pub status: String,
+    #[serde(default = "default_model_grade")]
+    pub model_grade: String,
+    #[serde(default = "default_grade_reason")]
+    pub grade_reason: String,
+    // 2026-04-11 CST: Added empty-window defaults for legacy registry fixtures,
+    // because older candidate files were created before training/validation/oot
+    // windows became mandatory in the governed registry schema.
+    // Purpose: let submit_approval and later promotion tools read legacy fixtures
+    // without forcing every old runtime artifact to be rewritten first.
+    #[serde(default)]
     pub training_window: String,
+    #[serde(default)]
     pub validation_window: String,
+    #[serde(default)]
     pub oot_window: String,
     pub artifact_path: String,
     pub artifact_sha256: String,
@@ -43,6 +63,12 @@ pub struct SecurityScorecardCandidateArtifactInput {
     pub metrics_summary_json: Value,
     #[serde(default)]
     pub published_at: Option<String>,
+    #[serde(default)]
+    pub instrument_subscope: Option<String>,
+    #[serde(default = "default_model_grade")]
+    pub model_grade: String,
+    #[serde(default = "default_grade_reason")]
+    pub grade_reason: String,
 }
 
 // 2026-04-09 CST: 这里集中定义 registry 构建错误，原因是 artifact 哈希登记既涉及字段校验也涉及文件读取；
@@ -90,10 +116,13 @@ pub fn build_security_scorecard_model_registry(
         model_id: candidate.model_id.clone(),
         market_scope: market_scope.to_string(),
         instrument_scope: instrument_scope.to_string(),
+        instrument_subscope: candidate.instrument_subscope.clone(),
         horizon_days: candidate.horizon_days,
         target_head: candidate.target_head.clone(),
         model_version: candidate.model_version.clone(),
         status: candidate.status.clone(),
+        model_grade: candidate.model_grade.clone(),
+        grade_reason: candidate.grade_reason.clone(),
         training_window: training_window.to_string(),
         validation_window: validation_window.to_string(),
         oot_window: oot_window.to_string(),
@@ -125,4 +154,16 @@ pub fn sanitize_identifier(raw: &str) -> String {
 
 fn default_registry_status() -> String {
     "candidate".to_string()
+}
+
+fn default_contract_version() -> String {
+    "security_scorecard_model_registry.v1".to_string()
+}
+
+fn default_model_grade() -> String {
+    "candidate".to_string()
+}
+
+fn default_grade_reason() -> String {
+    "retained_as_candidate".to_string()
 }

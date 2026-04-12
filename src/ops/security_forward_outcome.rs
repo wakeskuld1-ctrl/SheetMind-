@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ops::stock::security_decision_evidence_bundle::SecurityExternalProxyInputs;
 use crate::ops::stock::security_feature_snapshot::{
     SecurityFeatureSnapshot, SecurityFeatureSnapshotError, SecurityFeatureSnapshotRequest,
     security_feature_snapshot,
@@ -36,6 +37,8 @@ pub struct SecurityForwardOutcomeRequest {
     pub target_return_pct: f64,
     #[serde(default = "default_label_definition_version")]
     pub label_definition_version: String,
+    #[serde(default)]
+    pub external_proxy_inputs: Option<SecurityExternalProxyInputs>,
 }
 
 // 2026-04-09 CST: 这里新增正式未来标签对象，原因是 Task 3 要把“回看收益/回撤/事件”升级为可训练、可复盘、可审计的正式 artifact；
@@ -96,6 +99,7 @@ pub fn security_forward_outcome(
         disclosure_limit: request.disclosure_limit,
         stop_loss_pct: request.stop_loss_pct,
         target_return_pct: request.target_return_pct,
+        external_proxy_inputs: request.external_proxy_inputs.clone(),
     })?;
     let horizons = normalize_horizons(&request.horizons);
     let max_horizon = horizons.iter().copied().max().ok_or_else(|| {

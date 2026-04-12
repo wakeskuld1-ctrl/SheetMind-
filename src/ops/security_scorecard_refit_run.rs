@@ -54,6 +54,7 @@ pub struct SecurityScorecardRefitRun {
     pub comparison_to_champion_json: Option<Value>,
     #[serde(default)]
     pub promotion_decision: Option<String>,
+    pub model_grade: String,
     pub created_at: String,
 }
 
@@ -92,14 +93,15 @@ pub fn security_scorecard_refit(
         &request.train_range,
         &request.valid_range,
         &request.test_range,
-        &request.candidate_artifact,
+        &build_candidate_with_grade(request),
     )?;
     let refit_run = build_security_scorecard_refit_run(request, &model_registry);
 
     let runtime_root = resolve_runtime_root(request);
-    let refit_run_path = runtime_root
-        .join("scorecard_refit_runs")
-        .join(format!("{}.json", sanitize_identifier(&refit_run.refit_run_id)));
+    let refit_run_path = runtime_root.join("scorecard_refit_runs").join(format!(
+        "{}.json",
+        sanitize_identifier(&refit_run.refit_run_id)
+    ));
     let model_registry_path = runtime_root.join("scorecard_model_registry").join(format!(
         "{}__{}.json",
         sanitize_identifier(&model_registry.model_id),
@@ -143,13 +145,40 @@ fn build_security_scorecard_refit_run(
         candidate_registry_ref: Some(model_registry.registry_id.clone()),
         comparison_to_champion_json: request.comparison_to_champion_json.clone(),
         promotion_decision: request.promotion_decision.clone(),
+        model_grade: model_registry.model_grade.clone(),
         created_at: request.created_at.clone(),
     }
 }
 
+// 2026-04-11 CST: Normalize model-grade semantics before registry persistence,
+// because P5 needs refit to publish explicit candidate/shadow/champion state
+// instead of leaving downstream consumers to decode raw promotion strings.
+// Purpose: keep registry and refit outputs aligned on one governed grade vocabulary.
+fn build_candidate_with_grade(
+    request: &SecurityScorecardRefitRequest,
+) -> SecurityScorecardCandidateArtifactInput {
+    let mut candidate = request.candidate_artifact.clone();
+    let (model_grade, grade_reason) = match request.promotion_decision.as_deref().map(str::trim) {
+        Some("shadow") => (
+            "shadow".to_string(),
+            "promoted_by_refit_decision".to_string(),
+        ),
+        Some("champion") => (
+            "champion".to_string(),
+            "promoted_by_refit_decision".to_string(),
+        ),
+        _ => ("candidate".to_string(), "retained_as_candidate".to_string()),
+    };
+    candidate.model_grade = model_grade;
+    candidate.grade_reason = grade_reason;
+    candidate
+}
+
 // 2026-04-09 CST: 这里在入口层集中做字段校验，原因是 Task 4 先要确保治理对象边界稳定，再谈后续训练填充；
 // 目的：避免空窗口、空范围或空版本字段直接写成形式上存在但治理上无意义的正式对象。
-fn validate_request(request: &SecurityScorecardRefitRequest) -> Result<(), SecurityScorecardRefitError> {
+fn validate_request(
+    request: &SecurityScorecardRefitRequest,
+) -> Result<(), SecurityScorecardRefitError> {
     for (field_name, field_value) in [
         ("market_scope", request.market_scope.trim()),
         ("instrument_scope", request.instrument_scope.trim()),
@@ -180,7 +209,8 @@ fn persist_json<T: Serialize>(path: &Path, value: &T) -> Result<(), SecurityScor
     }
     let payload = serde_json::to_vec_pretty(value)
         .map_err(|error| SecurityScorecardRefitError::Persist(error.to_string()))?;
-    fs::write(path, payload).map_err(|error| SecurityScorecardRefitError::Persist(error.to_string()))
+    fs::write(path, payload)
+        .map_err(|error| SecurityScorecardRefitError::Persist(error.to_string()))
 }
 
 // 2026-04-09 CST: 这里统一解析 refit runtime 根目录，原因是测试、CLI 与未来离线训练批处理都会需要可覆盖的输出根路径；

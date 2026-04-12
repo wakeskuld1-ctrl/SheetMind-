@@ -1498,6 +1498,7 @@ dependencies = [
  "hmac",
  "polars",
  "predicates",
+ "regex",
  "rfd",
  "rusqlite",
  "rust_xlsxwriter",

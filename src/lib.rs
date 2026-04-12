@@ -9,6 +9,7 @@ pub mod frame;
 pub mod license;
 // 2026-03-21: 这里暴露 DataFrame 原子操作模块，目的是让 Tool 层调用稳定、可测试的计算操作。
 pub mod ops;
+pub mod providers;
 pub mod runtime_paths;
 // 2026-03-29 CST: 这里暴露 GUI 模块入口，原因是首发桌面版需要在同一 crate 内复用授权、运行时和 Tool 协议；
 // 目的：让 GUI 二进制在不复制工程的前提下，逐步接入状态层、桥接层和页面层。

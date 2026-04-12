@@ -44,9 +44,50 @@ pub struct SecurityDecisionApprovalBrief {
     pub required_next_actions: Vec<String>,
     pub final_recommendation: String,
     pub recommended_review_action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_scorecard_summary: Option<SecurityApprovalBriefMasterScorecardSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_grade_summary: Option<SecurityApprovalBriefModelGradeSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_governance_summary: Option<SecurityApprovalBriefModelGovernanceSummary>,
     pub evidence_hash: String,
     pub governance_hash: String,
     pub package_binding: SecurityApprovalBriefPackageBinding,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityApprovalBriefMasterScorecardSummary {
+    pub document_type: String,
+    pub master_scorecard_ref: String,
+    pub scorecard_ref: String,
+    pub scorecard_status: String,
+    pub aggregation_status: String,
+    pub master_score: f64,
+    pub master_signal: String,
+    pub profitability_effectiveness_score: f64,
+    pub risk_resilience_score: f64,
+    pub path_quality_score: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityApprovalBriefModelGradeSummary {
+    pub model_grade: String,
+    pub grade_reason: String,
+    pub approval_consumption_mode: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityApprovalBriefModelGovernanceSummary {
+    pub model_grade: String,
+    pub grade_reason: String,
+    pub approval_consumption_mode: String,
+    pub shadow_observation_count: usize,
+    pub shadow_consistency_status: String,
+    pub shadow_window_count: usize,
+    pub oot_stability_status: String,
+    pub window_consistency_status: String,
+    pub promotion_blockers: Vec<String>,
+    pub promotion_evidence_notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -168,6 +209,9 @@ pub fn build_security_decision_approval_brief(
         required_next_actions: committee.decision_card.required_next_actions.clone(),
         final_recommendation: committee.decision_card.final_recommendation.clone(),
         recommended_review_action,
+        master_scorecard_summary: None,
+        model_grade_summary: None,
+        model_governance_summary: None,
         evidence_hash: input.evidence_hash.clone(),
         governance_hash: input.governance_hash.clone(),
         package_binding: SecurityApprovalBriefPackageBinding {
@@ -177,6 +221,56 @@ pub fn build_security_decision_approval_brief(
             approval_ref: input.approval_ref.clone(),
             decision_id: input.decision_id.clone(),
         },
+    }
+}
+
+pub fn build_model_grade_summary(
+    model_grade: &str,
+    grade_reason: &str,
+) -> SecurityApprovalBriefModelGradeSummary {
+    // 2026-04-11 CST: Centralize approval consumption semantics for model grades,
+    // because P5 requires approval objects to distinguish champion, shadow, and
+    // candidate quant usage without each caller re-implementing grade mapping.
+    // Purpose: keep approval brief and decision package aligned on one grade policy.
+    let approval_consumption_mode = match model_grade {
+        "champion" => "full_release_quant_context",
+        "shadow" => "reference_only_quant_context",
+        _ => "governance_only_quant_context",
+    };
+    SecurityApprovalBriefModelGradeSummary {
+        model_grade: model_grade.to_string(),
+        grade_reason: grade_reason.to_string(),
+        approval_consumption_mode: approval_consumption_mode.to_string(),
+    }
+}
+
+pub fn build_model_governance_summary(
+    model_grade: &str,
+    grade_reason: &str,
+    shadow_observation_count: usize,
+    shadow_consistency_status: &str,
+    shadow_window_count: usize,
+    oot_stability_status: &str,
+    window_consistency_status: &str,
+    promotion_blockers: &[String],
+    promotion_evidence_notes: &[String],
+) -> SecurityApprovalBriefModelGovernanceSummary {
+    // 2026-04-11 CST: Add a richer governance summary object, because P6 needs
+    // approval readers to see not only the grade but also why the model is still
+    // blocked or releasable.
+    // Purpose: keep approval brief, audit, and package consumers aligned on one governance explanation.
+    let grade_summary = build_model_grade_summary(model_grade, grade_reason);
+    SecurityApprovalBriefModelGovernanceSummary {
+        model_grade: grade_summary.model_grade,
+        grade_reason: grade_summary.grade_reason,
+        approval_consumption_mode: grade_summary.approval_consumption_mode,
+        shadow_observation_count,
+        shadow_consistency_status: shadow_consistency_status.to_string(),
+        shadow_window_count,
+        oot_stability_status: oot_stability_status.to_string(),
+        window_consistency_status: window_consistency_status.to_string(),
+        promotion_blockers: promotion_blockers.to_vec(),
+        promotion_evidence_notes: promotion_evidence_notes.to_vec(),
     }
 }
 
@@ -204,5 +298,25 @@ fn normalize_generated_at(value: &str) -> String {
         Utc::now().to_rfc3339()
     } else {
         value.trim().to_string()
+    }
+}
+
+pub fn build_master_scorecard_summary(
+    master_scorecard: &crate::ops::stock::security_master_scorecard::SecurityMasterScorecardDocument,
+) -> SecurityApprovalBriefMasterScorecardSummary {
+    // 2026-04-11 CST: 这里新增审批简报里的总卡摘要映射，原因是投决会摘要需要能直接消费正式盈利质量总卡，
+    // 但不应该把整份总卡文档原样塞进 brief 里导致阅读负担和合同膨胀。
+    // 目的：把审批阅读最需要的总卡关键信号、总分与三条子分压缩成稳定摘要对象。
+    SecurityApprovalBriefMasterScorecardSummary {
+        document_type: master_scorecard.document_type.clone(),
+        master_scorecard_ref: master_scorecard.master_scorecard_id.clone(),
+        scorecard_ref: master_scorecard.scorecard_ref.clone(),
+        scorecard_status: master_scorecard.scorecard_status.clone(),
+        aggregation_status: master_scorecard.aggregation_status.clone(),
+        master_score: master_scorecard.master_score,
+        master_signal: master_scorecard.master_signal.clone(),
+        profitability_effectiveness_score: master_scorecard.profitability_effectiveness_score,
+        risk_resilience_score: master_scorecard.risk_resilience_score,
+        path_quality_score: master_scorecard.path_quality_score,
     }
 }

@@ -41,6 +41,70 @@ description: Use when users want a single conversational entry point for securit
 - 投决问题误当成纯分析问题
 - package 治理问题误当成重新做一遍分析
 
+<!-- 2026-04-11 CST: 新增正式证券决策主链约束，原因是最近一次对话里出现了“手工平衡计分卡”替代正式评分卡的漂移；目的：强制统一入口先区分研究、投决会、评分卡和主席裁决的正式边界。 -->
+## 正式证券决策主链约束
+
+当用户要求“正式投决会”“正式评分卡”“正式决议卡”“已经过会的结论”时，只允许沿下面这条正式链解释：
+
+- `security_decision_committee`
+- `security_scorecard`
+- `security_chair_resolution`
+
+不要把下面这些东西说成正式结果：
+
+- 手工平衡计分卡
+- 临时分析师打分
+- 没有调用正式 Tool 时的口头推荐
+- 只来自研究链的单边结论
+
+如果当前上下文只有研究链结果：
+
+- 只能称为“研究结论”
+- 不能称为“正式投决会结论”
+- 不能称为“正式评分卡结论”
+
+如果用户要求正式评分卡，但当前没有适用的 `scorecard_model_path` 或正式 model artifact：
+
+- 必须明确说明评分卡正式状态应视为 `model_unavailable`
+- 不允许补一个人工分数冒充代码已算出的正式评分卡
+- 不允许把“便于理解的人工分层”伪装成项目内正式 scorecard 对象
+
+<!-- 2026-04-11 CST: Add training-first governance rule, reason: user explicitly required all securities conclusions to prioritize training-backed evidence instead of small-sample verbal judgment; purpose: force the PM entry skill to downgrade unsupported answers before they are mistaken for responsible recommendations. -->
+## 训练优先治理规则
+
+所有证券结论默认都要先考虑“是否存在训练支撑”，再决定能说到什么程度。
+
+硬规则：
+
+- 只要用户的问题已经触达“买不买 / 配不配 / 调不调仓 / 有没有胜率 / 未来几日赚钱效益”这类决策语义，就必须先判断当前是否存在可用训练产物、评分卡模型或可复用回算结果。
+- 如果没有训练支撑，只能输出“研究观察 / 治理阻断原因 / 证据缺口”，不能把少量公开信息或少量单次 Tool 结果直接包装成正式可执行结论。
+- 如果存在训练产物，必须优先引用训练链结果，再补充研究解释；不能让人工解释盖过训练结论。
+- 训练结论必须同时披露最少一组拟合或样本信息，例如：
+  - `sample_count`
+  - `train/valid/test` 划分
+  - 当前可用的 `accuracy`
+  - 当前标签口径与 horizon
+- 如果这些拟合信息缺失，就不能把结果表述成“训练已经证明”。
+
+结论分层必须固定：
+
+- `训练支撑的正式结论`
+- `正式链已运行但训练不可用的治理结论`
+- `仅研究观察，不可执行`
+
+不要把下面这些情况说成“已经足够可靠”：
+
+- 只看了几条公开新闻
+- 只看了技术面单点信号
+- 只跑了一次未披露拟合度的最小样本
+- 只有 `model_unavailable` 的正式 scorecard
+
+如果训练还在建设中或样本太少：
+
+- 必须明确说明“当前只能做观察，不足以下正式执行结论”
+- 必须鼓励继续回算、重估、扩样本，而不是提前锁死观点
+- 必须把“训练会随着样本积累持续修正”当成默认事实，而不是一次性结论
+
 ## Stage Routing
 
 ### 1. 研究阶段
@@ -77,6 +141,18 @@ description: Use when users want a single conversational entry point for securit
 - 空头挑战
 - 风险闸门
 - 最终投决结论
+
+如果用户进一步要求：
+
+- “正式投决会”
+- “正式评分卡”
+- “主席最终裁决”
+
+则要继续沿正式治理链说明：
+
+- 投委会来自 `security_decision_committee`
+- 评分卡来自 `security_scorecard`
+- 最终正式决议来自 `security_chair_resolution`
 
 ### 3. 审批提交阶段
 
@@ -179,6 +255,14 @@ description: Use when users want a single conversational entry point for securit
 - 投决链负责“做不做”
 - 审批链负责“怎么进入正式治理”
 - 校验 / 修订链负责“怎么维护 package 生命周期”
+
+### 错误 5：把人工平衡计分卡说成正式 scorecard
+
+正确做法：
+
+- 只有 `security_scorecard` 产出的对象才叫正式评分卡
+- 如果没有模型 artifact，就必须明确说正式状态是 `model_unavailable`
+- 可以补“人为理解版说明”，但必须明确它不是正式 scorecard
 
 ## Quick Reference
 

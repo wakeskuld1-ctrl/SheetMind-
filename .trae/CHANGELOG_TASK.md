@@ -1213,3 +1213,1712 @@
 - 变更：新增 `RepositoryWeakLocatorReason::{SheetOnly, SingleCellOnly, AmbiguousKeyword, InvalidRangeFormat}`，并在 repository audit 中补齐最小结构判定逻辑。
 - 测试：`cargo test --test repository_metadata_audit_unit -- --nocapture`；`cargo test --test repository_metadata_audit_unit --test metadata_validator_unit --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_migration_contract_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`。
 - 结论：foundation locator hygiene 已从基础长度检查推进到基础结构检查，当前下一步仍是继续扩细 evidence hygiene 诊断，不进入 migration executor。
+## 2026-04-11
+### 修改内容
+- 更新 `skills/security-pm-assistant-v1/SKILL.md`，补入正式证券决策主链约束，明确正式口径只能沿 `security_decision_committee -> security_scorecard -> security_chair_resolution` 解释。
+- 更新 `skills/security-decision-workbench-v1/SKILL.md`，补入正式评分卡与主席裁决规则，禁止再用手工平衡计分卡替代正式 scorecard。
+- 更新 `skills/security-analysis-v1/SKILL.md`，补入研究链与正式决策链边界，明确研究链不能冒充正式投委会、正式评分卡或主席裁决。
+
+### 修改原因
+- 用户明确指出最近一次答复里把“手工平衡计分卡”和“正式评分卡”混在了一起，要求把正确口径直接写进 Skill，而不是停留在临时对话说明。
+- 当前仓库内确实同时存在正式投委会、正式评分卡和主席裁决三条对象链，如果不把边界固化进 Skill，后续 AI 很容易再次绕开正式链直接口头下结论。
+
+### 方案还差什么
+- [ ] 当前只是把“正式口径”写进 Skill，还没有补一份适用于债券 ETF 的正式生产 scorecard model artifact。
+- [ ] 如果后续要让债券 ETF 也能真正输出正式评分卡分数，还需要补训练 / 注册 / 发布对应资产类别的模型链。
+
+### 潜在问题
+- [ ] 当前仓库虽然有正式 `security_scorecard`，但对部分资产类别仍可能只能返回 `model_unavailable`；后续答复时必须继续如实披露，不能因为 Skill 已更新就默认认为模型已经就绪。
+- [ ] 这轮是 Skill 文档改动，没有新增自动化测试；后续若继续扩规则，建议补一组 Skill 行为验收记录。
+
+### 关闭项
+- 统一入口已写入正式证券决策主链约束：`skills/security-pm-assistant-v1/SKILL.md`
+- 投决会 Skill 已写入评分卡与主席裁决边界：`skills/security-decision-workbench-v1/SKILL.md`
+- 分析 Skill 已写入研究链与正式决策链边界：`skills/security-analysis-v1/SKILL.md`
+
+## 2026-04-11
+### 修改内容
+- 运行 `511360.SH / 511010.SH / 511060.SH` 的正式主席裁决链，先排除“低风报比参数导致风险闸门误伤”的干扰，再使用 `止损 1.0% / 目标 1.5% / 最小风报比 1.2` 重跑保本优先版正式复核。
+- 追加 `docs/security-holding-ledger.md`，把 3 只债券 ETF 的委员会编码、评分卡编码、主席裁决编码、正式动作、风控状态和原始 JSON 路径落入统一持仓台账。
+
+### 修改原因
+- 用户要求把保本优先版组合真正跑一版，如果结果没问题就写进持仓报告；这次需要把“正式链实际跑出的结果”沉淀成可复盘文档，而不是只留在聊天记录里。
+- 第一版运行使用了过低的目标收益参数，会被风报比闸门直接拦下，不能代表组合本体，因此需要先纠正参数口径再记录正式结论。
+
+### 方案还差什么
+- [ ] 当前债券 ETF 复核仍没有可用的正式评分卡模型 artifact，因此 `security_scorecard` 只能返回 `model_unavailable`。
+- [ ] 当前财报/公告外部源对这 3 只 ETF 仍不可用，若后续要把债券 ETF 纳入正式可执行主策略，还需要补 ETF 适配的信息源或本地缓存链路。
+
+### 潜在问题
+- [ ] 当前正式复核虽然已落盘，但它基于 `market_symbol = 510300.SH` 与 `sector_symbol = 511010.SH` 的临时代理口径；后续若补出债券 ETF 专用 market/sector profile，结论可能变化。
+- [ ] 当前主工作区 `cargo run` 重新编译会被无关的 foundation 缺文件阻断，这次运行依赖的是现有 `target\\debug\\excel_skill.exe`，后续若要重复运行，最好先收口那条无关构建问题。
+
+### 关闭项
+- 保本优先版 3 只债券 ETF 的正式主席裁决已运行并落盘：`D:\Rust\Excel_Skill\.excel_skill_runtime\holding_review_2026-04-11_defensive_rr15`
+- 正式复核结果已写入统一持仓台账：`docs/security-holding-ledger.md`
+
+## 2026-04-11
+### 修改内容
+- 新增正式总卡模块 `src/ops/security_master_scorecard.rs`，把 `security_decision_committee -> security_scorecard -> security_forward_outcome` 聚合成最小可用的 `security_master_scorecard` Tool。
+- 新增 `tests/security_master_scorecard_cli.rs`，先锁住 catalog 发现能力，再锁住 CLI 返回 `committee_result + scorecard + master_scorecard` 三层正式对象与 6 个 horizon 的总卡合同。
+- 更新 `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`，把 `security_master_scorecard` 接入 stock 主链的模块导出、tool catalog 与 CLI 路由。
+- 最小恢复 `src/ops/foundation/knowledge_repository.rs` 与 `src/ops/foundation/knowledge_ingestion.rs`，并补上旧 JSONL metadata 到现行 `MetadataFieldValue` 的兼容映射，让本轮红测不再被无关 foundation 缺文件阻断。
+
+### 修改原因
+- 用户已确认方案 C，要先把“未来几日赚钱效益大总卡”做成正式 Tool，而不是继续停留在设计稿或手工分析说明。
+- 当前工作区在真正进入 master_scorecard 红测前，会先被 foundation 缺失历史文件卡住；如果不先最小恢复这两个公共模块，本轮 TDD 无法推进到证券主链本身。
+
+### 测试
+- `cargo test --test security_master_scorecard_cli -- --nocapture`
+- `cargo test --test security_forward_outcome_cli -- --nocapture`
+- `cargo test --test security_scorecard_training_cli security_scorecard_training_generates_artifact_and_registers_refit_outputs -- --nocapture`
+
+### 方案还差什么
+- [ ] 当前 `security_master_scorecard` 仍是“历史回放型总卡”，不是完整训练版 master balance scorecard；还没有把多目标训练头、贡献回归重估和在线 artifact 消费全部接进去。
+- [ ] 当前 `scorecard_status = model_unavailable` 时，总卡只能落为 `historical_replay_only`；如果后续要把总卡正式用于更多资产，还需要补对应资产的 scorecard model artifact。
+
+### 潜在问题
+- [ ] 当前总卡权重与子分数公式是透明固定规则，不是回归重估系数；后续如果训练版上线，需要注意不要让固定规则口径和训练版口径混淆。
+- [ ] 这轮为了继续 TDD 最小恢复了 foundation 两个历史文件，但没有顺手推进 foundation 其他演进工作；后续如果 foundation 继续重构，记得把这两个恢复文件纳入统一治理。
+
+### 关闭项
+- `security_master_scorecard` 已成为正式可发现、可路由的 stock CLI Tool。
+- 未来 5/10/20/30/60/180 天赚钱效益总卡已有最小正式对象，可输出 `horizon_breakdown / profitability_effectiveness_score / risk_resilience_score / path_quality_score / master_score / master_signal`。
+## 2026-04-11
+### 修改内容
+- 更新 `src/ops/security_decision_submit_approval.rs`，把 `master_scorecard` 正式接入审批提交主链，并在 `approval_brief.master_scorecard_summary` 中持久化总卡摘要。
+- 更新 `src/ops/security_master_scorecard.rs`，新增 `build_unavailable_security_master_scorecard_document(...)`，让最新实盘日缺少未来回放窗口时明确降级为 `replay_unavailable`，而不是直接中断审批流程。
+- 扩展 `tests/security_decision_submit_approval_cli.rs`：
+- 让 ready case 使用满足前后窗口的回放日期，锁住“正式总卡成功落盘”路径。
+- 新增 `security_decision_submit_approval_degrades_master_scorecard_when_replay_window_is_unavailable`，锁住“实盘审批不被历史回放窗口阻塞”的降级路径。
+- 清理 blocked case 对旧 `Long` 方向口径的陈旧断言，统一到当前正式桥接输出 `NoTrade`。
+- 更新 `docs/security-holding-ledger.md`，补记审批链总卡的正式口径，明确“回放可用”和“实盘降级”两种状态及复盘关注字段。
+
+### 修改原因
+- 用户要求继续推进，并且希望正式总卡不只是单独 Tool 存在，而是进入正式审批链和持仓报告，后续可以复盘。
+- 真实调试发现：`master_scorecard` 当前是历史回放型对象，直接硬接到 `submit_approval` 会在最新分析日因为缺少未来 `180` 天窗口而报错，进而误伤实盘审批流程；这必须显式收口。
+
+### 方案还差什么
+- [ ] 当前 `replay_unavailable` 仍是“显式不可回放”状态，不代表已经有了适用于实时审批的预测型总卡；后续如果要做实盘型赚钱效益总卡，还需要补单独的在线预测链。
+- [ ] 当前 `decision_package` 还没有单独扩 schema 去显式挂载 `master_scorecard_ref`；本轮先收口在审批摘要与持仓报告，不扩包结构边界。
+
+### 潜在问题
+- [ ] `replay_unavailable` 分支当前使用 `master_score = 0.0` 和 `master_signal = unavailable` 作为显式哨兵值；后续如果前端直接按数值排序，必须额外读取 `aggregation_status`，不能把它误判成“最差但可比”的真实分数。
+- [ ] ready case 现在依赖 `420` 天夹具和显式 `as_of_date = 2025-08-28` 来覆盖正路径；后续如果技术历史窗口或 horizon 口径调整，测试日期也要一起维护。
+
+### 关闭项
+- `security_decision_submit_approval` 已能在审批链中正式返回并落盘 `master_scorecard` 与 `approval_brief.master_scorecard_summary`。
+- `submit_approval` 的回放可用路径与实盘降级路径都已有正式 CLI 回归。
+
+## 2026-04-11
+### 修改内容
+- 更新 `docs/security-holding-ledger.md`，新增“2026-04-11 公开数据三线补录”章节，把 `511360.SH / 511010.SH / 511060.SH` 的公开市场数据补证、委员会补充意见、主席补充评估和对既有持仓计划的影响统一写回持仓台账。
+- 在同一章节中补充了 `2026-04-10` 债市宏观环境、3 只债券 ETF 的最新公开规模/资金流/流动性信息，以及未来 `5个交易日 / 2-4周` 的公开数据推演区间，供后续复盘对照。
+
+### 修改原因
+- 用户要求把“数据线、投决会线、主席评估”三条链都落入持仓计划文档，避免后续复盘时只剩正式链 JSON，而缺少公开市场环境与管理补录判断。
+- 当前正式链对这 3 只债券 ETF 的结论仍为 `avoid`，但公开数据已经能支持“观察优先级”的进一步细化，因此需要把这层补录和正式链明确并列保存，防止口径混淆。
+
+### 测试
+- 本轮为文档与研究补录更新，未新增代码，也未运行新的 Rust 自动化测试。
+- 已人工核对新增文档段落的结构、ETF 顺序、日期口径和外部数据来源链接。
+
+### 方案还差什么
+- [ ] 当前三线补录仍是“公开数据补证 + 管理判断”，不是新的正式 Tool 产物；如果后续要让这层内容进入正式审批对象，还需要扩正式 `committee/brief/package` 持久化结构。
+- [ ] 3 只债券 ETF 目前仍缺债券 ETF 专用正式评分卡模型，正式链仍会返回 `model_unavailable`，后续若要放行执行，需要先补模型与证据包。
+
+### 潜在问题
+- [ ] `511060.SH` 的最新可公开获取数据日期早于另外两只 ETF，数据完备度相对偏弱；后续如果能补到更近的溢价率或成交额数据，观察优先级可能需要重估。
+- [ ] 本轮“未来 5 个交易日 / 2-4 周”区间属于基于公开数据和宏观利率环境的管理推演，不应被误读为正式评分卡或收益承诺。
+
+### 关闭项
+- 3 只债券 ETF 的公开数据补录、委员会补充意见和主席补充评估已写入统一持仓台账：`docs/security-holding-ledger.md`
+- 后续复盘时，已可同时沿“正式链结论”和“公开数据三线补录”两条视角回看本次保本优先版组合。
+
+## 2026-04-11
+### 修改内容
+- 更新 `skills/security-pm-assistant-v1/SKILL.md`，新增“训练优先治理规则”，明确所有证券结论都要先判断是否存在训练支撑、可披露拟合摘要和足够样本，禁止把少量事实直接包装成正式可执行结论。
+- 更新 `skills/security-decision-workbench-v1/SKILL.md`，新增“训练优先规则”和“训练信息披露要求”，明确投决、调仓、组合建议必须先检查训练支撑，并在引用训练结论时同时披露样本与拟合摘要。
+- 更新 `skills/security-analysis-v1/SKILL.md`，新增“训练优先边界”，明确研究链在没有训练支撑时只能输出研究观察、可能性推演和证据缺口，不能越权下负责建议。
+- 新增 `docs/security-training-governance-rules.md`，把“训练优先、拟合可披露、训练持续回算重估、无训练不得冒充负责结论”的治理规则正式写成项目文档。
+
+### 修改原因
+- 用户明确指出：所有证券内容都应优先考虑通过训练得出结论，训练会随着样本和回算积累越来越准，不能只看一点点内容就快速给出负责建议。
+- 当前项目已经具备最小训练链和正式评分卡治理对象，但技能层仍缺少“训练不足时必须降级”的硬规则；如果不把这条规则写进 Skill，后续 AI 仍可能重复出现“快结论越权”的问题。
+
+### 测试
+- 本轮为 Skill 与治理文档更新，未新增 Rust 代码，也未运行新的自动化测试。
+- 已人工核对 3 个 Skill 和 1 份治理文档中的关键约束是否一致，确保“训练支撑的正式结论 / 正式链已运行但训练不可用的治理结论 / 仅研究观察”三层口径统一。
+
+### 方案还差什么
+- [ ] 当前只是把“训练优先”写成 Skill 与文档硬规则，还没有把这些规则完全编码成 CLI 层或运行时的强制校验。
+- [ ] 当前训练摘要仍偏最小化，只有 `sample_count / train-valid-test accuracy / positive_rate`；后续仍需要把 `AUC / KS / OOS / 分 horizon 表现` 这些指标真正落成代码输出。
+
+### 潜在问题
+- [ ] 这轮规则更新后，如果未来答复仍然没有显式说明“训练支撑是否存在”，就属于执行问题而不是规则缺失；后续需要通过对话验收来确保 Skill 真正生效。
+- [ ] 当前项目仍存在“正式链可以运行，但 scorecard = model_unavailable”的场景；后续对外表述时必须继续把它明确归类为“治理结论”，不能误叫成“训练放行结论”。
+
+### 关闭项
+- “训练优先、无训练不许冒充负责结论”的证券治理规则已写入 3 个核心证券 Skill。
+- 项目内已经有一份正式书面规则文档：`docs/security-training-governance-rules.md`。
+
+## 2026-04-11
+### 修改内容
+- 更新 `src/ops/security_scorecard.rs`，把 `risk_note_count` 正式补进 scorecard 原始特征快照，确保训练模型要求的风险笔记特征不会在运行时被静默漏掉。
+- 更新 `tests/security_decision_submit_approval_cli.rs`，把 ready case 的正式断言升级为：`scorecard.score_status = ready` 且 `master_scorecard.aggregation_status = replay_with_quant_context`，不再沿用旧的降级口径。
+
+### 修改原因
+- 用户要求先把“无训练支撑时不得产出高确定性建议”的运行时规则彻底收口，然后再开始训练数据；这意味着 happy path 也必须真实建立在完整训练特征之上，不能只让审批闸门放宽来假通过。
+- 实际排查发现 `security_decision_submit_approval_writes_runtime_files_for_ready_case` 失败的根因不是审批规则，而是 ready 模型 fixture 需要的 `risk_note_count` 没被写入 scorecard 原始特征快照，导致评分卡停在 `feature_incomplete`。
+
+### 测试
+- `cargo test --test security_decision_submit_approval_cli security_decision_submit_approval_writes_runtime_files_for_ready_case -- --nocapture`
+- `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+- `cargo test --test security_chair_resolution_cli -- --nocapture`
+
+### 方案还差什么
+- [ ] 当前只完成了“训练支撑缺失时运行时降级”和“happy path 需要完整训练特征”的治理闭环，还没有开始扩真实证券训练数据集与训练指标面板。
+- [ ] 训练链当前仍主要覆盖最小 `direction_head`，如果要把“大平衡计分卡”的未来赚钱效益做成真正可训练对象，还需要继续扩 horizon 标签、样本装配和拟合度输出。
+
+### 潜在问题
+- [ ] ready case 现在依赖现成测试 artifact 与 `risk_note_count` 一起构成完整特征命中；后续如果训练特征集合继续扩展，相关 ready fixture 和回归断言还需要同步维护。
+- [ ] `security_scorecard` 现在会把训练输入缺项直接反映成 `feature_incomplete`，这是正确治理口径；但后续如果前端或 Skill 没有显式展示这个状态，仍可能把“模型存在但特征不全”误读成“模型不可用”。
+
+### 关闭项
+- `submit_approval` 的 ready path 已恢复为真实训练支撑路径，不再被遗漏特征误伤成 `request_more_evidence`。
+- `chair` 与 `submit_approval` 的运行时训练闸门已完成交叉验证，当前可以进入训练数据阶段。
+
+## 2026-04-11
+### 修改内容
+- 为证券分析主链新增 EastMoney 资金面最小增强路径，补入 `capital_flow_context`，并接入 `security_analysis_contextual -> security_analysis_fullstack` 返回链。
+- 新增 `EastMoneyBudgetStore` 与 `EastMoneyCacheStore`，为免费额度场景提供每日预算控制与本地缓存能力。
+- 新增 `providers/eastmoney` 最小 provider 层与 `eastmoney_enrichment` 聚合层，先把资金面能力从业务文件中收口成独立边界。
+- 新增 `tests/eastmoney_enrichment_cli.rs`，并扩展 `security_analysis_fullstack_cli` 覆盖资金面可用与预算耗尽降级场景。
+- 同步 `.env.example` 与设计/实施文档，记录本轮 EastMoney 方案 2 落地路径。
+### 修改原因
+- 用户确认采用“方案 2：标准增强版”，目标是只补现有证券链缺少的东财增量数据，而不是替换已有行情历史主链。
+- 免费额度受限，必须优先把预算池、缓存池和降级语义立起来，否则接入后会很快失去可用性。
+- 现有 `security_analysis_fullstack` 直接拼东财请求，边界过于耦合，先抽出 provider/runtime/enrichment 能降低后续继续接事件面时的改动风险。
+### 方案还差什么
+- [ ] 当前只完成了资金面最小闭环，尚未把公告/资讯事件面改造成同样带预算池与缓存池的 provider/enrichment 路径。
+- [ ] 当前尚未把资金面补充正式纳入 `security_decision_evidence_bundle` 的证据质量与风险摘要字段。
+- [ ] 当前尚未实现多 Token 池；如果后续要做，需要先确认合规边界与轮询策略。
+### 潜在问题
+- [ ] 资金面默认端点当前通过环境变量注入，若生产环境未配置 `EXCEL_SKILL_EASTMONEY_CAPITAL_FLOW_URL_BASE`，将返回 `unavailable` 而不是自动取到真实远端数据。
+- [ ] 预算池当前按本地日期文件计数，适合单机单 runtime，但若后续引入多进程共享或多 Token 池，需要升级为更严格的并发一致性方案。
+- [ ] 现有 README / task_plan / findings / progress 的历史内容存在编码噪音，本轮新增设计文档已落盘，但这些历史文件若要继续持续维护，后续最好先统一编码。
+### 关闭项
+- EastMoney 资金面预算池与缓存池的最小运行闭环已完成，并已有自动化测试覆盖预算耗尽与缓存命中。
+- `security_analysis_fullstack` 已能稳定返回 `technical_context.capital_flow_context`，下游 `security_decision_evidence_bundle_cli` 回归通过。
+## 2026-04-11 14:28 Task - bond ETF real training probe succeeded
+
+- Scope:
+  - Ran a real `security_scorecard_training` probe against the local bond ETF history DB at `D:\Rust\Excel_Skill\.excel_skill_runtime\holding_review_2026-04-11_defensive_rr15\stock_history.db`.
+  - Focused symbols: `511360.SH`, `511010.SH`, `511060.SH`; market proxy `510300.SH`; sector proxy `511010.SH`.
+- Key finding:
+  - The earlier failed windows were mainly caused by the combined constraint of `200` history rows and a very narrow negative-label pocket on `511010.SH`.
+  - A viable governed split was confirmed with:
+    - `train_range = 2026-01-22..2026-02-13`
+    - `valid_range = 2026-02-24..2026-03-03`
+    - `test_range = 2026-03-04..2026-03-11`
+    - `train/valid/test samples_per_symbol = 4/2/2`
+- Training outcome:
+  - Runtime root: `D:\Rust\Excel_Skill\.excel_skill_runtime\bond_etf_training_probe_20260411_b`
+  - Model id: `a_share_bond_etf_10d_direction_head`
+  - Model version: `candidate_2026_04_11T14_20_00_08_00`
+  - Registry ref: `registry-a_share_bond_etf_10d_direction_head-candidate_2026_04_11T14_20_00_08_00-10d-direction_head`
+- Fit panel summary:
+  - `sample_count = 24`
+  - `train accuracy = 0.9167`, `train auc = 0.7727`, `train ks = 0.8182`
+  - `valid accuracy = 0.6667`, `valid auc = 0.7500`, `valid ks = 0.7500`
+  - `test accuracy = 0.8333`, `test auc = 0.8000`, `test ks = 0.8000`
+- Remaining risk:
+  - The label mix is still highly imbalanced toward positive returns, especially because `511360.SH` and most of `511060.SH` windows stay positive in the current history slice.
+  - `hit_upside_first_rate` and `hit_stop_first_rate` remain `0.0`, which means the current bond ETF history is still weak for path-event heads and should not be over-claimed as a full production-grade training set.
+
+## 2026-04-11 15:30 Task - bond ETF history backfill and long-horizon probability refresh
+
+- Scope:
+  - Backfilled the current bond ETF training DB through the existing `sync_stock_price_history` mainline instead of creating a new history pipeline.
+  - Updated the holding ledger with the refreshed multi-horizon training probabilities and the root-cause note for the identical `511010.SH / 511060.SH` outputs.
+- Backfill actions:
+  - Target DB: `D:\Rust\Excel_Skill\.excel_skill_runtime\holding_review_2026-04-11_defensive_rr15\stock_history.db`
+  - Synced `511360.SH`, `511010.SH`, `511060.SH`, and `510300.SH` for `2024-01-01..2025-03-31`.
+  - Provider used: `tencent`
+  - Resulting history coverage for all four symbols: `2024-01-02..2026-04-10`, `548` rows each.
+- Root-cause finding:
+  - The earlier identical probabilities for `511010.SH` and `511060.SH` were not caused by mixed history rows.
+  - Their `2026-04-10` `raw_feature_snapshot` values are identical on the currently consumed scorecard features:
+    - `integrated_stance = technical_only`
+    - `technical_alignment = mixed`
+    - `data_gap_count = 2`
+    - `risk_note_count = 8`
+  - With the current four-feature scorecard, identical feature bins naturally produce identical probabilities.
+- Training outcome after backfill:
+  - Long horizons became trainable on the same governed training path.
+  - Refreshed candidate probabilities for `2026-04-10`:
+    - `511360.SH`: `3d=0.9996`, `6d=0.4815`, `10d=0.9995`, `30d=0.9999`, `60d=0.7885`, `180d=0.9809`
+    - `511010.SH`: `3d=0.8712`, `6d=0.9975`, `10d=0.5998`, `30d=0.9995`, `60d=0.9992`, `180d=0.9997`
+    - `511060.SH`: `3d=0.8712`, `6d=0.9975`, `10d=0.5998`, `30d=0.9995`, `60d=0.9992`, `180d=0.9997`
+- Fit-quality caution:
+  - `30d` is now trainable, but the current candidate still shows weak out-of-sample behavior (`valid_auc = 0.3333`, `test_auc = 0.0000`), so the high long-horizon probabilities must not be over-read as high-confidence signals.
+  - The refreshed probabilities are suitable for review and ledgering, not yet for replacing the chair/approval execution gate.
+
+## 2026-04-11 16:40 Task - split ETF scorecard family and add invalid binding guard
+
+### 修改内容
+- Added ETF-specific differentiating raw features to the unified evidence seed in `src/ops/security_decision_evidence_bundle.rs`.
+- Switched scorecard training to choose feature configs by `instrument_scope`, keeping equity stable and expanding ETF with numeric technical differentiators in `src/ops/security_scorecard_training.rs`.
+- Reused the unified evidence seed inside runtime scorecard snapshot construction and added an ETF/equity model-family guard in `src/ops/security_scorecard.rs`.
+- Added focused unit tests for ETF training feature configs and ETF runtime invalid binding behavior.
+- Added integration regressions proving ETF-specific fields are exposed by `security_feature_snapshot` and that `security_decision_submit_approval` downgrades an ETF symbol when bound to an equity artifact.
+- Wrote design and implementation plan files:
+  - `docs/plans/2026-04-11-etf-separate-scorecard-model-design.md`
+  - `docs/plans/2026-04-11-etf-separate-scorecard-model-plan.md`
+
+### 修改原因
+- The previous four-feature scorecard family could collapse different ETF symbols into identical probabilities, which is mathematically explainable but operationally invalid.
+- The user explicitly required ETF and equity to become separate model families, while keeping the governance chain shared.
+
+### 方案还差什么
+- [ ] Stage 2 still needs ETF external context features such as gold, overseas market, and futures linkage, but this round intentionally stayed inside the local-history pipeline.
+- [ ] The current ETF invalid guard only blocks wrong model-family binding; it does not yet compare peer ETF outputs inside the same batch for deeper cross-sectional diagnostics.
+
+### 潜在问题
+- [ ] Bond ETF training samples are still relatively small, so even after splitting the feature family, long-horizon fit quality can remain unstable until more ETF history and richer external context are added.
+- [ ] If a future ETF artifact includes the ETF feature names but poor bins, the current guard will treat the family as structurally valid; deeper artifact-quality checks may still be needed later.
+
+### 关闭项
+- ETF raw feature seeds now expose numeric differentiators such as `close_vs_sma50`, `volume_ratio_20`, `rsrs_zscore_18_60`, `support_gap_pct_20`, and `resistance_gap_pct_20`.
+- ETF training no longer shares the same coarse-only feature config as equity.
+- The approval chain now downgrades an ETF symbol to `cross_section_invalid` when it is bound to the existing equity scorecard artifact.
+
+## 2026-04-11 18:10 Task - add governed training readiness assessment panel
+
+### 修改内容
+- Added `readiness_assessment` to `security_scorecard_training` metrics output in `src/ops/security_scorecard_training.rs`.
+- Formalized four governed readiness fields:
+  - `minimum_sample_status`
+  - `class_balance_status`
+  - `path_event_coverage_status`
+  - `production_readiness`
+- Added structured readiness notes so downstream governance can explain why a run stays research-only.
+- Extended `tests/security_scorecard_training_cli.rs` to lock the readiness panel through the main CLI contract.
+
+### 修改原因
+- The current training chain could expose fit metrics, but it still lacked an explicit machine-readable statement of whether the sample pool is production-leaning or still only suitable for research governance.
+- Scheme B needs the system to surface sample sufficiency and path-event sparsity before we keep expanding asset pools and model heads.
+
+### 方案还差什么
+- [ ] The readiness panel still uses rule-based thresholds, not learned promotion thresholds from shadow performance.
+- [ ] `production_readiness` is still a governance summary and has not yet been connected to automatic `candidate -> shadow -> champion` promotion.
+
+### 潜在问题
+- [ ] The current sample threshold is fixed at `12/6/6` for `train/valid/test`, so future larger training plans may need a more adaptive readiness rule.
+- [ ] Path-event coverage is currently judged from the train split only; later stages may need split-by-split and horizon-by-horizon coverage gates.
+
+### 关闭项
+- Training runs now expose an explicit governed answer when the sample pool is still only `research_candidate_only`.
+- The main training CLI regression now verifies that sparse path events are surfaced as a first-class readiness limitation instead of being left implicit.
+
+## 2026-04-11 19:05 Task - split ETF model binding into four governed subscopes
+
+### 修改内容
+- Added ETF subscope routing helpers in `src/ops/security_decision_evidence_bundle.rs`, including `is_etf_symbol(...)` and `resolve_etf_subscope(...)`, and propagated `market_profile`, `sector_profile`, and `instrument_subscope` into the raw evidence seed.
+- Extended `SecurityScorecardTrainingRequest` in `src/ops/security_scorecard_training.rs` with `instrument_subscope`, enforced ETF subscope resolution during request validation, and wrote subscoped ETF model ids such as `a_share_etf_treasury_etf_10d_direction_head` into scorecard artifacts.
+- Extended runtime scorecard binding in `src/ops/security_scorecard.rs` with `instrument_subscope` and downgraded ETF scorecards to `cross_section_invalid` when the runtime ETF subscope and the bound artifact subscope do not match.
+- Added focused red-green coverage:
+  - `etf_training_artifact_model_id_carries_treasury_subscope`
+  - `etf_runtime_guard_rejects_wrong_etf_subscope_binding`
+  - `security_decision_submit_approval_rejects_wrong_etf_subscope_binding_for_bond_etf`
+- Re-ran adjacent regressions proving the older ETF family guard and the training CLI still pass after the subscope split.
+
+### 修改原因
+- The previous ETF-only family split was still too coarse for production-leaning governance because bond ETF, equity ETF, gold ETF, and cross-border ETF can share the same top-level `ETF` scope while depending on very different market drivers.
+- Scheme C requires the system to stop accepting structurally wrong ETF artifacts before we invest in richer external factors and per-pool champion training.
+
+### 方案还差什么
+- [ ] Gold ETF and cross-border ETF still rely on symbol/profile heuristics for subscope routing; this round intentionally did not introduce a larger asset taxonomy service.
+- [ ] The training chain now separates ETF subscopes structurally, but we still need true per-subscope datasets and candidate/champion artifacts before these pools can be treated as production-ready.
+
+### 潜在问题
+- [ ] `resolve_etf_subscope(...)` currently treats `511010` and `511060` as the same `treasury_etf` pool; if later governance wants local-government bond ETFs separated from treasury ETFs, we will need a fifth sub-pool and migration logic.
+- [ ] A malformed artifact could still claim the correct `instrument_subscope` while containing weak bins or poor fit quality, so artifact-quality promotion gates remain necessary on top of the new structural guard.
+
+### 关闭项
+- ETF artifacts now carry an explicit governed subscope instead of only the broad `ETF` family.
+- Runtime scorecards and approval submission now reject ETF artifacts that belong to the wrong ETF sub-pool.
+- Adjacent regressions for ETF family guards and training CLI remained green after the four-subscope split.
+
+## 2026-04-11 19:50 Task - add subscope-specific minimum factor families for ETF pools
+
+### 修改内容
+- Added governed ETF minimum factor families in `src/ops/security_decision_evidence_bundle.rs` for:
+  - `equity_etf`
+  - `treasury_etf`
+  - `gold_etf`
+  - `cross_border_etf`
+- Added `required_etf_feature_family(...)` as the shared lookup so training and runtime consume the same ETF pool structure.
+- Updated `src/ops/security_scorecard_training.rs` so ETF training configs now branch by `instrument_subscope` instead of appending one generic ETF differentiator list.
+- Updated `src/ops/security_scorecard.rs` so runtime ETF guard now rejects artifacts that declare the correct ETF sub-pool but still omit that sub-pool's required minimum factor family.
+- Added focused red-green coverage:
+  - `etf_training_feature_config_separates_treasury_and_gold_subscopes`
+  - `etf_runtime_guard_rejects_treasury_binding_without_treasury_feature_family`
+  - `security_decision_submit_approval_rejects_treasury_etf_binding_without_treasury_feature_family`
+
+### 修改原因
+- The previous ETF subscope split still left all ETF pools sharing one generic differentiating feature family, which meant a treasury ETF artifact could keep passing structurally with an equity-style factor entrance.
+- Scheme B needs ETF pool identity and ETF pool factor-family requirements to become the same governed contract before we add richer external market drivers.
+
+### 方案还差什么
+- [ ] Gold ETF and cross-border ETF still use local technical proxies only; this round deliberately did not connect gold price, FX, overseas index, or futures proxies yet.
+- [ ] The current ETF subscope families are minimum entrances, not full production factor sets; later stages still need per-pool external factors and larger training pools.
+
+### 潜在问题
+- [ ] Some ETF pools currently share overlapping technical factors by design, so structural separation is improved but not yet sufficient for production-grade cross-sectional ranking.
+- [ ] If a future artifact carries the required minimum ETF sub-pool family but has weak fit quality, runtime will treat it as structurally valid until promotion gates and fit-quality gates become stricter.
+
+### 关闭项
+- ETF training now differentiates treasury ETF and gold ETF at the minimum factor-family level instead of only by model id.
+- Runtime scorecard and approval submission now reject a treasury ETF artifact that lacks the treasury ETF minimum factor family even when its `instrument_subscope` label says `treasury_etf`.
+- Adjacent regressions for ETF subscope identity, ETF family mismatch, and the main training CLI remained green after the minimum factor-family split.
+
+## 2026-04-11 20:35 Task - add placeholder external proxy contracts for governed ETF sub-pools
+
+### 修改内容
+- Added placeholder ETF external proxy contract fields in `src/ops/security_decision_evidence_bundle.rs` for:
+  - `treasury_etf`
+  - `gold_etf`
+  - `cross_border_etf`
+  - `equity_etf`
+- Extended each governed ETF minimum factor family so runtime artifact validation now requires the sub-pool-specific proxy-contract fields in addition to the existing local technical entrance.
+- Added raw feature seed emission for ETF proxy-contract statuses:
+  - active ETF sub-pool fields emit `placeholder_unbound`
+  - inactive ETF sub-pool fields emit `not_applicable`
+- Updated `src/ops/security_scorecard_training.rs` so ETF `_proxy_status` features are treated as categorical inputs instead of numeric signals.
+- Repaired and greened the approval regression in `tests/security_decision_submit_approval_cli.rs` so `gold_etf` artifacts that omit the gold proxy-contract family now fail with `cross_section_invalid`.
+- Added supporting design/plan docs:
+  - `docs/plans/2026-04-11-etf-external-proxy-contracts-design.md`
+  - `docs/plans/2026-04-11-etf-external-proxy-contracts-plan.md`
+
+### 修改原因
+- The ETF pool split was still missing stable contract names for future external drivers, which meant later integration of rates, FX, gold, overseas, and ETF-flow data would have required another schema change.
+- Scheme C needs us to freeze ETF proxy contract fields now so training, runtime guardrails, and approval can all reject structurally incomplete ETF artifacts before real external feeds arrive.
+
+### 方案还差什么
+- [ ] These proxy fields are placeholders only; real treasury-rate, funding, gold, FX, overseas-market, and ETF-flow data ingestion is still a later phase.
+- [ ] Runtime currently validates structural presence of the proxy-contract family, not whether the external proxy values are fresh, complete, or economically useful.
+
+### 潜在问题
+- [ ] A future artifact can still carry the full ETF proxy-contract family but remain weak in fit quality, so production promotion gates are still required on top of this structural governance.
+- [ ] `gold_etf` approval regression currently uses a synthetic gold-sector proxy symbol only to pass the existing contextual analysis precondition; later gold ETF knowledge should replace this with a governed peer-proxy mapping.
+
+### 关闭项
+- Four governed ETF sub-pools now expose stable placeholder external proxy contracts in the raw feature schema.
+- ETF training now classifies `_proxy_status` fields as categorical features instead of misreading them as numeric indicators.
+- Approval flow now rejects a `gold_etf` artifact that omits the required gold proxy-contract family.
+- Focused and adjacent regressions remained green after the ETF proxy-contract rollout.
+
+## 2026-04-11 21:05 Task - wire manual gold ETF proxy inputs into the governed decision chain
+
+### 修改内容
+- Added `SecurityExternalProxyInputs` to the governed gold ETF path so manual proxy values can now travel through:
+  - `security_feature_snapshot`
+  - `security_forward_outcome`
+  - `security_decision_committee`
+  - `security_scorecard_training`
+  - `security_master_scorecard`
+  - `security_chair_resolution`
+  - `security_decision_submit_approval`
+- Extended `src/ops/security_decision_evidence_bundle.rs` so `gold_etf` raw features now freeze:
+  - `gold_spot_proxy_status`
+  - `gold_spot_proxy_return_5d`
+  - `usd_index_proxy_status`
+  - `usd_index_proxy_return_5d`
+  - `real_rate_proxy_status`
+  - `real_rate_proxy_delta_bp_5d`
+- Kept the evidence hash deterministic by hashing manual floating-point proxy values via `to_bits()`.
+- Refactored gold numeric proxy emission to reuse the governed field registry instead of repeating three separate inserts.
+- Added supporting design/plan docs:
+  - `docs/plans/2026-04-11-gold-etf-manual-proxy-input-design.md`
+  - `docs/plans/2026-04-11-gold-etf-manual-proxy-input-plan.md`
+
+### 修改原因
+- Scheme B needed a formal way to feed live gold ETF proxy values into the scorecard and approval chain without bypassing the existing audited request objects.
+- The placeholder contract rollout was structurally ready, but still could not preserve manually supplied gold, USD, and real-rate proxy values as governed raw features.
+
+### 方案还差什么
+- [ ] Real external proxy ingestion is still missing for gold ETF; this task only formalizes manual governed inputs.
+- [ ] Historical proxy backfill and refit are still required before these inputs can support production-grade gold ETF modeling.
+
+### 潜在问题
+- [ ] Manual proxy inputs can still be economically weak or stale even when the structure is complete, so promotion gates must continue to check fit quality separately.
+- [ ] Current grouped-feature exposure only proves transport and freezing; later consumers may still need stronger semantic grouping once gold-specific modeling deepens.
+
+### 关闭项
+- Manual gold ETF proxy inputs now survive the formal feature-freeze path instead of staying outside the governed decision chain.
+- Gold ETF scorecard and approval flows can now consume manually supplied proxy values without falling back to `placeholder_unbound`.
+- Focused and adjacent regressions remained green after the manual gold proxy-input rollout.
+
+## 2026-04-11 21:40 Task - wire manual treasury ETF proxy inputs into the governed decision chain
+
+### 修改内容
+- Extended `src/ops/security_decision_evidence_bundle.rs` so `SecurityExternalProxyInputs` now carries treasury ETF manual proxy fields:
+  - `yield_curve_proxy_status`
+  - `yield_curve_slope_delta_bp_5d`
+  - `funding_liquidity_proxy_status`
+  - `funding_liquidity_spread_delta_bp_5d`
+- Expanded the governed treasury ETF feature family to require both treasury proxy statuses and treasury numeric proxy fields.
+- Added treasury ETF numeric raw-feature freezing and grouped `X` feature exposure in:
+  - `src/ops/security_decision_evidence_bundle.rs`
+  - `src/ops/security_feature_snapshot.rs`
+- Updated proxy-status resolution so an active treasury ETF request with numeric treasury proxy inputs can resolve to `manual_bound` instead of staying `placeholder_unbound`.
+- Extended evidence hashing so treasury ETF manual proxy values participate in the deterministic evidence hash.
+- Added treasury ETF red-to-green regressions in:
+  - `tests/security_feature_snapshot_cli.rs`
+  - `tests/security_decision_submit_approval_cli.rs`
+  - treasury ETF feature-family and training config assertions inside the relevant unit tests
+- Added supporting design/plan docs:
+  - `docs/plans/2026-04-11-treasury-etf-manual-proxy-input-design.md`
+  - `docs/plans/2026-04-11-treasury-etf-manual-proxy-input-plan.md`
+
+### 修改原因
+- Scheme B required treasury ETF to stop relying on placeholder-only proxy contracts and begin accepting governed manual macro proxy inputs, just like the gold ETF path.
+- Without treasury numeric proxy fields, scorecard and approval consumers could not distinguish a real manual treasury macro view from an unbound placeholder state.
+
+### 方案还差什么
+- [ ] Real treasury external proxy ingestion is still missing; this task only formalizes manually supplied treasury macro inputs.
+- [ ] Historical treasury proxy backfill and refit are still required before treasury ETF modeling can move beyond research-grade governance.
+
+### 潜在问题
+- [ ] Manual treasury proxy values can be stale or economically weak even when the structure is correct, so model promotion must still depend on fit and freshness governance later.
+- [ ] Grouped `X` exposure proves transport and freezing, but treasury-specific grouping semantics may need refinement once richer rate and funding proxies are added.
+
+### 关闭项
+- Treasury ETF manual proxy inputs now survive the governed feature-freeze path.
+- Treasury ETF scorecard and approval flows can consume manual treasury proxy inputs without falling back to `placeholder_unbound`.
+- Focused and adjacent treasury ETF regressions remained green after the manual proxy-input rollout.
+
+## 2026-04-11 22:18 Task - wire manual cross-border ETF proxy inputs into the governed decision chain
+
+### 修改内容
+- Extended `src/ops/security_decision_evidence_bundle.rs` so `SecurityExternalProxyInputs` now carries governed manual cross-border ETF proxy fields:
+  - `fx_proxy_status`
+  - `fx_return_5d`
+  - `overseas_market_proxy_status`
+  - `overseas_market_return_5d`
+  - `market_session_gap_status`
+  - `market_session_gap_days`
+- Expanded the governed `cross_border_etf` feature family and proxy field registries so runtime scorecard, training, and approval share the same audited contract.
+- Added cross-border ETF numeric raw-feature freezing and grouped `X` feature exposure in:
+  - `src/ops/security_decision_evidence_bundle.rs`
+  - `src/ops/security_feature_snapshot.rs`
+- Updated cross-border proxy-status resolution so active-pool numeric-only inputs can resolve to `manual_bound` instead of remaining `placeholder_unbound`.
+- Extended evidence hashing so FX, overseas market, and market-session-gap inputs are part of the deterministic evidence hash.
+- Narrowed ETF training config handling in `src/ops/security_scorecard_training.rs` so `market_session_gap_status` is treated as a categorical contract field instead of a numeric feature.
+- Added supporting design/plan docs:
+  - `docs/plans/2026-04-11-cross-border-etf-manual-proxy-input-design.md`
+  - `docs/plans/2026-04-11-cross-border-etf-manual-proxy-input-plan.md`
+
+### 修改原因
+- Scheme B required `cross_border_etf` to stop relying on placeholder-only overseas proxy contracts and begin accepting governed manual FX, overseas-market, and session-gap inputs.
+- Without these fields, Nikkei, QDII, and other overseas-linked ETF reviews could not freeze manual cross-border context into the same audited decision package as other ETF pools.
+
+### 方案还差什么
+- [ ] Real FX and overseas market feed ingestion is still missing; this task only formalizes manually supplied cross-border proxy inputs.
+- [ ] Historical cross-border proxy backfill and model refit are still required before `cross_border_etf` can move beyond research-grade governance.
+
+### 潜在问题
+- [ ] Manual cross-border proxy values can become stale or misaligned with overseas close timing, so later freshness governance still needs to be enforced.
+- [ ] Session-gap support is currently a scalar contract only; richer exchange-calendar semantics may be required when cross-border ETF pools expand beyond the current QDII/Nikkei-style assumptions.
+
+### 关闭项
+- Cross-border ETF manual proxy inputs now survive the governed feature-freeze path.
+- Cross-border ETF feature snapshot and approval flows can consume FX, overseas market, and session-gap proxy inputs without falling back to `placeholder_unbound`.
+- Focused and adjacent cross-border ETF regressions remained green after the manual proxy-input rollout.
+
+## 2026-04-11 22:42 Task - wire manual equity ETF proxy inputs into the governed decision chain
+
+### 修改内容
+- Extended `src/ops/security_decision_evidence_bundle.rs` so `SecurityExternalProxyInputs` now carries governed manual equity ETF proxy fields:
+  - `etf_fund_flow_proxy_status`
+  - `etf_fund_flow_5d`
+  - `premium_discount_proxy_status`
+  - `premium_discount_pct`
+  - `benchmark_relative_strength_status`
+  - `benchmark_relative_return_5d`
+- Expanded the governed `equity_etf` feature family and proxy field registries so runtime scorecard, training, and approval share the same audited contract.
+- Added equity ETF numeric raw-feature freezing and grouped `X` feature exposure in:
+  - `src/ops/security_decision_evidence_bundle.rs`
+  - `src/ops/security_feature_snapshot.rs`
+- Updated equity ETF proxy-status resolution so active-pool numeric-only inputs can resolve to `manual_bound` instead of remaining `placeholder_unbound`.
+- Extended evidence hashing so ETF fund-flow, premium-discount, and benchmark-relative inputs are part of the deterministic evidence hash.
+- Narrowed ETF training config handling in `src/ops/security_scorecard_training.rs` so `benchmark_relative_strength_status` is treated as a categorical contract field instead of a numeric feature.
+- Added supporting design/plan docs:
+  - `docs/plans/2026-04-11-equity-etf-manual-proxy-input-design.md`
+  - `docs/plans/2026-04-11-equity-etf-manual-proxy-input-plan.md`
+
+### 修改原因
+- Scheme B required `equity_etf` to stop relying on placeholder-only ETF market-structure contracts and begin accepting governed manual fund-flow, premium-discount, and benchmark-relative inputs.
+- Without these fields, sector ETF and broad-index ETF reviews could not freeze manual ETF structure context into the same audited decision package as other ETF pools.
+
+### 方案还差什么
+- [ ] Real ETF fund-flow and premium-discount ingestion is still missing; this task only formalizes manually supplied equity ETF proxy inputs.
+- [ ] Historical equity ETF proxy backfill and model refit are still required before `equity_etf` can move beyond research-grade governance.
+
+### 潜在问题
+- [ ] Manual equity ETF proxy values can become stale or inconsistent with intraday ETF structure, so later freshness governance still needs to be enforced.
+- [ ] `benchmark_relative_strength_status` is currently a contract-level flag only; richer benchmark classification semantics may be required when equity ETF pools are split further.
+
+### 关闭项
+- Equity ETF manual proxy inputs now survive the governed feature-freeze path.
+- Equity ETF feature snapshot and approval flows can consume fund-flow, premium-discount, and benchmark-relative proxy inputs without falling back to `placeholder_unbound`.
+- Focused and adjacent equity ETF regressions remained green after the manual proxy-input rollout.
+
+## 2026-04-11 23:58 Task - land P3 multi-head scorecard flow through master scorecard and chair resolution
+
+### 修改内容
+- Extended `src/ops/security_scorecard_training.rs` so governed training now supports multi-head target modes instead of a direction-only path:
+  - classification heads: `direction_head`, `upside_first_head`, `stop_first_head`
+  - regression heads: `return_head`, `drawdown_head`, `path_quality_head`
+- Added regression artifact support in `src/ops/security_scorecard.rs`:
+  - `target_head`
+  - `prediction_mode`
+  - `prediction_baseline`
+  - `predicted_value`
+- Exposed governed regression prediction helpers so downstream scorecard consumers can load and score trained multi-head artifacts without forking the scorecard contract.
+- Extended `src/ops/security_master_scorecard.rs` so master scorecard requests can consume:
+  - `return_head_model_path`
+  - `drawdown_head_model_path`
+  - `path_quality_head_model_path`
+- Added `trained_head_summary` to the formal master scorecard document and upgraded aggregation states to distinguish:
+  - `historical_replay_only`
+  - `replay_with_quant_context`
+  - `replay_with_multi_head_quant_context`
+- Changed `src/ops/security_master_scorecard.rs` to degrade gracefully when a live snapshot has no full replay window:
+  - instead of returning an error, it now emits a governed `replay_unavailable` document
+  - the degraded document preserves multi-head summary context when trained heads are available
+- Rewired `src/ops/security_chair_resolution.rs` so chair resolution now reads the formal `security_master_scorecard` object instead of rebuilding committee and scorecard context ad hoc.
+- Upgraded chair reasoning and execution constraints to reference multi-head quant context, including trained expected drawdown guidance.
+- Updated `src/ops/security_decision_submit_approval.rs` so approval-stage degraded master-scorecard generation follows the new unavailable-builder signature without dropping governed context.
+- Added and updated focused coverage in:
+  - `tests/security_scorecard_training_cli.rs`
+  - `tests/security_master_scorecard_cli.rs`
+  - `tests/security_chair_resolution_cli.rs`
+
+### 修改原因
+- P3 needed to stop at neither verbal “future profitability” explanations nor single-head direction classification.
+- The user required one continuous path from governed training outputs to master scorecard aggregation and final chair reasoning, without pretending replay-unavailable live dates are hard errors.
+
+### 方案还差什么
+- [ ] The three regression heads are now governed and consumable, but they are still simple bin-mean regression heads rather than a stronger production-grade modeling stack.
+- [ ] `upside_first_head` and `stop_first_head` remain classification-ready in training, but they still need richer path-event sample coverage before they can be treated as strong live signals.
+- [ ] Master-scorecard aggregation still uses transparent fixed rules; coefficient re-estimation and champion promotion remain future work in the later governance phase.
+
+### 潜在问题
+- [ ] Live snapshots with `replay_unavailable` can still carry multi-head context, so downstream consumers must not sort or rank solely by `master_score` without also reading `aggregation_status`.
+- [ ] Regression-head predictions currently depend on matching feature bins and fall back to a baseline when bins are sparse; this is correct for the current governed candidate stage but may underfit new regimes.
+- [ ] Chair reasoning now trusts trained-head presence, not full replay availability, so future UI or Skill layers must explain the difference between `multi_head_ready` and `replay_unavailable`.
+
+### 关闭项
+- Multi-head regression training now runs through the governed CLI flow for `return_head`, `drawdown_head`, and `path_quality_head`.
+- Master scorecard can now attach trained multi-head quant context and keep operating when the latest snapshot lacks a full forward replay window.
+- Chair resolution now reads and cites the governed multi-head master scorecard instead of stopping at committee plus single-head scorecard language.
+- Focused and adjacent regressions passed:
+  - `cargo test --test security_scorecard_training_cli -- --nocapture`
+  - `cargo test --test security_master_scorecard_cli -- --nocapture`
+  - `cargo test --test security_chair_resolution_cli -- --nocapture`
+  - `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+
+## 2026-04-11 23:59 Task - write the next-phase plan for path-event heads and historical proxy backfill
+
+### 修改内容
+- Added the next formal implementation plan at:
+  - `docs/plans/2026-04-11-p4-path-events-and-history-backfill.md`
+- The new plan defines one governed phase that combines:
+  - historical external-proxy backfill
+  - dated training-sample joins
+  - `upside_first_head`
+  - `stop_first_head`
+  - master-scorecard and chair-level path-event consumption
+- Captured recommended sequencing, exact file targets, focused test commands, and done-state criteria so the next session can execute without rediscovering the work boundary.
+
+### 修改原因
+- The user approved moving directly into the next gate after P3 and asked for a concrete plan first.
+- This phase needs a stable written boundary, otherwise path-event modeling and history backfill are likely to sprawl into an unfocused “do everything” branch.
+
+### 方案还差什么
+- [ ] The plan is written, but the new governed backfill tool and path-event heads are not implemented yet.
+- [ ] The plan assumes one new historical proxy runtime path; exact storage shape still needs to be finalized during Task 1 red tests.
+
+### 潜在问题
+- [ ] Historical proxy backfill can drift from live proxy contracts if later code changes only one side; contract tests will be essential.
+- [ ] Path-event heads may still remain sample-thin after backfill unless we deliberately backfill enough stressed windows for ETFs and cross-asset pools.
+
+### 关闭项
+- The next implementation gate is now documented with exact tasks, files, and regression commands.
+- Future execution can start directly from `docs/plans/2026-04-11-p4-path-events-and-history-backfill.md` without re-planning from scratch.
+
+## 2026-04-11 Task - close the P4 historical-backfill and path-event bundle
+
+### 修改内容
+- Finished the governed `P4` bundle across historical proxy backfill, path-event heads, master-scorecard aggregation, and chair-level consumption:
+  - historical external proxy storage/tool wiring
+  - dated proxy hydration into feature snapshots
+  - `upside_first_head` / `stop_first_head` training-readiness reporting
+  - master-scorecard path-event probability context
+  - chair reasoning and execution-constraint path-event asymmetry
+- Stabilized the failing `stop_first_head` synthetic fixture in [tests/security_scorecard_training_cli.rs](D:/Rust/Excel_Skill/tests/security_scorecard_training_cli.rs):
+  - kept the positive symbol in a `none` regime
+  - retuned the negative symbol from an over-steep collapse to a controlled stop-first path
+  - preserved the strict mixed-label guard instead of weakening production validation
+- Verified the focused `P4` suites end-to-end:
+  - `cargo test --test security_external_proxy_backfill_cli -- --nocapture`
+  - `cargo test --test security_scorecard_training_cli -- --nocapture`
+  - `cargo test --test security_master_scorecard_cli -- --nocapture`
+  - `cargo test --test security_chair_resolution_cli -- --nocapture`
+
+### 修改原因
+- The last blocking failure in the continuous `Task 1 -> Task 6` delivery was not production logic drift but a stop-first fixture that collapsed to floor pricing before the governed sample windows.
+- The user required this whole gate to be finished in one pass, so the remaining work needed to end with a green focused bundle rather than another partial handoff.
+
+### 方案还差什么
+- [ ] Historical proxy inputs are now governable and hydratable, but most pools still rely on manual or placeholder proxy values rather than true historical external series.
+- [ ] `upside_first_head` and `stop_first_head` are now trained and consumable, but richer stressed-window coverage is still needed before they can be promoted beyond candidate use.
+- [ ] Downstream consumers still need later governance work to distinguish `candidate`, `shadow`, and `champion` models formally.
+
+### 潜在问题
+- [ ] The repaired `stop_first_head` fixture is deterministic for the governed sample windows, but future changes to sampling ranges or history thresholds could invalidate the geometry; a fixture-intent test would be a good next lock.
+- [ ] `master_scorecard` and chair outputs now carry more path-event context, so any UI or Skill layer that reads them must not treat those probabilities as champion-grade live signals yet.
+- [ ] The repo still contains many unrelated dirty files and fixture directories; this task intentionally did not clean them to avoid crossing into unrelated work.
+
+### 关闭项
+- The `stop_first_head` training regression is green again without loosening the production mixed-label guard.
+- The focused `P4` bundle is now self-consistent across backfill, training, master-scorecard, and chair layers.
+- The continuous `Task 1 -> Task 6` execution for this gate is functionally closed at the focused-regression level.
+
+## 2026-04-11 Task - design the P5 shadow champion and history expansion phase
+
+### 修改内容
+- Added the formal `P5` design document at:
+  - `docs/plans/2026-04-11-p5-shadow-champion-and-history-expansion-design.md`
+- Added the executable implementation plan at:
+  - `docs/plans/2026-04-11-p5-shadow-champion-and-history-expansion.md`
+- Locked the next governed phase to one recommended direction:
+  - historical proxy expansion governance
+  - `candidate -> shadow -> champion` grade semantics
+  - approval and decision-package grade consumption
+
+### 修改原因
+- After `P4` closed, the next structural blocker was no longer path-event support but the lack of a governed lifecycle that tells us which trained artifacts are only research candidates and which can enter release-grade approval.
+- The user approved Scheme C and wanted to move directly into the next gate without re-discovering scope later.
+
+### 方案还差什么
+- [ ] The new `P5` phase is designed and planned, but no implementation code has been written yet.
+- [ ] Exact grade thresholds for `shadow` and `champion` still need to be encoded during Task 1 and Task 4 red tests.
+- [ ] Real historical proxy expansion remains only partially covered today and will need governed accumulation before promotion can become meaningful.
+
+### 潜在问题
+- [ ] If grade rules are too loose, `candidate` models may be overstated as approval-grade.
+- [ ] If grade rules are too strict, the chain may remain permanently stuck in `candidate`.
+- [ ] Approval consumers will need careful wording so `shadow` is treated as reference context rather than full quant release authority.
+
+### 关闭项
+- The next phase now has both a design boundary and a task-by-task execution plan.
+- Future implementation can start directly from the saved `P5` plan without another planning round.
+
+## 2026-04-11 Task - close the P5 shadow champion and history expansion bundle
+
+### 修改内容
+- Completed the governed `P5` bundle across history expansion governance, model-grade lifecycle, and approval/package consumption:
+  - added `security_history_expansion` as a formal CLI tool and persisted governed history-expansion documents
+  - added `security_shadow_evaluation` to summarize readiness, proxy coverage, and recommended `candidate/shadow/champion` grade
+  - added `security_model_promotion` to emit governed promotion decisions from registry + shadow evaluation inputs
+  - extended scorecard registry/refit outputs with `model_grade` and `grade_reason`
+  - wired approval brief and decision package to expose `model_grade_summary`
+  - applied approval-stage guardrails so `shadow` stays reference-only and `candidate` remains governance-only
+- Added backward-compatible registry loading in `src/ops/security_scorecard_model_registry.rs` so legacy shadow fixtures without explicit window metadata still deserialize during approval-grade loading.
+- Verified the focused `P5` suites end-to-end:
+  - `cargo test --test security_history_expansion_cli -- --nocapture`
+  - `cargo test --test security_scorecard_refit_cli -- --nocapture`
+  - `cargo test --test security_shadow_evaluation_cli -- --nocapture`
+  - `cargo test --test security_model_promotion_cli -- --nocapture`
+  - `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+  - `cargo test --test security_master_scorecard_cli -- --nocapture`
+  - `cargo test --test security_chair_resolution_cli -- --nocapture`
+
+### 修改原因
+- The system could already train and score, but it still lacked a governed answer to “is this model only research, reference-only shadow, or approval-grade champion?”
+- The last blocker inside the continuous `Task 1 -> P5` run was a runtime failure when approval tried to load an older registry fixture; fixing that compatibility gap was necessary to finish the whole gate without loosening grade governance.
+
+### 方案还差什么
+- [ ] The new grade lifecycle is now encoded, but real historical proxy expansion is still thin for many pools; future promotion quality still depends on richer historical coverage.
+- [ ] `shadow` and `champion` thresholds are now governable, but long-horizon walk-forward/OOT promotion rules still need to be strengthened before champion can be trusted broadly.
+- [ ] Approval/package now consume grade summaries, but downstream UI/Skill layers still need explicit champion-only release behavior if they want fully automated execution authority.
+
+### 潜在问题
+- [ ] Legacy registry compatibility is now broader, but very old fixtures that omit more than window metadata may still need targeted defaults if encountered later.
+- [ ] `shadow` models now surface as reference-only context; any downstream consumer that ignores `approval_consumption_mode` could still over-read quant output.
+- [ ] The repo remains dirty outside the securities mainline scope, including unrelated foundation work and fixture churn; this closeout intentionally did not clean those files.
+
+### 关闭项
+- `P5` is functionally closed at the focused-regression level in the current session.
+- Approval and decision-package artifacts now carry governed model-grade semantics instead of treating all quant output as equal.
+- The `Task 1 -> P5` continuous execution request is complete for the securities mainline scope that was under implementation.
+
+## 2026-04-11 Task - close the P6 shadow champion hardening bundle
+
+### 修改内容
+- Completed the governed `P6` hardening layer across history-expansion coverage, repeated shadow observations, promotion gates, and approval/package governance summaries:
+  - standardized `security_history_expansion` coverage output with `coverage_tier`, shadow/champion readiness hints, and per-proxy coverage rows
+  - extended `security_shadow_evaluation` to consume prior governed observations and persist `shadow_observation_count`, `shadow_consistency_status`, and `promotion_blockers`
+  - tightened `security_model_promotion` so champion promotion now requires repeated, consistent shadow observations with no blockers
+  - wired `security_decision_submit_approval` to merge shadow-evaluation governance into approval briefs, guardrail actions, and decision packages
+  - carried `model_governance_summary` through `security_decision_package_revision` so later package versions keep blocker/shadow lineage
+- Added and turned green the new P6 regression coverage:
+  - `security_history_expansion_exposes_standardized_readiness_coverage`
+  - `security_shadow_evaluation_tracks_repeated_shadow_observations_for_champion_readiness`
+  - `security_model_promotion_rejects_champion_when_shadow_observations_are_still_thin`
+  - the upgraded `security_decision_submit_approval_downgrades_shadow_grade_to_reference_only_quant_context`
+- Verified the focused `P6` bundle end-to-end:
+  - `cargo test --test security_history_expansion_cli -- --nocapture`
+  - `cargo test --test security_shadow_evaluation_cli -- --nocapture`
+  - `cargo test --test security_model_promotion_cli -- --nocapture`
+  - `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+  - `cargo test --test security_decision_package_revision_cli -- --nocapture`
+
+### 修改原因
+- `P5` introduced grade governance, but champion-readiness was still too thin because one green shadow snapshot could masquerade as durable approval evidence.
+- The approval and package layers also still lacked a single persisted governance summary that preserved blocker and shadow-depth context across submit and revision flows.
+
+### 方案还差什么
+- [ ] Champion governance is now stricter, but it still relies on the current rule-based thresholds; future walk-forward and OOT windows should become first-class promotion gates.
+- [ ] History expansion is now standardized, but many asset pools still need deeper real proxy coverage before `shadow` and `champion` can become common outcomes.
+- [ ] Downstream UI/Skill consumers still need explicit champion-only release behavior if they want to consume the richer governance summary safely.
+
+### 潜在问题
+- [ ] Old package/registry fixtures that are more incomplete than the current compatibility assumptions may still need extra defaults when encountered later.
+- [ ] Approval briefs now surface promotion blockers directly in `required_next_actions`; downstream readers must not treat those items as optional commentary.
+- [ ] The repo remains dirty outside the securities mainline scope, and this P6 closeout intentionally did not clean unrelated worktree noise.
+
+### 关闭项
+- `P6` is functionally closed at the focused-regression level in the current session.
+- Champion promotion now requires repeated governed shadow observations instead of a single optimistic snapshot.
+- Approval briefs, decision packages, and package revisions now preserve one consistent shadow-governance summary across the securities mainline.
+
+## 2026-04-11 Task - close the P7 automatic proxy backfill and promotion hardening bundle
+
+### 修改内容
+- Completed the governed `P7` bundle across reusable proxy-backfill coverage, multi-window shadow evidence, harder champion promotion, and downstream approval/package disclosure:
+  - extended `security_external_proxy_backfill` so each governed backfill batch now persists a reusable result document with `covered_symbol_count`, `covered_dates`, `covered_proxy_fields`, `coverage_tier`, and `backfill_result_path`
+  - extended `security_history_expansion` to consume governed backfill-result documents and fold actual batch refs, covered dates, and imported-record counts into standardized coverage summaries
+  - extended `security_shadow_evaluation` with `comparison_model_registry_paths`, `shadow_window_count`, `oot_stability_status`, `window_consistency_status`, and `promotion_evidence_notes`
+  - hardened `security_model_promotion` so champion now requires repeated shadow observations plus stable comparison-window / OOT evidence with no remaining evidence notes
+  - extended approval brief and decision-package governance summaries so submit/revision flows preserve `shadow_window_count`, `oot_stability_status`, `window_consistency_status`, and `promotion_evidence_notes`
+  - surfaced multi-window promotion evidence notes into approval `required_next_actions`, so thin comparison-window evidence is no longer silently hidden behind coarse grade labels
+- Kept the existing stock-tool chain intact instead of introducing a parallel lifecycle:
+  - `security_external_proxy_backfill -> security_history_expansion -> security_shadow_evaluation -> security_model_promotion -> security_decision_submit_approval`
+- Verified the focused `P7` bundle end-to-end:
+  - `cargo test --test security_external_proxy_backfill_cli -- --nocapture`
+  - `cargo test --test security_history_expansion_cli -- --nocapture`
+  - `cargo test --test security_shadow_evaluation_cli -- --nocapture`
+  - `cargo test --test security_model_promotion_cli -- --nocapture`
+  - `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+  - `cargo test --test security_decision_package_revision_cli -- --nocapture`
+
+### 修改原因
+- `P6` already hardened shadow/champion governance, but historical proxy backfill still was not reusable promotion evidence; it remained a storage write instead of a governed coverage source.
+- Champion promotion also still lacked explicit multi-window / OOT-style stability evidence, so a repeated shadow count could look stronger than the model’s actual out-of-window behavior.
+- Approval and package consumers needed the stronger evidence trail to avoid flattening all promotion outcomes into one coarse grade summary.
+
+### 方案还差什么
+- [ ] Real proxy history is now more governable, but most pools still need broader and denser historical coverage before `shadow` and especially `champion` can become common outcomes.
+- [ ] Champion promotion now checks stronger evidence, but it is still rule-based; future walk-forward / OOT promotion rules should become even more first-class and less fixture-like.
+- [ ] Downstream UI/Skill layers still need explicit champion-only release semantics if they want to consume the richer `promotion_evidence_notes` safely in automated workflows.
+
+### 潜在问题
+- [ ] `covered_proxy_fields` now follows the governed result’s actual bound-field list; if later consumers expect grouped proxy families instead of raw fields, they may need an extra normalization layer.
+- [ ] Comparison-window stability currently uses rule-based `test.auc` / `test.accuracy` thresholds; later changes to registry metrics or asset-pool readiness thresholds may require synchronized updates.
+- [ ] Approval briefs now surface `promotion_evidence_notes` directly into follow-up actions; downstream readers must not treat those as optional commentary.
+
+### 关闭项
+- `P7` is functionally closed at the focused-regression level in the current session.
+- Historical proxy backfill is now a reusable governed coverage source instead of only a runtime side effect.
+- Champion promotion now depends on both repeated shadow observations and multi-window / OOT-style stability evidence.
+
+## 2026-04-12 Task - land the P8-1 formal condition review tool
+
+### 修改内容
+- Added the first formal `security_condition_review` lifecycle object on the stock mainline:
+  - created `src/ops/security_condition_review.rs`
+  - introduced the formal request, binding, document, result, and error contracts
+  - added deterministic follow-up actions such as `keep_plan`, `update_position_plan`, `reopen_committee`, `reopen_research`, and `freeze_execution`
+- Wired the new object into the current branch instead of reviving outdated module layouts:
+  - mounted the module in `src/ops/stock.rs`
+  - re-exported it in `src/ops/mod.rs`
+  - exposed it in `src/tools/catalog.rs`
+  - added dispatcher support in `src/tools/dispatcher/stock_ops.rs`
+  - routed the top-level dispatcher in `src/tools/dispatcher.rs`
+- Added focused CLI coverage:
+  - created `tests/security_condition_review_cli.rs`
+  - locked both tool discovery and structured result output
+- Verified the focused regression:
+  - `cargo test --test security_condition_review_cli -- --nocapture`
+
+### 修改原因
+- The current branch had approval, scorecard, package, and promotion governance, but it still lacked a formal intraperiod review object.
+- `P8` needs review triggers to become replayable lifecycle artifacts before execution records and post-trade reviews can bind to them.
+- The older memory of separate review/execution files did not match the current branch, so the safest path was to add the missing object directly on today’s stock mainline.
+
+### 方案还差什么
+- [ ] `security_execution_record` still needs to be added as the next formal lifecycle object.
+- [ ] `security_post_trade_review` still needs to be added with layered attribution and governance feedback.
+- [ ] Approval/package/holding chains still need to preserve the new P8 refs beyond the first review object.
+
+### 潜在问题
+- [ ] `condition_review_id` currently uses `symbol + analysis_date + trigger_type`; repeated same-day same-type reviews will need a later versioning or sequence rule.
+- [ ] Follow-up derivation is intentionally rule-based in this first pass; later execution and replay policies may require richer trigger semantics.
+- [ ] The current review tool is not yet persisted to runtime files; that will be completed when the broader P8 object graph is wired.
+
+### 关闭项
+- `P8-1` is closed at the focused CLI-contract level in the current session.
+- The stock mainline now has a first-class formal condition-review tool.
+
+## 2026-04-12 Task - land the P8-2 formal execution record tool
+
+### 修改内容
+- Added the formal `security_execution_record` lifecycle object on the stock mainline:
+  - created `src/ops/security_execution_record.rs`
+  - introduced the request, binding, document, result, and error contracts
+  - formalized execution facts such as `execution_action`, `execution_status`, `executed_gross_pct`, and optional `condition_review_ref`
+- Wired the new execution object into the current branch:
+  - mounted the module in `src/ops/stock.rs`
+  - re-exported it in `src/ops/mod.rs`
+  - exposed it in `src/tools/catalog.rs`
+  - added dispatcher support in `src/tools/dispatcher/stock_ops.rs`
+  - routed the top-level dispatcher in `src/tools/dispatcher.rs`
+- Added focused CLI coverage:
+  - created `tests/security_execution_record_cli.rs`
+  - locked tool discovery and structured execution-record output
+- Verified the focused regression:
+  - `cargo test --test security_execution_record_cli -- --nocapture`
+
+### 修改原因
+- `P8-1` added the first formal review object, but the current branch still had no replayable execution event object.
+- The lifecycle needed a stable contract for build/add/reduce/exit/freeze style events before post-trade review can attach to actual execution facts.
+- The safest path remained adding the missing execution object directly onto the current stock mainline instead of reviving obsolete branch-only layouts.
+
+### 方案还差什么
+- [ ] `security_post_trade_review` still needs to be added with layered attribution and governance feedback.
+- [ ] Approval/package/holding chains still need to preserve the new review and execution refs.
+- [ ] Runtime persistence and replay wiring for the new P8 objects still needs to be completed in later P8 tasks.
+
+### 潜在问题
+- [ ] `execution_record_id` currently uses `symbol + analysis_date + execution_action`; repeated same-day same-action records will need a later versioning or sequence rule.
+- [ ] The first-pass execution contract records facts but does not yet enforce richer action vocabularies or transition rules.
+- [ ] The new execution tool is formal and routable, but not yet persisted into package/object-graph outputs.
+
+### 关闭项
+- `P8-2` is closed at the focused CLI-contract level in the current session.
+- The stock mainline now has a first-class formal execution-record tool.
+
+## 2026-04-12 Task - land the P8-3 formal post-trade review tool
+
+### 修改内容
+- Added the formal `security_post_trade_review` lifecycle object on the stock mainline:
+  - created `src/ops/security_post_trade_review.rs`
+  - introduced the request, layered attribution, binding, document, result, and error contracts
+  - formalized replayable review facts such as `review_status`, `recommended_governance_action`, and layered `data/model/governance/execution` attribution
+- Wired the new post-trade review object into the current branch:
+  - mounted the module in `src/ops/stock.rs`
+  - re-exported it in `src/ops/mod.rs`
+  - exposed it in `src/tools/catalog.rs`
+  - added dispatcher support in `src/tools/dispatcher/stock_ops.rs`
+  - routed the top-level dispatcher in `src/tools/dispatcher.rs`
+- Added focused CLI coverage:
+  - created `tests/security_post_trade_review_cli.rs`
+  - locked tool discovery and structured post-trade-review output
+- Verified the focused regression:
+  - `cargo test --test security_post_trade_review_cli -- --nocapture`
+
+### 修改原因
+- `P8-2` added replayable execution events, but the current branch still lacked a formal post-trade review object to close the lifecycle.
+- `P8` needs review conclusions to be stored as first-class governed artifacts instead of conversational notes or ad hoc summaries.
+- Layered attribution had to become machine-readable before later feedback loops can distinguish data/model/governance/execution problems.
+
+### 方案还差什么
+- [ ] Approval/package/holding chains still need to preserve the new review/execution/post-trade refs.
+- [ ] Lifecycle outputs still need to feed later governance feedback and operator-facing holding views.
+- [ ] Runtime persistence for the new P8 objects still needs to be wired through the broader package/object graph.
+
+### 潜在问题
+- [ ] `post_trade_review_id` currently uses `symbol + analysis_date + review_status`; repeated same-day same-status reviews will need a later sequencing rule.
+- [ ] The first-pass review notes are deterministic but intentionally shallow; later replay and retraining flows may require richer typed actions.
+- [ ] The new post-trade review tool is formal and routable, but not yet persisted into package/object-graph outputs.
+
+### 关闭项
+- `P8-3` is closed at the focused CLI-contract level in the current session.
+- The stock mainline now has a first-class formal post-trade-review tool.
+
+## 2026-04-12 Task - close the P8-4 to P8-6 lifecycle package and operator-view bundle
+
+### 修改内容
+- Extended the formal package contract so lifecycle artifacts can join the securities mainline after approval-time package creation:
+  - added optional `condition_review_ref / execution_record_ref / post_trade_review_ref`
+  - added optional lifecycle paths to `object_graph`
+  - added `lifecycle_governance_summary` with `lifecycle_status`, `recommended_governance_action`, and structured attribution layers
+- Hardened `security_decision_package_revision` for lifecycle attachment:
+  - added optional `condition_review_path / execution_record_path / post_trade_review_path`
+  - load and validate lifecycle bindings against the existing package refs
+  - upsert lifecycle artifacts into `artifact_manifest`
+  - preserve lifecycle refs and feedback summary across revisions
+- Kept the initial approval package conservative:
+  - `security_decision_submit_approval` now initializes lifecycle fields as empty and expects later revisions to attach governed lifecycle documents
+- Added focused regression coverage:
+  - extended `tests/security_decision_package_revision_cli.rs`
+  - locked attachment of lifecycle refs plus feedback summary
+- Closed the operator-view side with new docs:
+  - updated `docs/security-holding-ledger.md` with lifecycle tracking fields and operator sequence
+  - added `docs/execution-notes-2026-04-12-p8-lifecycle-closeout.md`
+- Verified the focused regressions:
+  - `cargo test --test security_decision_package_revision_cli -- --nocapture`
+  - `cargo test --test security_decision_submit_approval_cli security_decision_submit_approval_writes_runtime_files_for_ready_case -- --nocapture`
+  - `cargo test --test security_condition_review_cli -- --nocapture`
+  - `cargo test --test security_execution_record_cli -- --nocapture`
+  - `cargo test --test security_post_trade_review_cli -- --nocapture`
+
+### 修改原因
+- `P8-1` to `P8-3` created the formal lifecycle tools, but the package chain still could not preserve them as first-class governed refs.
+- Operator-facing holding artifacts still had no standard place to record lifecycle refs and feedback actions.
+- The current workspace contains handoff-file conflict residue, so a clean execution-note document was needed to preserve the P8 closeout without disturbing unrelated merge state.
+
+### 方案还差什么
+- [ ] P9 still needs a narrow verification-data slice so the new lifecycle can replay against realistic runtime artifacts instead of only fixture JSON.
+- [ ] Automatic consumption of post-trade feedback by shadow/promotion governance still belongs to later data-validation phases.
+- [ ] Existing handoff documents with conflict markers still need a separate cleanup pass when the broader workspace is ready.
+
+### 潜在问题
+- [ ] Lifecycle attachment currently happens during package revision, not initial submission; callers must remember the two-step pattern.
+- [ ] The first lifecycle-feedback summary is intentionally compact; later phases may need richer typed remediation objects beyond `recommended_governance_action`.
+- [ ] `security-holding-ledger.md` already had historical encoding noise in older sections, so future edits should continue to avoid broad rewrites unless the file is normalized first.
+
+### 关闭项
+- `P8` is functionally closed at the focused-regression and operator-view level in the current session.
+- The securities mainline now has a governed lifecycle path from approval into condition review, execution recording, post-trade review, and package revision attachment.
+
+## 2026-04-12 Task - close the P9-P10 verification slice and replay bundle
+
+### 修改内容
+- Added a governed end-to-end lifecycle validation slice test:
+  - created `tests/security_lifecycle_validation_cli.rs`
+  - generated formal lifecycle artifacts through the actual tool chain instead of hand-authored JSON
+  - persisted `condition_review.json`, `execution_record.json`, `post_trade_review.json`, and `validation_slice_manifest.json`
+- Added P9/P10 operator-facing documentation:
+  - created `docs/plans/2026-04-12-security-verification-data-slice.md`
+  - created `docs/execution-notes-2026-04-12-p9-p10-validation-closeout.md`
+  - updated `docs/security-holding-ledger.md` with a stable lifecycle validation-slice entry
+- Materialized a stable runtime replay slice:
+  - copied the latest lifecycle validation fixture into `.excel_skill_runtime/validation_slices/601916_SH_2026-04-12_lifecycle/`
+  - normalized `validation_slice_manifest.json` so the stored paths point to the stable runtime copy
+  - added `.excel_skill_runtime/validation_slices/601916_SH_2026-04-12_lifecycle/README.md`
+- Verified the focused lifecycle suites:
+  - `cargo test --test security_lifecycle_validation_cli -- --nocapture`
+  - `cargo test --test security_condition_review_cli -- --nocapture`
+  - `cargo test --test security_execution_record_cli -- --nocapture`
+  - `cargo test --test security_post_trade_review_cli -- --nocapture`
+  - `cargo test --test security_decision_submit_approval_cli -- --nocapture`
+  - `cargo test --test security_decision_package_revision_cli -- --nocapture`
+
+### 修改原因
+- `P9` needed one narrow but real replay slice before broader data backfill starts, otherwise later verification would keep depending on ad hoc fixture reconstruction.
+- `P10` needed a true end-to-end lifecycle proof that uses the formal tools themselves, not only manually authored JSON attachments.
+- Operators and later AIs need a stable runtime location for replay, not only a transient test-fixture directory.
+
+### 方案还差什么
+- [ ] Broader live-data backfill beyond the validation slice still belongs to the next data-expansion phase.
+- [ ] The validation slice currently uses mocked approval-time disclosure endpoints, so live-data equivalence is still a separate concern.
+- [ ] `docs/AI_HANDOFF.md` still has unrelated conflict residue and remains intentionally untouched in this session.
+
+### 潜在问题
+- [ ] The stable validation slice is a copied replay artifact, so it should be refreshed deliberately if the underlying lifecycle contracts change.
+- [ ] Consumers must still read lifecycle refs and governance summaries together; replay files alone do not imply live trading approval.
+- [ ] Re-running the validation test will create new transient fixture directories under `tests/runtime_fixtures/security_lifecycle_validation/`, so cleanup may be useful later.
+
+### 关闭项
+- `P9` is closed with one governed validation-data slice and a stable runtime replay copy.
+- `P10` is closed with focused lifecycle verification across the new execution/review loop.
+- `P8` to `P10` are now functionally closed in the current session.
+
+## 2026-04-12 Task - add governed real-data validation backfill and refresh the first live-compatible slice
+
+### 修改内容
+- Added a governed stock tool for real-data validation refresh:
+  - created `src/ops/security_real_data_validation_backfill.rs`
+  - wired `security_real_data_validation_backfill` through `src/ops/stock.rs`, `src/ops/mod.rs`, `src/tools/catalog.rs`, `src/tools/dispatcher.rs`, and `src/tools/dispatcher/stock_ops.rs`
+- Refactored stock-history sync reuse:
+  - extended `src/ops/sync_stock_price_history.rs`
+  - added reusable provider-fetch contract `SyncStockPriceHistoryFetchedRows`
+  - kept the existing `sync_stock_price_history` behavior unchanged for current callers
+- Added focused TDD coverage:
+  - created `tests/security_real_data_validation_backfill_cli.rs`
+  - locked tool discovery plus dedicated validation-root persistence for `stock_history.db`, `fullstack_context.json`, and `real_data_validation_manifest.json`
+- Added operator-facing notes:
+  - updated `docs/execution-notes-2026-04-12-p9-p10-validation-closeout.md`
+  - added `docs/execution-notes-2026-04-12-real-data-validation-backfill.md`
+- Refreshed the first live-compatible validation slice:
+  - `.excel_skill_runtime/validation_slices/601916_SH_real_data_20260412/stock_history.db`
+  - `.excel_skill_runtime/validation_slices/601916_SH_real_data_20260412/fullstack_context.json`
+  - `.excel_skill_runtime/validation_slices/601916_SH_real_data_20260412/real_data_validation_manifest.json`
+  - imported `388` rows each for `601916.SH`, `510300.SH`, and `512800.SH`
+
+### 修改原因
+- The securities mainline had deterministic replay slices after `P9/P10`, but there was still no governed tool to refresh a validation slice with live-compatible price history plus public disclosure context.
+- Operators needed one repeatable entry point instead of re-running shell sequences for price sync and fullstack analysis.
+- Real-data verification needed to remain narrow and auditable before broader production ingestion begins.
+
+### 方案还差什么
+- [ ] Broader automatic real-data ingestion for treasury/gold/cross-border proxy histories still belongs to the later data-expansion phase.
+- [ ] `docs/security-holding-ledger.md` still has historical encoding noise, so the first real-data slice was documented through dedicated execution notes instead of a broad ledger rewrite.
+- [ ] Live-compatible validation slices still need more symbols and wider market coverage before they become a stronger operator regression set.
+
+### 潜在问题
+- [ ] The first live-compatible attempt with `2025-01-01 -> 2025-08-08` failed because the formal technical gate only saw `89` rows; callers must ensure windows cover at least the governed technical minimum.
+- [ ] The new tool temporarily redirects `EXCEL_SKILL_STOCK_DB` inside the CLI process so the reused fullstack chain reads the slice-local `stock_history.db`; future deeper refactors may replace this with an explicit path parameter.
+- [ ] Public providers can change contracts, so the live-compatible slice should be treated as a validation artifact, not a production trading evidence pack.
+
+### 关闭项
+- The governed tool `security_real_data_validation_backfill` is now available on the public stock tool chain.
+- One live-compatible validation slice for `601916.SH` has been refreshed and persisted under `.excel_skill_runtime/validation_slices/601916_SH_real_data_20260412/`.
+- Focused regressions passed for the new tool, the stock-history sync chain, and the lifecycle validation slice.
+
+## 2026-04-12 Task - backfill the second live-compatible validation-slice batch for ETF coverage
+
+### 修改内容
+- Refreshed four additional live-compatible validation slices with the governed tool `security_real_data_validation_backfill`:
+  - `.excel_skill_runtime/validation_slices/511010_SH_real_data_20260412/`
+  - `.excel_skill_runtime/validation_slices/518880_SH_real_data_20260412/`
+  - `.excel_skill_runtime/validation_slices/513500_SH_real_data_20260412/`
+  - `.excel_skill_runtime/validation_slices/512800_SH_real_data_20260412/`
+- Standardized the current contextual proxy wiring for validation usage:
+  - `511010.SH`, `518880.SH`, and `513500.SH` use `510300.SH` plus `512800.SH`
+  - `512800.SH` uses `510300.SH` plus `sector_profile = a_share_bank`
+- Updated operator-facing notes:
+  - `docs/execution-notes-2026-04-12-real-data-validation-backfill.md`
+  - `docs/execution-notes-2026-04-12-p9-p10-validation-closeout.md`
+
+### 修改原因
+- One stock-oriented live-compatible slice was not enough for later ETF-path validation, shadow checks, or promotion hardening.
+- The current fullstack chain still enforces contextual proxy inputs, so the ETF validation set needed a stable reusable proxy policy before broader real-proxy ingestion begins.
+- Operators need a broader but still governed validation set before moving on to treasury/gold/cross-border proxy-history expansion.
+
+### 方案还差什么
+- [ ] The ETF-oriented slices still use generic A-share contextual proxies, so category-native proxy histories remain a later data-expansion task.
+- [ ] Real external proxy histories for treasury, gold, and cross-border ETF drivers still need to be backfilled before those slices can support deeper model validation.
+- [ ] The current validation set is still centered on `2025-08-08` windows; later phases should widen dates and symbols further.
+
+### 潜在问题
+- [ ] The current fullstack stack does not auto-sync proxy symbols when only `market_profile` / `sector_profile` is supplied, so validation runs should continue to prefer explicit proxy symbols unless the primary symbol already covers the resolved profile.
+- [ ] ETF slices that reuse `510300.SH` and `512800.SH` are fit for governed validation, but they should not be mistaken for final category-native environment packs.
+- [ ] Public providers can still drift, so these slices should be refreshed deliberately before any stricter regression baselines are locked.
+
+### 关闭项
+- Four additional live-compatible ETF validation slices are now available under `.excel_skill_runtime/validation_slices/`.
+- The governed real-data validation set now covers one stock sample plus treasury, gold, cross-border, and equity ETF samples.
+- Operator-facing execution notes now record the second validation-slice batch and the current proxy-wiring rule.
+
+## 2026-04-12 Task - close governed stock-information history replay for validation slices
+
+### 修改内容
+- Completed the governed stock-information replay path inside `security_real_data_validation_backfill`:
+  - added `with_validation_history_overrides(...)` in `src/ops/security_real_data_validation_backfill.rs`
+  - scoped `EXCEL_SKILL_STOCK_DB`, `EXCEL_SKILL_FUNDAMENTAL_HISTORY_DB`, and `EXCEL_SKILL_DISCLOSURE_HISTORY_DB` together for slice-local fullstack replay
+  - added `restore_env_override(...)` to restore all runtime overrides after one validation call
+- Closed the stock CSV importer gap for lean fixtures:
+  - updated `src/ops/import_stock_price_history.rs`
+  - made `adj_close` optional
+  - added fallback parsing that reuses `close` when `adj_close` is absent
+- Fixed the governed validation test harness:
+  - updated `tests/security_stock_history_governance_cli.rs`
+  - expanded the local HTTP fixture server to survive repeated price-sync plus disclosure/fundamental fetches in the same validation flow
+- Added and verified the red-green regression for lean price CSV input:
+  - `tests/stock_price_history_import_cli.rs`
+  - `import_stock_price_history_defaults_adj_close_to_close_when_missing`
+
+### 修改原因
+- The Historical Data Phase 1 closure still failed on two real blockers:
+  - validation slices could not point fullstack at slice-local governed fundamental/disclosure stores
+  - lean CSV fixtures without `adj_close` were rejected before governed fullstack replay could even start
+- The validation-slice regression also exposed a fixture bug where the local HTTP server stopped accepting requests before disclosure and financial fetches happened.
+- These issues prevented governed stock-information history from becoming a reusable validation baseline for later real-data expansion.
+
+### 方案还差什么
+- [ ] Historical Data Phase 1 still needs the next broader data-expansion wave for real ETF proxy histories, stock fundamental batches, and stock disclosure batches beyond the governed replay closure.
+- [ ] `security_real_data_validation_backfill` still relies on live-compatible fetches before it freezes slice-local governed history; later phases can add broader governed source ingestion to reduce live dependency.
+- [ ] The broader warning set under `src/tools/dispatcher.rs` remains untouched, because this task stayed scoped to governed history replay and validation.
+
+### 潜在问题
+- [ ] The validation-slice helper still depends on environment-variable overrides, so future refactors that change runtime path resolution should keep the triple-override path covered.
+- [ ] The local HTTP route server now accepts a fixed request budget (`12`); if validation flows grow materially, this fixture may need a more explicit stop condition.
+- [ ] Lean CSV imports now fall back from missing `adj_close` to `close`; if a future data source requires rejecting unadjusted inputs, that rule should be enforced by source-specific validation instead of the shared importer.
+
+### 关闭项
+- Governed stock-information history replay now works inside validation slices for price, fundamental, and disclosure context together.
+- `security_analysis_fullstack` now prefers governed stock-information history in the focused validation path without depending on live financial or disclosure success.
+- The lean CSV importer bug is closed and covered by a dedicated regression.
+- Focused regressions passed for importer fallback, governed fullstack history precedence, slice-local history persistence, and the adjacent backfill tools.
+
+## 2026-04-12 Task - land real governed stock history backfill and live validation slice
+
+### 修改内容
+- Closed the CSV-based ETF proxy-history import path:
+  - updated `src/ops/security_external_proxy_history_import.rs`
+  - normalized UTF-8 BOM on the first header cell
+  - padded short trailing CSV rows so optional trailing blanks no longer break governed import
+- Fixed the formal CSV fixture to use one standards-shaped shared header width:
+  - updated `tests/security_external_proxy_history_import_cli.rs`
+  - aligned treasury, gold, cross-border, and equity ETF rows to the same 25-column contract
+- Switched the default EastMoney financial endpoint to the currently live metrics route:
+  - updated `src/ops/security_analysis_fullstack.rs`
+  - default financial live fetch now uses `ZYZBAjaxNew` instead of the retired `MainTargetAjax`
+- Executed the first real governed stock-information backfill batch for `601916.SH`:
+  - `security_fundamental_history_live_backfill` imported `9` report periods into `.excel_skill_runtime\\governed_history_live\\security_fundamental_history.db`
+  - `security_disclosure_history_live_backfill` imported `60` announcement rows into `.excel_skill_runtime\\governed_history_live\\security_disclosure_history.db`
+- Executed one live real-data validation slice for `601916.SH`:
+  - `security_real_data_validation_backfill` created `.excel_skill_runtime\\validation_slices\\601916_SH_real_data_20260412_live`
+  - imported `388` governed price rows each for `601916.SH`, `510300.SH`, and `512800.SH`
+  - persisted `fullstack_context.json` and `real_data_validation_manifest.json`
+
+### 修改原因
+- Historical Data Phase 1 was still blocked by one real runtime defect:
+  - the formal ETF proxy-history import failed on CSV batches before any real historical expansion could continue
+- The first attempt to backfill live fundamentals for `601916.SH` exposed a second real blocker:
+  - the default EastMoney financial endpoint had drifted and now returned `406/HTML`, so governed stock fundamental history could not be refreshed from live data
+- These two blockers prevented us from moving from “tooling is ready” to “real governed history has actually landed and can be validated”.
+
+### 方案还差什么
+- [ ] ETF external proxy history still needs broader real batches beyond the formal file-import bridge; treasury/gold/cross-border/equity histories are not yet filled with long governed series.
+- [ ] Stock fundamental and disclosure live backfill has only been proven on the first real symbol slice (`601916.SH`); the next wave should expand to a broader stock basket.
+- [ ] Real-data validation still needs broader governed slices for more stocks and ETF pools before stronger shadow/champion verification can be treated as representative.
+
+### 潜在问题
+- [ ] `security_external_proxy_history_import` still uses a lightweight CSV parser, so quoted commas or embedded newlines would need stronger CSV decoding if future operator batches become more complex.
+- [ ] The live EastMoney financial route now works through `ZYZBAjaxNew`, but provider payload shape could still drift later; the live backfill tests only lock the override contract, not the public provider schema.
+- [ ] The first live validation slice uses `sina` for governed prices; later provider drift or symbol-specific gaps should be watched when we expand the validation basket.
+
+### 关闭项
+- The governed ETF proxy-history import bug is closed and covered by a green CLI regression.
+- Live governed stock fundamental history for `601916.SH` is now landing again through the default provider path.
+- Live governed stock disclosure history for `601916.SH` is now persisted into the shared governed history runtime.
+- A first real-data validation slice for `601916.SH` has been generated successfully and is ready for later verification-chain consumption.
+
+## 2026-04-12 Task - batch backfill governed stock information history and ETF proxy history
+
+### 修改内容
+- Executed the first governed stock-information batch across 10 A-share symbols:
+  - live fundamental history landed in `.excel_skill_runtime\\governed_history_live\\security_fundamental_history.db`
+  - live disclosure history landed in `.excel_skill_runtime\\governed_history_live\\security_disclosure_history.db`
+  - covered symbols:
+    - `601916.SH`
+    - `600519.SH`
+    - `300750.SZ`
+    - `000001.SZ`
+    - `600036.SH`
+    - `601318.SH`
+    - `600030.SH`
+    - `600887.SH`
+    - `002594.SZ`
+    - `000333.SZ`
+- Generated and imported one governed ETF external proxy history batch:
+  - source file: `.excel_skill_runtime\\governed_history_live\\external_proxy_history_batches\\external_proxy_history_phase1_20260412_c.csv`
+  - import result: `.excel_skill_runtime\\external_proxy_backfill_results\\external_proxy_backfill_external_proxy_history_phase1_20260412_c.json`
+  - storage target: `.excel_skill_runtime\\security_external_proxy.db`
+  - imported `1528` dated proxy rows across:
+    - `511010.SH` treasury ETF
+    - `518880.SH` gold ETF
+    - `513500.SH` cross-border ETF
+    - `512800.SH` equity ETF
+- Verified governed proxy consumption through formal snapshot calls:
+  - `511010.SH` now hydrates `yield_curve_*` and `funding_liquidity_*` from historical proxy backfill on `2025-08-08`
+  - `518880.SH` now hydrates `gold_spot_*`, `usd_index_*`, and `real_rate_*` on `2025-08-08`
+  - `513500.SH` now hydrates `fx_*`, `overseas_market_*`, and `market_session_gap_*` on `2025-08-08`
+  - `512800.SH` now hydrates `etf_fund_flow_*`, `premium_discount_*`, and `benchmark_relative_*` on `2025-08-08`
+
+### 修改原因
+- The user explicitly requested closing stock-information batch backfill and ETF proxy history in one continuous wave instead of proving the pipeline on a single symbol.
+- The project had already reached the stage where structure was no longer the blocker; the blocker was lack of thicker real governed history for both stock information and ETF external proxies.
+- We needed one auditable batch that could be consumed by the formal stock tool chain, not another one-off manual note beside the runtime.
+
+### 方案还差什么
+- [ ] ETF proxy history is now governed and dated, but the current batch still uses real observable market-derived proxies rather than all-official specialized provider series.
+- [ ] Broader stock validation slices are still thin; only `601916.SH` has a live governed validation slice with stock-information history fully refreshed in this wave.
+- [ ] Shadow / promotion still needs a later wave that consumes these thicker governed histories over broader symbol baskets.
+
+### 潜在问题
+- [ ] Historical ETF proxy hydration only happens when the formal request carries `as_of_date`; callers that omit it will still fall back to `placeholder_unbound`.
+- [ ] `512800.SH` still depends on local governed price history rather than Yahoo-compatible remote history, so future large-basket replay should keep a China-market-native fallback.
+- [ ] The current ETF proxy batch intentionally mixes official public macro series and real market-derived ETF proxies; later promotion rules should keep these proxy provenance notes visible.
+
+### 关闭项
+- The first governed stock-information batch for 10 A-share symbols is landed and queryable.
+- The first governed ETF external proxy history batch is landed and auditable.
+- Treasury, gold, cross-border, and equity ETF proxy histories are now consumable by `security_feature_snapshot` on dated replay requests.
+- The securities mainline now has enough governed real data to continue with stronger validation instead of only pipeline hardening.
+
+## 2026-04-12 Task - harden ETF final-chain replay from proxy snapshot to chair resolution
+
+### 修改内容
+- Hardened the ETF proxy deep-chain handoff so governed historical proxy inputs now survive beyond `security_feature_snapshot` and enter:
+  - `security_decision_evidence_bundle`
+  - `security_scorecard`
+  - `security_master_scorecard`
+  - `security_chair_resolution`
+- Refreshed ETF-native validation slices and corrected their governed peer environments:
+  - `511010_SH_real_data_20260412` now persists `sector_symbol = 511060.SH` with `sector_profile = treasury_etf`
+  - `518880_SH_real_data_20260412` now persists `sector_symbol = 518800.SH` with `sector_profile = gold_etf`
+  - `513500_SH_real_data_20260412` now persists `sector_symbol = 513500.SH` with `sector_profile = cross_border_etf`
+  - `512800_SH_real_data_20260412` now persists `sector_symbol = 512800.SH` with `sector_profile = equity_etf_peer`
+- Trained one real ETF sub-scope direction-head candidate artifact per pool under `.excel_skill_runtime\\etf_training_live_batch_20260412`:
+  - `511010.SH` -> `treasury_etf`
+  - `518880.SH` -> `gold_etf`
+  - `513500.SH` -> `cross_border_etf`
+  - `512800.SH` -> `equity_etf`
+- Re-ran the formal final chair layer for all four ETFs with those governed artifacts:
+  - every symbol now reaches `score_status = ready`
+  - final outputs no longer degrade to `model_unavailable` or `cross_section_invalid`
+  - current chair actions for all four remain `abstain` because committee/risk governance still reports `needs_more_evidence`
+
+### 修改原因
+- The user explicitly required us to fix the three ETF blockers together instead of stopping at snapshot visibility:
+  - proxy history had to survive into the final conclusion layer
+  - validation slices had to become ETF-native instead of reusing wrong peer environments
+  - each ETF sub-pool needed a structurally correct scorecard artifact before the final chair layer could be trusted
+- We had already proven that ETF proxy history was visible in snapshot output, but the final analysis stage still could not consume it reliably.
+- The real debugging goal in this wave was not “more rows exist” but “governed ETF data can now reach the last formal decision object”.
+
+### 方案还差什么
+- [ ] ETF final-chain artifacts are now structurally valid and consumable, but the current direction-head models are still only `candidate` grade and should not yet be treated as champion-grade real-money signals.
+- [ ] ETF final chair outputs still downgrade to `abstain` because governed stock-information layers remain unavailable for ETF symbols; later ETF research quality needs a more explicit ETF-specific information strategy instead of inheriting stock-only expectations.
+- [ ] Multi-head ETF artifacts (`return_head`, `drawdown_head`, `path_quality_head`) still need a later live-data training wave if we want the final chair layer to move beyond a direction-only quantitative context.
+
+### 潜在问题
+- [ ] `513500.SH` cross-border validation currently uses the primary ETF itself as the governed peer environment, which is structurally acceptable for replay but still thinner than a fuller overseas index proxy basket.
+- [ ] `512800.SH` now keeps `equity_etf_peer` semantics in the slice manifest, but downstream consumers that hard-code `a_share_bank` could still misread it if they bypass the normalized profile path.
+- [ ] The current ETF candidate artifacts show uneven out-of-sample quality (`gold_etf` and especially `cross_border_etf` remain weak), so later thickening should focus on data depth and pool-specific external drivers before any promotion attempt.
+
+### 关闭项
+- ETF governed proxy history now survives from dated replay into the final chair chain.
+- ETF validation slices now keep ETF-native peer environments instead of the earlier wrong generic bank-ETF fallback.
+- Treasury, gold, cross-border, and equity ETF pools each have a governed direction-head candidate artifact that the formal scorecard runtime accepts.
+- The four ETF validation targets now reach the last formal conclusion object with `score_status = ready`, so the current bottleneck has moved from structure to evidence depth and model strength.
+
+## 2026-04-13 Task - complete multi-head live validation for stock and ETF representative assets
+
+### 修改内容
+- Trained a governed six-head live batch for one stock and four ETF representative assets under `.excel_skill_runtime\\multi_head_live_batch_20260413`:
+  - `601916.SH`
+  - `511010.SH`
+  - `518880.SH`
+  - `513500.SH`
+  - `512800.SH`
+- Landed live candidate artifacts for all six heads on every representative asset:
+  - `direction_head`
+  - `return_head`
+  - `drawdown_head`
+  - `path_quality_head`
+  - `upside_first_head`
+  - `stop_first_head`
+- Re-ran `security_chair_resolution` with the full multi-head model set and confirmed that all five assets now reach the final chair layer with:
+  - `score_status = ready`
+  - governed multi-head context available
+  - final path-risk constraints emitted into chair reasoning / execution constraints
+- Persisted the live run summaries to:
+  - `.excel_skill_runtime\\multi_head_live_batch_20260413\\training_summary.json`
+  - `.excel_skill_runtime\\multi_head_live_batch_20260413\\chair_resolution_summary.json`
+- Added the execution note:
+  - `docs\\execution-notes-2026-04-13-multi-head-live-validation.md`
+
+### 修改原因
+- The user explicitly required us to stop treating the securities stack as a trend-only system and to push risk, regression, path-event, and classification lines all the way to real-data-backed final conclusions.
+- Earlier ETF work had already fixed the structural replay chain, so the next honest checkpoint was to prove that the formal chair layer could consume:
+  - return context
+  - drawdown context
+  - path quality context
+  - upside-first context
+  - stop-first context
+- We also needed an auditable live batch that would make it obvious whether the remaining blocker was still structure or had moved to evidence depth and model quality.
+
+### 方案还差什么
+- [ ] `180d` governed direction validation is still unavailable in the current live slices because the future-window rows are insufficient (`required 180, available 168` in the ETF batch).
+- [ ] ETF information-side evidence remains thinner than the stock side, so the final chair layer still tends to preserve `needs_more_evidence` semantics even when the quantitative heads are structurally ready.
+- [ ] The current multi-head artifacts are still `candidate/shadow` grade rather than champion-grade production signals, so later thickening should focus on evidence depth, live-history coverage, and promotion strength.
+
+### 潜在问题
+- [ ] `513500.SH` cross-border live artifacts remain the weakest in the representative batch, so cross-border ETF external-driver history still needs thickening before promotion should ever be considered.
+- [ ] Some event heads can now train successfully but are still research-grade in stability; downstream consumers should not read raw probabilities as production-grade action signals.
+- [ ] Downstream readers that only look at final action or raw score could still miss the fact that the current abstain outputs are now driven by governance/evidence quality rather than missing model heads.
+
+### 关闭项
+- One governed stock and four ETF representative assets now have a full six-head live validation batch.
+- The formal final chair layer can consume direction, return, drawdown, path quality, upside-first, and stop-first model outputs on real governed data.
+- The current securities bottleneck has moved beyond structural chain breaks and is now mainly about evidence thickness, ETF information semantics, and model promotion quality.
+
+## 2026-04-13 Task - close ETF balanced-scorecard live rerun with long-window slices and formal chair outputs
+
+### 修改内容
+- Built one long-window real-data validation slice per ETF pool under `.excel_skill_runtime\\validation_real_data_slices`:
+  - `511010_SH_real_data_20260413_long`
+  - `518880_SH_real_data_20260413_long`
+  - `513500_SH_real_data_20260413_long`
+  - `512800_SH_real_data_20260413_long`
+- Extended governed ETF replay history through `2026-04-10` and confirmed the latest common analysis date that still supports full `180d` replay is `2025-07-11`.
+- Trained a complete six-head ETF live batch under `.excel_skill_runtime\\balanced_scorecard_live_complete_20260413` for:
+  - `treasury_etf`
+  - `gold_etf`
+  - `cross_border_etf`
+  - `equity_etf`
+- Re-ran the last formal ETF decision layer at both:
+  - `2025-08-08` to confirm the latest cut still downgrades to `replay_unavailable` for `180d`
+  - `2025-07-11` to capture the latest full balanced-scorecard-capable ETF closeout
+- Persisted the ETF final-chain summary to:
+  - `.excel_skill_runtime\\balanced_scorecard_live_complete_20260413\\etf_final_chain_summary.json`
+  - `.excel_skill_runtime\\balanced_scorecard_live_complete_20260413\\etf_final_chain_summary_20250711.json`
+- Updated the execution note:
+  - `docs\\execution-notes-2026-04-13-multi-head-live-validation.md`
+
+### 修改原因
+- The user explicitly asked us to continue thickening real data until ETF pools could reach the last formal conclusion layer with an auditable balanced scorecard instead of stopping at snapshot visibility.
+- Earlier work had already removed the structural replay break, so the next honest checkpoint was to prove whether ETF pools could now:
+  - carry ETF-native information into the scorecard
+  - train live six-head artifacts on governed history
+  - produce a formal chair output with complete balanced-scorecard components
+- We also needed a precise answer to the `180d` question, which required finding the latest ETF date where the future replay window is actually complete.
+
+### 方案还差什么
+- [ ] The ETF balanced-scorecard path is now complete through the formal chair layer, but all current ETF artifacts are still `candidate/shadow` grade rather than `champion`.
+- [ ] `2025-08-08` still cannot produce a complete `180d` governed output because the live slices only have `160` future rows beyond that date; later waves need even longer live windows if we want full latest-date 180-day validation.
+- [ ] ETF information semantics are now structurally available from governed proxy history, but later waves still need thicker ETF-native research evidence so committee/risk governance can move beyond conservative `avoid`.
+
+### 潜在问题
+- [ ] `cross_border_etf` remains the weakest live pool even after long-window retraining, so later thickening should bias toward overseas-driver history rather than only more price rows.
+- [ ] Some ETF balanced-scorecard components can look constructive while the final chair action remains `avoid`; downstream readers must keep reading governance state instead of raw scores alone.
+- [ ] The long-window ETF slices are now sufficient for `2025-07-11` full replay, but future contract changes in slice generation could silently shift the latest `180d`-capable date if we do not keep a dedicated regression around it.
+
+### 关闭项
+- The ETF long-window governed replay base is landed and auditable.
+- The latest common ETF date that supports full `180d` balanced-scorecard replay is now known and documented as `2025-07-11`.
+- Treasury, gold, cross-border, and equity ETF pools now reach the last formal chair layer with `score_status = ready` and non-empty balanced-scorecard component scores.
+- The current ETF bottleneck has moved from structure and missing data paths to model grade, evidence thickness, and committee/risk governance quality.
+
+## 2026-04-12 Task - land future 180d prediction mode from master scorecard into chair resolution
+
+### 修改内容
+- Extended [security_master_scorecard.rs](D:/Rust/Excel_Skill/src/ops/security_master_scorecard.rs) with governed `prediction_mode` inputs and a future-looking `prediction_summary` payload for `180d` use cases.
+- Added prediction-mode contract coverage in:
+  - `tests\\security_master_scorecard_cli.rs`
+  - `tests\\security_chair_resolution_cli.rs`
+- Extended [security_chair_resolution.rs](D:/Rust/Excel_Skill/src/ops/security_chair_resolution.rs) so chair requests now forward:
+  - `prediction_mode`
+  - `prediction_horizon_days`
+- Added chair-layer prediction-mode reasoning and execution-constraint output:
+  - reasoning now explicitly references `prediction-mode quant context`
+  - constraints now include the governed `regime cluster` summary when prediction mode is active
+- Added prediction-mode helpers inside the chair layer:
+  - `default_prediction_horizon_days`
+  - `is_prediction_mode`
+
+### 修改原因
+- The user explicitly corrected the product standard from "find a replay-capable historical date" to "predict the next 180 days from 2026-04-12".
+- The previous state already had a future-looking builder in `security_master_scorecard`, but the last formal decision layer still consumed replay semantics and therefore could not expose a governed future-facing conclusion.
+- This round was required to make regression, risk, and clustering lines visible at the final `security_chair_resolution` layer instead of stopping at the intermediate scorecard object.
+
+### 方案还差什么
+- [ ] The current prediction-mode cluster line is still a governed deterministic analog summary rather than a dedicated learned clustering artifact.
+- [ ] Prediction mode is now structurally available at the chair layer, but the downstream live-data thickening work is still needed before many assets can graduate beyond `candidate/shadow` governance.
+- [ ] We still need a future-looking end-to-end consumption pass on broader live assets to decide which asset classes can already sustain production-grade 180d prediction outputs.
+
+### 潜在问题
+- [ ] Downstream consumers might over-read `prediction_summary` as a production release signal even when the model grade is still `candidate/shadow`; they must keep reading governance state together with predicted values.
+- [ ] The current cluster analog count is rule-derived from available heads and horizon length, so it is stable and auditable but not yet a learned analog-study output.
+- [ ] If later work adds a separate clustering tool or artifact family, the current `future_prediction_v1` summary contract will need a compatibility regression to keep chair reasoning stable.
+
+### 关闭项
+- `security_master_scorecard` now supports a governed future-looking `prediction_mode = prediction` path for `180d` requests.
+- `security_chair_resolution` now consumes future regression, risk, and clustering context instead of silently falling back to replay-only wording.
+- The two new red tests for future `180d` prediction mode are green, and adjacent CLI suites for master-scorecard and chair-resolution are also green.
+
+## 2026-04-12 Task - fix non-trading ETF proxy fallback and rerun same-standard 180d prediction scorecards
+
+### 修改内容
+- Added a non-trading-date fallback loader in [security_external_proxy_store.rs](D:/Rust/Excel_Skill/src/runtime/security_external_proxy_store.rs) so governed ETF proxy history can resolve the latest record on or before the requested `as_of_date`.
+- Updated [security_external_proxy_backfill.rs](D:/Rust/Excel_Skill/src/ops/security_external_proxy_backfill.rs) to try exact-date proxy lookup first and then fall back to the latest prior trading date when the request lands on weekends or holidays.
+- Added a red-to-green regression in [security_chair_resolution_cli.rs](D:/Rust/Excel_Skill/tests/security_chair_resolution_cli.rs) that locks treasury ETF proxy hydration on `2026-04-12` while the governed proxy record itself is stored at `2026-04-10`.
+- Extended the governed stock long slice for `601916.SH` to `2026-04-10` and reran the same-standard `prediction_mode = prediction`, `prediction_horizon_days = 180` stack for:
+  - `601916.SH`
+  - `511010.SH`
+  - `518880.SH`
+  - `513500.SH`
+  - `512800.SH`
+- Wrote the rerun summary to [prediction_and_chair_summary.json](D:/Rust/Excel_Skill/.excel_skill_runtime/prediction_mode_rerun_20260412_fixed/prediction_and_chair_summary.json).
+
+### 修改原因
+- The user explicitly asked us to stop using replay-capable historical anchor dates and instead analyze from the current time reference (`2026-04-12`) toward the next `180` days.
+- Earlier ETF slices already had governed proxy history through `2026-04-10`, but direct future-mode runs on `2026-04-12` still downgraded to incomplete outputs because the proxy loader required an exact date match.
+- We needed one honest checkpoint showing whether the repaired ETF information path and the extended stock long slice could now reach the same-standard `master_scorecard + chair_resolution` layer together.
+
+### 方案还差什么
+- [ ] ETF pools now carry governed information into the final chain on `2026-04-12`, but their scorecards still land at `feature_incomplete` because at least one feature family remains outside the trained bins, with `integrated_stance = mixed_watch` being a confirmed gap for treasury ETF.
+- [ ] The stock side now has a same-standard long slice through `2026-04-10`, but its current `180d` prediction still ends at `abstain`, so later thickening still needs broader evidence and stronger model grade rather than only more price rows.
+- [ ] We still need a dedicated ETF scorecard refinement wave so future governed ETF predictions can move from `feature_incomplete` into fully matched `ready` scorecards under prediction mode.
+
+### 潜在问题
+- [ ] Downstream readers could misread the rerun as “ETF final chain is fully solved” because governed ETF information is now available at the chair layer; in reality, the remaining bottleneck has shifted into scorecard feature completeness rather than data reachability.
+- [ ] The non-trading-date fallback currently uses “latest on or before” semantics, which is correct for weekends and holidays, but future consumers should keep passing explicit `as_of_date` values so replay and prediction behavior remain auditable.
+- [ ] The current future-mode summary now combines `master_scorecard` and `chair_resolution` outputs from two separate tool calls; if the chair contract later starts returning master-scorecard inline, this stitched summary path should be simplified to avoid drift.
+
+### 关闭项
+- ETF governed proxy information now survives the `2026-04-12 -> 2026-04-10` non-trading-date handoff and reaches the final committee / chair chain.
+- The governed long stock slice for `601916.SH` is now extended to `2026-04-10`, so stock and ETF can be rerun under the same `180d` prediction-mode standard.
+- A same-standard `180d` prediction summary now exists for the five tracked symbols, including:
+  - governed information sources
+  - predicted return / drawdown / path-quality values
+  - regime cluster labels
+  - final chair actions
+
+## 2026-04-12 Task - normalize ETF integrated stance buckets, retrain live artifacts, and verify 180d replay-to-2026-04-10
+
+### 修改内容
+- Added ETF-only `integrated_stance` modeling normalization in [security_scorecard.rs](D:/Rust/Excel_Skill/src/ops/security_scorecard.rs), so richer ETF information-layer outputs such as `mixed_watch` and `watchful_positive` are collapsed into stable modeling buckets before scorecard bin matching.
+- Added the matching ETF normalization path in [security_scorecard_training.rs](D:/Rust/Excel_Skill/src/ops/security_scorecard_training.rs), so training-time feature extraction now stores the same governed ETF stance buckets that runtime scorecards expect.
+- Locked the normalization fix with three focused red-to-green tests:
+  - `normalize_integrated_stance_for_modeling_collapses_new_etf_watch_labels`
+  - `value_matches_bin_accepts_normalized_etf_watch_bucket`
+  - `extract_feature_values_normalizes_etf_integrated_stance_bucket`
+- Rebuilt a fresh live batch under [prediction_mode_rerun_20260412_stance_fixed_v2](D:/Rust/Excel_Skill/.excel_skill_runtime/prediction_mode_rerun_20260412_stance_fixed_v2) for:
+  - `511010.SH`
+  - `518880.SH`
+  - `513500.SH`
+  - `512800.SH`
+  - `601916.SH`
+- Trained six heads for every tracked asset in that batch:
+  - `direction_head`
+  - `return_head`
+  - `drawdown_head`
+  - `path_quality_head`
+  - `upside_first_head`
+  - `stop_first_head`
+- Reran same-standard `prediction_mode = prediction`, `prediction_horizon_days = 180` outputs and wrote the governed summary to [prediction_and_chair_summary.json](D:/Rust/Excel_Skill/.excel_skill_runtime/prediction_mode_rerun_20260412_stance_fixed_v2/prediction_and_chair_summary.json).
+- Added the requested 180-day lookback validation toward `2026-04-10` and wrote it to [replay_180d_to_2026_04_10_summary.json](D:/Rust/Excel_Skill/.excel_skill_runtime/prediction_mode_rerun_20260412_stance_fixed_v2/replay_180d_to_2026_04_10_summary.json).
+
+### 修改原因
+- The previous governed ETF information thickening wave had already made ETF proxy evidence visible at the final chair layer, but ETF scorecards still degraded to `feature_incomplete`.
+- We isolated the concrete blocker to the ETF `integrated_stance` vocabulary drifting ahead of the older ETF artifacts: runtime was emitting `mixed_watch` / `watchful_positive`, while the trained bins still only recognized older coarse stance values.
+- This round was required to make ETF scorecards consume the richer ETF information semantics without silently breaking feature coverage, and then to verify both:
+  - future-looking `2026-04-12 -> next 180 days` predictions
+  - historical `180 days before -> realized at 2026-04-10` replay checks
+
+### 方案还差什么
+- [ ] The ETF scorecards are now `ready`, but all four ETF pools still end at `avoid`, so the next thickening wave must target evidence depth and model-grade uplift rather than feature-plumbing repairs.
+- [ ] `601916.SH` now reaches `score_status = ready` in the same future-looking standard, but its governed final action is still conservative, so stock-side champion promotion remains a separate next-step problem.
+- [ ] We still need broader live-data thickening for ETF-native information semantics and longer-horizon evidence so future `180d` outputs can move from `candidate/shadow` support toward production-grade governance.
+
+## 2026-04-12 资产池预测校准与长窗口复核
+
+### 修改文件
+- [src/ops/security_master_scorecard.rs](D:/Rust/Excel_Skill/src/ops/security_master_scorecard.rs)
+
+### 修改内容
+- Added pool-level prediction calibration profiles for:
+  - `treasury_etf`
+  - `gold_etf`
+  - `cross_border_etf`
+  - `equity_etf`
+  - default equity/stock fallback
+- Routed `prediction_mode = prediction` through asset-pool-specific:
+  - `target_return_pct`
+  - `stop_loss_pct`
+  - profitability/risk/path weights
+- Kept explicit non-default request thresholds overrideable while still preserving pool-level scoring weights.
+- Added unit coverage for:
+  - treasury calibration defaults
+  - equity fallback defaults
+  - calibrated master-score weighting behavior
+
+### 修改原因
+- The previous prediction-mode scoring reused the same `12% / 5% / 45-35-20` defaults across treasury, gold, cross-border, equity ETF, and stocks.
+- That setup risked overfitting decision semantics to a single narrow calibration regime, especially for low-volatility treasury ETFs and high-path-variance gold/cross-border ETFs.
+- This round was required to move from symbol-like one-size-fits-all thresholds toward stable pool-level calibration so future reruns evaluate economically similar assets under comparable rules rather than reusing mismatched hurdles.
+
+### 验证
+- `cargo test --lib security_master_scorecard -- --nocapture`
+- `cargo test --test security_master_scorecard_cli security_master_scorecard_supports_prediction_mode_180d -- --nocapture`
+- `cargo test --test security_chair_resolution_cli security_chair_resolution_reads_prediction_mode_180d_context -- --nocapture`
+
+### 方案还差什么
+- [ ] The long-slice `2026-04-12 -> 180d` rerun still exposes a new ETF stance bucket (`watchful_context`) that is not yet covered by ETF scorecard bins, so long-slice production-style reruns remain blocked on one more stance-normalization repair.
+- [ ] The old pool-calibrated rerun summary under `.excel_skill_runtime/prediction_mode_rerun_20260412_pool_calibrated_v1` should not be treated as the final `2026-04-10` answer because it still used the shorter `2025-08-08` validation slices.
+- [ ] We still need a full long-slice rerun for all target ETFs after the `watchful_context` repair before comparing calibrated prediction outputs against realized `2026-04-10` outcomes.
+
+### 潜在问题
+- [ ] Pool-level calibration reduces per-symbol overfitting pressure, but it does not solve missing stance-bin coverage; if runtime emits new ETF stance labels faster than artifacts are updated, prediction chains can still degrade to `feature_incomplete`.
+- [ ] Prediction-mode calibration currently affects future-looking scoring only; replay-mode historical summaries will remain on their previous scoring regime unless we explicitly align them later.
+- [ ] If later we promote a true ETF-specific stance artifact family, the current normalization-backed calibration layer may need compatibility coverage to avoid silent score drift.
+
+### 潜在问题
+- [ ] The ETF stance normalization currently collapses multiple richer information-layer values into a smaller governed modeling vocabulary; if later ETF product semantics need to distinguish those buckets economically, we should extend artifact families rather than keep overloading the same normalized bucket forever.
+- [ ] Prediction summaries now look much cleaner because `score_status = ready`, but downstream readers still must not treat `avoid` + low-governance grades as deployable long signals.
+- [ ] The 180-day replay summary is anchored at `2025-07-11` because that is the latest common date with a full 180-day realized window to `2026-04-10`; if later live slices extend further, that anchor date will shift and should stay under explicit regression coverage.
+
+### 关闭项
+- The four ETF pools no longer degrade to `feature_incomplete` under the `2026-04-12 -> 180d` future-looking standard; they now all reach `score_status = ready`.
+- The new same-standard 180-day future-looking summary now reads:
+  - `511010.SH`: `ready`, `master_score = 58.14`, `selected_action = avoid`
+  - `518880.SH`: `ready`, `master_score = 56.08`, `selected_action = avoid`
+  - `513500.SH`: `ready`, `master_score = 26.37`, `selected_action = avoid`
+  - `512800.SH`: `ready`, `master_score = 24.42`, `selected_action = avoid`
+  - `601916.SH`: `ready`, `master_score = 46.39`, `selected_action = avoid`
+- The requested `180 days before -> realized at 2026-04-10` replay validation is now recorded for the same five assets, including realized return, max drawdown, max runup, and path-event hits.
+
+## 2026-04-12 ETF 池级修复收口与 latest chair 对照
+
+### 修改文件
+- [`.excel_skill_runtime/pool_training_fix_20260412/513180_SH_latest_chair_summary.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/513180_SH_latest_chair_summary.json)
+- [`.excel_skill_runtime/pool_training_fix_20260412/515790_SH_latest_chair_summary.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/515790_SH_latest_chair_summary.json)
+- [`.excel_skill_runtime/pool_training_fix_20260412/latest_chair_pool_summary.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/latest_chair_pool_summary.json)
+
+### 修改内容
+- Ran latest `security_chair_resolution` summaries for the pooled-training holdout symbols:
+  - `513180.SH` under `cross_border_etf`
+  - `515790.SH` under `equity_etf_peer`
+- Bound the latest runs to:
+  - slice-local `stock_history.db`
+  - slice-local governed `security_fundamental_history.db`
+  - slice-local governed `security_disclosure_history.db`
+  - shared governed `security_external_proxy.db`
+- Used the pooled `30d` artifacts produced under:
+  - `cross_border_training`
+  - `equity_training`
+- Wrote both per-symbol summaries and a combined rollup file for easier follow-up debugging.
+
+### 修改原因
+- The earlier pooled holdout validation already proved that `ready_rate` improved materially, but the session still lacked a like-for-like `latest chair` summary for `515790.SH`.
+- This round closes that gap so the next optimization wave can compare:
+  - historical pooled holdout improvements
+  - latest-date governance behavior
+  without manually reconstructing JSON from multiple runtime artifacts.
+
+### 验证
+- Executed live `security_chair_resolution` runs for:
+  - `513180.SH`
+  - `515790.SH`
+- Confirmed both summaries were persisted to:
+  - [`513180_SH_latest_chair_summary.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/513180_SH_latest_chair_summary.json)
+  - [`515790_SH_latest_chair_summary.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/515790_SH_latest_chair_summary.json)
+  - [`latest_chair_pool_summary.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/latest_chair_pool_summary.json)
+
+### 结果摘要
+- `513180.SH`
+  - `analysis_date = 2026-04-10`
+  - `selected_action = avoid`
+  - `score_status = feature_incomplete`
+  - `expected_return ≈ 1.75%`
+  - `expected_drawdown ≈ 8.57%`
+- `515790.SH`
+  - `analysis_date = 2026-04-10`
+  - `selected_action = avoid`
+  - `score_status = feature_incomplete`
+  - `expected_return ≈ 0.59%`
+  - `expected_drawdown ≈ 7.83%`
+
+### 方案还差什么
+- [ ] The pooled holdout path fixes materially improved historical `ready_rate`, but latest-date `chair_resolution` still degrades to `feature_incomplete`, so the next debugging pass must isolate which runtime feature bins still miss on `2026-04-10`.
+- [ ] `cross_border_etf` remains the weaker repair: latest governance is still conservative and its pooled holdout `group_X_points` is still `0.0`.
+- [ ] `equity_etf` shows meaningful holdout improvement, but the latest-date governance still does not accept it as fully ready, so latest runtime feature coverage remains incomplete.
+
+### 潜在问题
+- [ ] The latest chair summaries are generated with live runtime calls rather than test fixtures, so if slice-local governed history or proxy bindings change later, these summaries will need regeneration.
+- [ ] The latest-date degradation proves that pooled holdout readiness and latest runtime readiness are not yet identical states; downstream readers should not assume that a high holdout `ready_rate` guarantees a `ready` latest chair output.
+
+## 2026-04-12 ETF 池级代理历史自动导入与 latest ready 修复
+### 修改内容
+- Added red tests in [`tests/security_real_data_validation_backfill_cli.rs`](D:/Rust/Excel_Skill/tests/security_real_data_validation_backfill_cli.rs) to lock:
+  - ETF validation slices auto-import pool proxy history into governed external proxy storage.
+  - ETF validation slices fail fast when required pool proxy history is missing.
+- Updated [`src/ops/security_real_data_validation_backfill.rs`](D:/Rust/Excel_Skill/src/ops/security_real_data_validation_backfill.rs) so ETF validation requests now:
+  - auto-discover pool proxy CSV files under the governed runtime root,
+  - import them through the formal `security_external_proxy_history_import` path,
+  - persist `external_proxy_db_path` and `external_proxy_import_result_paths`,
+  - fail explicitly when an ETF slice still has no governed proxy history on or before `end_date`.
+- Repaired planning memory files to UTF-8 and refreshed:
+  - [`task_plan.md`](D:/Rust/Excel_Skill/task_plan.md)
+  - [`findings.md`](D:/Rust/Excel_Skill/findings.md)
+  - [`progress.md`](D:/Rust/Excel_Skill/progress.md)
+- Imported the real pool proxy batches:
+  - [`cross_border_pool_proxy_history.csv`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/cross_border_pool_proxy_history.csv)
+  - [`equity_pool_proxy_history.csv`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/equity_pool_proxy_history.csv)
+  into the shared governed proxy store:
+  - [`security_external_proxy.db`](D:/Rust/Excel_Skill/.excel_skill_runtime/security_external_proxy.db)
+- Re-ran latest `security_chair_resolution` for:
+  - `513180.SH`
+  - `515790.SH`
+  and wrote refreshed raw/summary artifacts:
+  - [`513180_SH_latest_chair_raw_after_proxy_import.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/513180_SH_latest_chair_raw_after_proxy_import.json)
+  - [`513180_SH_latest_chair_summary_after_proxy_import.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/513180_SH_latest_chair_summary_after_proxy_import.json)
+  - [`515790_SH_latest_chair_raw_after_proxy_import.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/515790_SH_latest_chair_raw_after_proxy_import.json)
+  - [`515790_SH_latest_chair_summary_after_proxy_import.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/515790_SH_latest_chair_summary_after_proxy_import.json)
+  - [`latest_chair_pool_summary_after_proxy_import.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/latest_chair_pool_summary_after_proxy_import.json)
+
+### 修改原因
+- The previous fix removed the `as_of_date` hydration bug, but latest ETF reruns still degraded to `feature_incomplete` because the pool-generated proxy CSVs never entered the governed external proxy store.
+- Summary files had started to drift away from the raw latest chair payloads, so this round needed to fix both the import path and the “missing data should fail loudly” guardrail.
+
+### 方案还差什么
+- [ ] Continue the larger bundle only after confirming the broader “can use for live trading” acceptance gate, because this round only closes the ETF proxy-history import gap.
+- [ ] Re-run the next pooled/latest comparison wave for additional ETF pools once more latest symbols are prepared, so the same auto-import contract is exercised beyond `513180.SH` and `515790.SH`.
+
+### 潜在问题
+- [ ] Auto-discovery currently keys off deterministic pool CSV file names plus symbol presence; if future pool jobs rename those artifacts, validation slices will fail fast until the discovery map is updated.
+- [ ] Latest raw is now `ready`, but both symbols still resolve to `selected_action = abstain`; this fix removes placeholder drift, not the broader governance threshold.
+- [ ] The shared governed proxy store now contains imported pool batches; if later debugging needs a pristine store, operators should isolate it with `EXCEL_SKILL_EXTERNAL_PROXY_DB`.
+
+### 关闭项
+- `security_real_data_validation_backfill` no longer returns a misleading ETF success result when pool proxy history is missing.
+- `513180.SH` latest raw now resolves:
+  - `score_status = ready`
+  - `fx_proxy_status = manual_bound`
+  - `overseas_market_proxy_status = manual_bound`
+  - `market_session_gap_status = manual_bound`
+- `515790.SH` latest raw now resolves:
+  - `score_status = ready`
+  - `etf_fund_flow_proxy_status = manual_bound`
+  - `premium_discount_proxy_status = manual_bound`
+  - `benchmark_relative_strength_status = manual_bound`
+- latest summary and raw are now aligned through [`latest_chair_pool_summary_after_proxy_import.json`](D:/Rust/Excel_Skill/.excel_skill_runtime/pool_training_fix_20260412/latest_chair_pool_summary_after_proxy_import.json).
+
+## 2026-04-12 GitHub 上传收口（证券主链方案C）
+### 修改内容
+- Added upload closeout notes for the securities mainline branch:
+  - [`docs/execution-notes-2026-04-12-github-upload-securities-mainline.md`](D:/Rust/Excel_Skill/docs/execution-notes-2026-04-12-github-upload-securities-mainline.md)
+- Added a dedicated AI handoff note that avoids the unresolved conflict file:
+  - [`docs/ai-handoff-2026-04-12-securities-mainline-upload.md`](D:/Rust/Excel_Skill/docs/ai-handoff-2026-04-12-securities-mainline-upload.md)
+- Prepared the upload boundary around the securities/stock mainline on branch:
+  - `codex/etf-proxy-import-latest-ready-20260412`
+- Explicitly excluded:
+  - `docs/AI_HANDOFF.md`
+  - unrelated `foundation` dirty files
+  - regenerated runtime fixture bulk directories
+
+### 修改原因
+- The repository worktree is heavily dirty, so a direct upload would mix unrelated changes and an unresolved conflict into the GitHub branch.
+- This upload round needed a factual execution note plus a fresh handoff note so the branch can be reviewed and continued safely.
+
+### 方案还差什么
+- [ ] Stage the final securities-mainline file set, create the commit, and push the branch to GitHub.
+- [ ] Keep verifying that no unrelated foundation/conflict files were included before the final upload.
+
+### 潜在问题
+- [ ] `docs/AI_HANDOFF.md` remains unresolved and must stay out of the upload until the conflict is handled separately.
+- [ ] Because the workspace contains many unrelated changes, any broad `git add` would still risk contaminating the branch if the boundary check is skipped.
+
+### 关闭项
+- A dedicated upload execution note now exists for this branch.
+- A dedicated AI handoff note now exists without touching the conflicted handoff file.

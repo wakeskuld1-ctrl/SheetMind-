@@ -6,9 +6,13 @@ use thiserror::Error;
 
 use crate::ops::stock::security_decision_evidence_bundle::{
     SecurityDecisionEvidenceBundleError, SecurityDecisionEvidenceBundleRequest,
-    build_evidence_bundle_feature_seed, security_decision_evidence_bundle,
+    SecurityExternalProxyInputs, build_evidence_bundle_feature_seed,
+    security_decision_evidence_bundle,
 };
 use crate::ops::stock::security_decision_package::sha256_for_json_value;
+use crate::ops::stock::security_external_proxy_backfill::{
+    SecurityExternalProxyBackfillError, resolve_effective_external_proxy_inputs,
+};
 
 // 2026-04-09 CST: 这里新增特征快照请求合同，原因是 Task 2 要把“分析时点可见特征冻结”独立成正式 Tool，
 // 目的：让后续训练 / 回算 / 主席线都能从统一入口拿到稳定快照，而不是每次临时拼字段。
@@ -33,6 +37,8 @@ pub struct SecurityFeatureSnapshotRequest {
     pub stop_loss_pct: f64,
     #[serde(default = "default_target_return_pct")]
     pub target_return_pct: f64,
+    #[serde(default)]
+    pub external_proxy_inputs: Option<SecurityExternalProxyInputs>,
 }
 
 // 2026-04-09 CST: 这里新增正式特征快照对象，原因是设计已经要求每次分析都要落地可回放的 feature_snapshot，
@@ -60,6 +66,8 @@ pub struct SecurityFeatureSnapshot {
 pub enum SecurityFeatureSnapshotError {
     #[error("security feature snapshot evidence preparation failed: {0}")]
     Evidence(#[from] SecurityDecisionEvidenceBundleError),
+    #[error("security feature snapshot historical proxy hydration failed: {0}")]
+    HistoricalProxy(#[from] SecurityExternalProxyBackfillError),
     #[error("security feature snapshot build failed: {0}")]
     Build(String),
 }
@@ -69,6 +77,16 @@ pub enum SecurityFeatureSnapshotError {
 pub fn security_feature_snapshot(
     request: &SecurityFeatureSnapshotRequest,
 ) -> Result<SecurityFeatureSnapshot, SecurityFeatureSnapshotError> {
+    // 2026-04-11 CST: Hydrate dated external-proxy inputs before freezing the
+    // snapshot, because P4 needs training and replay to read the governed
+    // historical proxy store instead of relying only on live manual overrides.
+    // Purpose: merge stored proxy history with current overrides on the formal
+    // snapshot path so all downstream heads see one auditable proxy payload.
+    let merged_external_proxy_inputs = resolve_effective_external_proxy_inputs(
+        &request.symbol,
+        request.as_of_date.as_deref(),
+        request.external_proxy_inputs.clone(),
+    )?;
     let evidence_request = SecurityDecisionEvidenceBundleRequest {
         symbol: request.symbol.clone(),
         market_symbol: request.market_symbol.clone(),
@@ -78,6 +96,7 @@ pub fn security_feature_snapshot(
         as_of_date: request.as_of_date.clone(),
         lookback_days: request.lookback_days,
         disclosure_limit: request.disclosure_limit,
+        external_proxy_inputs: merged_external_proxy_inputs,
     };
     let evidence_bundle = security_decision_evidence_bundle(&evidence_request)?;
     let raw_features_json = build_evidence_bundle_feature_seed(&evidence_bundle);
@@ -171,6 +190,28 @@ fn build_group_features(
         "X".to_string(),
         json!({
             "trading_structure_status": "not_populated_v1",
+            "yield_curve_proxy_status": raw_features_json.get("yield_curve_proxy_status").cloned().unwrap_or(Value::Null),
+            "yield_curve_slope_delta_bp_5d": raw_features_json.get("yield_curve_slope_delta_bp_5d").cloned().unwrap_or(Value::Null),
+            "funding_liquidity_proxy_status": raw_features_json.get("funding_liquidity_proxy_status").cloned().unwrap_or(Value::Null),
+            "funding_liquidity_spread_delta_bp_5d": raw_features_json.get("funding_liquidity_spread_delta_bp_5d").cloned().unwrap_or(Value::Null),
+            "gold_spot_proxy_status": raw_features_json.get("gold_spot_proxy_status").cloned().unwrap_or(Value::Null),
+            "gold_spot_proxy_return_5d": raw_features_json.get("gold_spot_proxy_return_5d").cloned().unwrap_or(Value::Null),
+            "usd_index_proxy_status": raw_features_json.get("usd_index_proxy_status").cloned().unwrap_or(Value::Null),
+            "usd_index_proxy_return_5d": raw_features_json.get("usd_index_proxy_return_5d").cloned().unwrap_or(Value::Null),
+            "real_rate_proxy_status": raw_features_json.get("real_rate_proxy_status").cloned().unwrap_or(Value::Null),
+            "real_rate_proxy_delta_bp_5d": raw_features_json.get("real_rate_proxy_delta_bp_5d").cloned().unwrap_or(Value::Null),
+            "fx_proxy_status": raw_features_json.get("fx_proxy_status").cloned().unwrap_or(Value::Null),
+            "fx_return_5d": raw_features_json.get("fx_return_5d").cloned().unwrap_or(Value::Null),
+            "overseas_market_proxy_status": raw_features_json.get("overseas_market_proxy_status").cloned().unwrap_or(Value::Null),
+            "overseas_market_return_5d": raw_features_json.get("overseas_market_return_5d").cloned().unwrap_or(Value::Null),
+            "market_session_gap_status": raw_features_json.get("market_session_gap_status").cloned().unwrap_or(Value::Null),
+            "market_session_gap_days": raw_features_json.get("market_session_gap_days").cloned().unwrap_or(Value::Null),
+            "etf_fund_flow_proxy_status": raw_features_json.get("etf_fund_flow_proxy_status").cloned().unwrap_or(Value::Null),
+            "etf_fund_flow_5d": raw_features_json.get("etf_fund_flow_5d").cloned().unwrap_or(Value::Null),
+            "premium_discount_proxy_status": raw_features_json.get("premium_discount_proxy_status").cloned().unwrap_or(Value::Null),
+            "premium_discount_pct": raw_features_json.get("premium_discount_pct").cloned().unwrap_or(Value::Null),
+            "benchmark_relative_strength_status": raw_features_json.get("benchmark_relative_strength_status").cloned().unwrap_or(Value::Null),
+            "benchmark_relative_return_5d": raw_features_json.get("benchmark_relative_return_5d").cloned().unwrap_or(Value::Null),
         }),
     );
     groups

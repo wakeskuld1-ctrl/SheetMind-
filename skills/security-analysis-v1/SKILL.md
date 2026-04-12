@@ -38,6 +38,37 @@ description: Use when users ask for stock, ETF, index, sector, market, or integr
 - 不要把信息面语义回灌到底层技术 Tool。
 - 不要在 Tool 已有结构化结论时，再手工改写成与 Tool 相冲突的口径。
 
+<!-- 2026-04-11 CST: 新增研究链与正式决策链边界约束，原因是最近一次对话里把分析链里的人工说明误说成了正式评分卡和正式投决会结论；目的：强制 security-analysis-v1 只输出研究结论，不越权冒充正式治理对象。 -->
+- 本 Skill 只能输出研究链结论，不能冒充正式投委会、正式评分卡或主席正式裁决。
+- 如果用户要求“正式投决会”“正式评分卡”“正式决议卡”，必须转去 `security-decision-workbench-v1`。
+- 不允许在研究链里手工发明一张“平衡计分卡”并说成项目代码已经算出的正式 scorecard。
+- 如果当前没有正式评分卡模型 artifact，就必须明确“当前研究链无法给出正式评分卡，只能给研究解释版结论”。
+
+<!-- 2026-04-11 CST: Add training-first research boundary, reason: user required all securities analysis to respect training support and reject premature confident conclusions from sparse facts; purpose: ensure the analysis skill explicitly downgrades unsupported views into research-only observations. -->
+## 训练优先边界
+
+本 Skill 可以做研究，但不能因为研究做得快，就把“少量事实 + 人工判断”说成可靠结论。
+
+必须遵守：
+
+- 只要问题已经接近交易、仓位、胜率、未来赚钱效益，就必须先提醒当前是否存在训练支撑。
+- 如果没有训练支撑，本 Skill 只能输出“研究观察 / 可能性推演 / 证据缺口”，不能输出伪装成负责建议的结论。
+- 如果引用了训练结果，必须明确说明训练支撑来自什么，以及当前至少有哪些可见拟合摘要。
+- 如果当前只有最小拟合摘要，就必须如实说明“当前训练验证仍是最小版，不代表生产级充分验证”。
+
+研究链允许做的事：
+
+- 补公开数据
+- 补证据解释
+- 提出待验证假设
+- 说明哪些因素值得纳入后续训练
+
+研究链不允许做的事：
+
+- 在没有训练支撑时，直接告诉用户“可以买 / 可以重仓 / 大概率会涨”
+- 用少量新闻、单次技术信号或人工归纳，替代训练或回算
+- 隐去“当前没有训练支撑”这一事实
+
 <!-- 2026-04-01 CST: 新增免费数据约束，原因是用户明确要求不要用大模型抓数据、不要用 Token；目的是把“免费公开源 + 可降级”写成规则。 -->
 ## 数据源约束
 
@@ -83,6 +114,7 @@ description: Use when users ask for stock, ETF, index, sector, market, or integr
 - 先说当前处于什么结构，再说达到目标价还差多少。
 - 如果问题是“什么时候回本/到价”，要给出时间窗口，而不是只给方向判断。
 - 如果涉及分红，要把“价格回本”和“总回报回本”分开说。
+- 如果只是研究链推演未来走势，必须明确这是“研究推演”，不是项目内正式评分卡或正式投决会结果。
 
 ## 输出格式建议
 
@@ -110,6 +142,14 @@ description: Use when users ask for stock, ETF, index, sector, market, or integr
 ### 错误 4：ETF 只看指数，不看汇率、溢价、分红特征
 
 正确做法：跨境 ETF 至少要同时说明标的指数、汇率和场内溢价风险；如果无分红，也要明确写出。
+
+### 错误 5：把研究链的人工打分说成正式评分卡
+
+正确做法：
+
+- 研究链可以做解释性分层，但必须明确标注“非正式评分卡”
+- 项目内正式评分卡只来自 `security_scorecard`
+- 如果没有模型 artifact，就必须说明正式评分卡状态无法成立，不能补一个人工分数冒充代码结果
 
 ## Quick Reference
 

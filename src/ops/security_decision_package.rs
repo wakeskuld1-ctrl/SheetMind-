@@ -24,6 +24,16 @@ pub struct SecurityDecisionPackageDocument {
     pub symbol: String,
     pub analysis_date: String,
     pub package_status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_grade_summary: Option<SecurityDecisionPackageModelGradeSummary>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_governance_summary: Option<SecurityDecisionPackageModelGovernanceSummary>,
+    // 2026-04-12 CST: Add a governed lifecycle feedback summary, because P8
+    // needs post-review feedback to become package-visible instead of remaining
+    // a detached artifact with no package-level operator view.
+    // Purpose: keep review-stage feedback and attribution replayable from the formal package contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle_governance_summary: Option<SecurityDecisionPackageLifecycleGovernanceSummary>,
     // 2026-04-08 CST: 这里新增显式对象图绑定块，原因是 Task 1 需要把 position_plan / approval_brief 从隐式 artifact 关系升级为正式对象图合同；
     // 目的：让 package 不只知道“有哪些文件”，还知道“这些正式对象彼此如何绑定”，为后续执行层和复盘层扩展预留统一入口。
     pub object_graph: SecurityDecisionPackageObjectGraph,
@@ -38,11 +48,23 @@ pub struct SecurityDecisionPackageObjectGraph {
     pub position_plan_ref: String,
     pub approval_brief_ref: String,
     pub scorecard_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition_review_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_record_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_trade_review_ref: Option<String>,
     pub decision_card_path: String,
     pub approval_request_path: String,
     pub position_plan_path: String,
     pub approval_brief_path: String,
     pub scorecard_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition_review_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_record_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_trade_review_path: Option<String>,
 }
 
 // 2026-04-02 CST: 这里定义审批包中的工件描述，原因是 package 需要引用而不是复制每个原始对象全文；
@@ -68,6 +90,42 @@ pub struct SecurityDecisionPackageGovernanceBinding {
     pub package_scope: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityDecisionPackageModelGradeSummary {
+    pub model_grade: String,
+    pub grade_reason: String,
+    pub approval_consumption_mode: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityDecisionPackageModelGovernanceSummary {
+    pub model_grade: String,
+    pub grade_reason: String,
+    pub approval_consumption_mode: String,
+    pub shadow_observation_count: usize,
+    pub shadow_consistency_status: String,
+    pub shadow_window_count: usize,
+    pub oot_stability_status: String,
+    pub window_consistency_status: String,
+    pub promotion_blockers: Vec<String>,
+    pub promotion_evidence_notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct SecurityDecisionPackageLifecycleGovernanceSummary {
+    pub lifecycle_status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition_review_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_record_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub post_trade_review_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommended_governance_action: Option<String>,
+    #[serde(default)]
+    pub attribution_layers: Vec<String>,
+}
+
 // 2026-04-02 CST: 这里定义 package builder 输入，原因是 package 生成时既需要主信息，也需要外部已经算好的工件清单；
 // 目的：把包对象构造和提交入口解耦，避免 submit 函数继续膨胀成“大而全的 JSON 拼装器”。
 #[derive(Debug, Clone, PartialEq)]
@@ -85,16 +143,25 @@ pub struct SecurityDecisionPackageBuildInput {
     pub analysis_date: String,
     pub decision_status: String,
     pub approval_status: String,
+    pub model_grade_summary: Option<SecurityDecisionPackageModelGradeSummary>,
+    pub model_governance_summary: Option<SecurityDecisionPackageModelGovernanceSummary>,
+    pub lifecycle_governance_summary: Option<SecurityDecisionPackageLifecycleGovernanceSummary>,
     // 2026-04-08 CST: 这里补入对象图构建输入，原因是 package builder 需要一次性拿到正式对象引用与路径；
     // 目的：把对象图收口在 builder，而不是让 submit / revision 在外部各自拼接，降低后续字段漂移风险。
     pub position_plan_ref: String,
     pub approval_brief_ref: String,
     pub scorecard_ref: String,
+    pub condition_review_ref: Option<String>,
+    pub execution_record_ref: Option<String>,
+    pub post_trade_review_ref: Option<String>,
     pub decision_card_path: String,
     pub approval_request_path: String,
     pub position_plan_path: String,
     pub approval_brief_path: String,
     pub scorecard_path: String,
+    pub condition_review_path: Option<String>,
+    pub execution_record_path: Option<String>,
+    pub post_trade_review_path: Option<String>,
     pub evidence_hash: String,
     pub governance_hash: String,
     pub artifact_manifest: Vec<SecurityDecisionPackageArtifact>,
@@ -120,17 +187,26 @@ pub fn build_security_decision_package(
         symbol: input.symbol,
         analysis_date: input.analysis_date,
         package_status: derive_package_status(&input.decision_status, &input.approval_status),
+        model_grade_summary: input.model_grade_summary,
+        model_governance_summary: input.model_governance_summary,
+        lifecycle_governance_summary: input.lifecycle_governance_summary,
         object_graph: SecurityDecisionPackageObjectGraph {
             decision_ref: input.decision_ref.clone(),
             approval_ref: input.approval_ref.clone(),
             position_plan_ref: input.position_plan_ref,
             approval_brief_ref: input.approval_brief_ref,
             scorecard_ref: input.scorecard_ref,
+            condition_review_ref: input.condition_review_ref,
+            execution_record_ref: input.execution_record_ref,
+            post_trade_review_ref: input.post_trade_review_ref,
             decision_card_path: input.decision_card_path,
             approval_request_path: input.approval_request_path,
             position_plan_path: input.position_plan_path,
             approval_brief_path: input.approval_brief_path,
             scorecard_path: input.scorecard_path,
+            condition_review_path: input.condition_review_path,
+            execution_record_path: input.execution_record_path,
+            post_trade_review_path: input.post_trade_review_path,
         },
         artifact_manifest: input.artifact_manifest,
         governance_binding: SecurityDecisionPackageGovernanceBinding {

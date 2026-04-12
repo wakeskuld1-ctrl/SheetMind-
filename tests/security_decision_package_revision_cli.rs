@@ -34,6 +34,31 @@ fn create_stock_history_csv(prefix: &str, file_name: &str, rows: &[String]) -> P
     csv_path
 }
 
+// 2026-04-12 CST: Add a reusable JSON fixture helper, because P8-4 needs
+// lifecycle documents to be attached during package revision without hand-editing
+// runtime artifacts inline.
+// Purpose: keep lifecycle-package tests readable while preserving stable per-test files.
+fn create_json_fixture(prefix: &str, file_name: &str, value: &Value) -> PathBuf {
+    let unique_suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock should be after unix epoch")
+        .as_nanos();
+    let fixture_dir = PathBuf::from("tests")
+        .join("runtime_fixtures")
+        .join("security_decision_package_revision")
+        .join(format!("{prefix}_{unique_suffix}"));
+    fs::create_dir_all(&fixture_dir)
+        .expect("security decision package revision json fixture dir should exist");
+
+    let json_path = fixture_dir.join(file_name);
+    fs::write(
+        &json_path,
+        serde_json::to_vec_pretty(value).expect("json fixture should serialize"),
+    )
+    .expect("security decision package revision json fixture should be written");
+    json_path
+}
+
 // 2026-04-02 CST: 这里复用本地 HTTP 假服务，原因是 revision 测试仍然需要先生成真实审批包；
 // 目的：保证财报和公告证据稳定可重放，不让外部接口波动干扰 package 版本化测试。
 fn spawn_http_route_server(routes: Vec<(&str, &str, &str, &str)>) -> String {
@@ -407,6 +432,235 @@ fn security_decision_package_revision_builds_v2_package_after_approval_update() 
             .expect("artifact manifest should be array")
             .iter()
             .any(|artifact| artifact["artifact_role"] == "approval_events")
+    );
+}
+
+#[test]
+fn security_decision_package_revision_can_attach_lifecycle_refs_and_feedback_summary() {
+    let runtime_db_path = create_test_runtime_db("security_decision_package_revision_lifecycle");
+    let approval_root = runtime_db_path
+        .parent()
+        .expect("runtime db should have parent")
+        .join("scenes_runtime");
+
+    let stock_csv = create_stock_history_csv(
+        "security_decision_package_revision_lifecycle",
+        "stock.csv",
+        &build_confirmed_breakout_rows(220, 88.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_decision_package_revision_lifecycle",
+        "market.csv",
+        &build_confirmed_breakout_rows(220, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_decision_package_revision_lifecycle",
+        "sector.csv",
+        &build_confirmed_breakout_rows(220, 950.0),
+    );
+    import_history_csv(&runtime_db_path, &stock_csv, "601916.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "512800.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 200 OK",
+            r#"[
+                {
+                    "REPORT_DATE":"2025-12-31",
+                    "NOTICE_DATE":"2026-03-28",
+                    "TOTAL_OPERATE_INCOME":308227000000.0,
+                    "YSTZ":8.37,
+                    "PARENT_NETPROFIT":11117000000.0,
+                    "SJLTZ":9.31,
+                    "ROEJQ":14.8
+                }
+            ]"#,
+            "application/json",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "list":[
+                        {"notice_date":"2026-03-28","title":"2025年年度报告","art_code":"AN202603281234567890","columns":[{"column_name":"定期报告"}]}
+                    ]
+                }
+            }"#,
+            "application/json",
+        ),
+    ]);
+
+    let submit_request = json!({
+        "tool": "security_decision_submit_approval",
+        "args": {
+            "symbol": "601916.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "a_share_bank",
+            "stop_loss_pct": 0.05,
+            "target_return_pct": 0.12,
+            "approval_runtime_root": approval_root.to_string_lossy(),
+            "created_at": "2026-04-12T10:00:00+08:00"
+        }
+    });
+
+    let submit_output = run_cli_with_json_runtime_and_envs(
+        &submit_request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    let package_path = PathBuf::from(
+        submit_output["data"]["decision_package_path"]
+            .as_str()
+            .expect("decision package path should exist"),
+    );
+    let decision_ref = submit_output["data"]["decision_ref"]
+        .as_str()
+        .expect("decision ref should exist");
+    let approval_ref = submit_output["data"]["approval_ref"]
+        .as_str()
+        .expect("approval ref should exist");
+    let position_plan_ref = submit_output["data"]["position_plan"]["plan_id"]
+        .as_str()
+        .expect("position plan ref should exist");
+
+    let condition_review_path = create_json_fixture(
+        "security_decision_package_revision_lifecycle",
+        "condition_review.json",
+        &json!({
+            "contract_version": "security_condition_review.v1",
+            "document_type": "security_condition_review",
+            "condition_review_id": "condition-review:601916.SH:2026-04-12:manual_review:v1",
+            "symbol": "601916.SH",
+            "analysis_date": "2026-04-12",
+            "review_trigger_type": "manual_review",
+            "review_trigger_summary": "盘中人工复核，维持原计划",
+            "review_status": "recorded",
+            "recommended_follow_up_action": "keep_plan",
+            "review_notes": ["review preserved the current plan pending further lifecycle events"],
+            "binding": {
+                "decision_ref": decision_ref,
+                "approval_ref": approval_ref,
+                "position_plan_ref": position_plan_ref,
+                "decision_package_path": package_path.to_string_lossy()
+            },
+            "created_at": "2026-04-12T10:05:00+08:00"
+        }),
+    );
+    let execution_record_path = create_json_fixture(
+        "security_decision_package_revision_lifecycle",
+        "execution_record.json",
+        &json!({
+            "contract_version": "security_execution_record.v1",
+            "document_type": "security_execution_record",
+            "execution_record_id": "execution-record:601916.SH:2026-04-12:build:v1",
+            "symbol": "601916.SH",
+            "analysis_date": "2026-04-12",
+            "execution_action": "build",
+            "execution_status": "filled",
+            "executed_gross_pct": 0.06,
+            "execution_summary": "按计划建立首仓",
+            "binding": {
+                "decision_ref": decision_ref,
+                "approval_ref": approval_ref,
+                "position_plan_ref": position_plan_ref,
+                "condition_review_ref": "condition-review:601916.SH:2026-04-12:manual_review:v1"
+            },
+            "created_at": "2026-04-12T10:15:00+08:00"
+        }),
+    );
+    let post_trade_review_path = create_json_fixture(
+        "security_decision_package_revision_lifecycle",
+        "post_trade_review.json",
+        &json!({
+            "contract_version": "security_post_trade_review.v1",
+            "document_type": "security_post_trade_review",
+            "post_trade_review_id": "post-trade-review:601916.SH:2026-04-12:completed:v1",
+            "symbol": "601916.SH",
+            "analysis_date": "2026-04-12",
+            "review_status": "completed",
+            "review_summary": "执行后确认治理层需要继续观察量化上下文",
+            "attribution": {
+                "data_issue": false,
+                "model_issue": true,
+                "governance_issue": true,
+                "execution_issue": false
+            },
+            "recommended_governance_action": "continue_shadow",
+            "review_notes": [
+                "review identified a model-quality issue",
+                "review identified a governance-process issue"
+            ],
+            "binding": {
+                "decision_ref": decision_ref,
+                "approval_ref": approval_ref,
+                "position_plan_ref": position_plan_ref,
+                "execution_record_ref": "execution-record:601916.SH:2026-04-12:build:v1"
+            },
+            "created_at": "2026-04-12T10:30:00+08:00"
+        }),
+    );
+
+    let revision_request = json!({
+        "tool": "security_decision_package_revision",
+        "args": {
+            "package_path": package_path.to_string_lossy(),
+            "revision_reason": "attach_lifecycle_records",
+            "reverify_after_revision": false,
+            "condition_review_path": condition_review_path.to_string_lossy(),
+            "execution_record_path": execution_record_path.to_string_lossy(),
+            "post_trade_review_path": post_trade_review_path.to_string_lossy()
+        }
+    });
+    let revision_output =
+        run_cli_with_json_runtime_and_envs(&revision_request.to_string(), &runtime_db_path, &[]);
+
+    // 2026-04-12 CST: Lock lifecycle attachment into the package revision flow,
+    // because P8-4/P8-5 require the formal condition/execution/post-trade objects
+    // to become first-class package references instead of external loose files.
+    // Purpose: prove object-graph wiring, manifest persistence, and feedback summary generation in one governed revision path.
+    assert_eq!(revision_output["status"], "ok");
+    assert_eq!(
+        revision_output["data"]["decision_package"]["object_graph"]["condition_review_ref"],
+        "condition-review:601916.SH:2026-04-12:manual_review:v1"
+    );
+    assert_eq!(
+        revision_output["data"]["decision_package"]["object_graph"]["execution_record_ref"],
+        "execution-record:601916.SH:2026-04-12:build:v1"
+    );
+    assert_eq!(
+        revision_output["data"]["decision_package"]["object_graph"]["post_trade_review_ref"],
+        "post-trade-review:601916.SH:2026-04-12:completed:v1"
+    );
+    assert_eq!(
+        revision_output["data"]["decision_package"]["lifecycle_governance_summary"]["recommended_governance_action"],
+        "continue_shadow"
+    );
+    assert!(
+        revision_output["data"]["decision_package"]["lifecycle_governance_summary"]["attribution_layers"]
+            .as_array()
+            .expect("attribution layers should be array")
+            .iter()
+            .any(|value| value == "model_issue")
+    );
+    assert!(
+        revision_output["data"]["decision_package"]["artifact_manifest"]
+            .as_array()
+            .expect("artifact manifest should be array")
+            .iter()
+            .any(|artifact| artifact["artifact_role"] == "post_trade_review")
     );
 }
 

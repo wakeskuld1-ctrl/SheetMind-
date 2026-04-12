@@ -392,7 +392,10 @@ fn collect_blocking_gate_names(committee: &SecurityDecisionCommitteeResult) -> V
 }
 
 fn map_direction(direction: &str) -> PersistedDecisionDirection {
-    match direction {
+    // 2026-04-11 CST: 这里补大小写无关的方向映射，原因是当前证券主链不同对象对 `exposure_side`
+    // 的大小写口径并不完全一致，旧实现只认全小写会把真实 long/short 误落成 NoTrade。
+    // 目的：让审批桥接层稳定消费正式动作方向，而不是把字符串大小写漂移放大成业务语义错误。
+    match direction.trim().to_ascii_lowercase().as_str() {
         "long" => PersistedDecisionDirection::Long,
         "short" => PersistedDecisionDirection::Short,
         "hedge" => PersistedDecisionDirection::Hedge,

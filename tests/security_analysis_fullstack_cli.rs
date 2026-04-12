@@ -133,6 +133,19 @@ fn security_analysis_fullstack_aggregates_technical_fundamental_and_disclosures(
 
     let server = spawn_http_route_server(vec![
         (
+            "/capital-flow",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "symbol":"002352.SZ",
+                    "main_net_inflow":12500000.0,
+                    "super_order_net_inflow":6200000.0,
+                    "headline":"主力资金当日净流入，超大单同步净流入"
+                }
+            }"#,
+            "application/json",
+        ),
+        (
             "/financials",
             "HTTP/1.1 200 OK",
             r#"[
@@ -179,6 +192,10 @@ fn security_analysis_fullstack_aggregates_technical_fundamental_and_disclosures(
         &runtime_db_path,
         &[
             (
+                "EXCEL_SKILL_EASTMONEY_CAPITAL_FLOW_URL_BASE",
+                format!("{server}/capital-flow"),
+            ),
+            (
                 "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
                 format!("{server}/financials"),
             ),
@@ -193,6 +210,10 @@ fn security_analysis_fullstack_aggregates_technical_fundamental_and_disclosures(
     // 目的：确保上层调用方只打一枪就能拿到完整证券分析骨架，而不是继续手工拼多个 Tool 结果。
     assert_eq!(output["status"], "ok");
     assert_eq!(output["data"]["symbol"], "002352.SZ");
+    assert_eq!(
+        output["data"]["technical_context"]["capital_flow_context"]["status"],
+        "available"
+    );
     assert_eq!(
         output["data"]["technical_context"]["contextual_conclusion"]["alignment"],
         "mixed"
@@ -246,6 +267,19 @@ fn security_analysis_fullstack_degrades_gracefully_when_info_sources_fail() {
 
     let server = spawn_http_route_server(vec![
         (
+            "/capital-flow",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "symbol":"002352.SZ",
+                    "main_net_inflow":12500000.0,
+                    "super_order_net_inflow":6200000.0,
+                    "headline":"主力资金当日净流入，超大单同步净流入"
+                }
+            }"#,
+            "application/json",
+        ),
+        (
             "/financials",
             "HTTP/1.1 500 Internal Server Error",
             r#"{"error":"financial upstream failed"}"#,
@@ -272,6 +306,11 @@ fn security_analysis_fullstack_degrades_gracefully_when_info_sources_fail() {
         &request.to_string(),
         &runtime_db_path,
         &[
+            ("EXCEL_SKILL_EASTMONEY_DAILY_LIMIT", "0".to_string()),
+            (
+                "EXCEL_SKILL_EASTMONEY_CAPITAL_FLOW_URL_BASE",
+                format!("{server}/capital-flow"),
+            ),
             (
                 "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
                 format!("{server}/financials"),
@@ -286,6 +325,10 @@ fn security_analysis_fullstack_degrades_gracefully_when_info_sources_fail() {
     // 2026-04-01 CST: 这里补“信息面源失败但主 Tool 不崩”的降级合同，原因是第三方免费源天然存在限流和抖动；
     // 目的：让产品在外部源异常时仍能返回技术主结论，并显式告诉上层哪些信息面维度缺失。
     assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["technical_context"]["capital_flow_context"]["status"],
+        "budget_exhausted"
+    );
     assert_eq!(
         output["data"]["fundamental_context"]["status"],
         "unavailable"
@@ -304,6 +347,134 @@ fn security_analysis_fullstack_degrades_gracefully_when_info_sources_fail() {
             .expect("risk flags should exist")
             .len()
             >= 1
+    );
+}
+
+#[test]
+fn security_analysis_fullstack_synthesizes_etf_information_from_governed_proxy_history() {
+    let runtime_db_path = create_test_runtime_db("security_analysis_fullstack_etf_info");
+    let external_proxy_db_path = runtime_db_path
+        .parent()
+        .expect("runtime db should have parent")
+        .join("security_external_proxy.db");
+
+    let etf_csv = create_stock_history_csv(
+        "security_analysis_fullstack_etf_info",
+        "gold_etf.csv",
+        &build_confirmed_breakout_rows(260, 101.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_analysis_fullstack_etf_info",
+        "market.csv",
+        &build_confirmed_breakout_rows(260, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_analysis_fullstack_etf_info",
+        "sector.csv",
+        &build_confirmed_breakout_rows(260, 99.0),
+    );
+    import_history_csv(&runtime_db_path, &etf_csv, "518880.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "518800.SH");
+
+    let backfill_request = json!({
+        "tool": "security_external_proxy_backfill",
+        "args": {
+            "batch_id": "fullstack-etf-info",
+            "created_at": "2026-04-13T10:00:00+08:00",
+            "records": [{
+                "symbol": "518880.SH",
+                "as_of_date": "2025-08-08",
+                "instrument_subscope": "gold_etf",
+                "external_proxy_inputs": {
+                    "gold_spot_proxy_status": "manual_bound",
+                    "gold_spot_proxy_return_5d": 0.021019,
+                    "usd_index_proxy_status": "manual_bound",
+                    "usd_index_proxy_return_5d": -0.003841,
+                    "real_rate_proxy_status": "manual_bound",
+                    "real_rate_proxy_delta_bp_5d": -2.0
+                }
+            }]
+        }
+    });
+    let backfill_output = run_cli_with_json_runtime_and_envs(
+        &backfill_request.to_string(),
+        &runtime_db_path,
+        &[(
+            "EXCEL_SKILL_EXTERNAL_PROXY_DB",
+            external_proxy_db_path.to_string_lossy().to_string(),
+        )],
+    );
+    assert_eq!(backfill_output["status"], "ok");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for ETF fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_analysis_fullstack",
+        "args": {
+            "symbol": "518880.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "518800.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "gold_etf_peer",
+            "as_of_date": "2025-08-08"
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+            (
+                "EXCEL_SKILL_EXTERNAL_PROXY_DB",
+                external_proxy_db_path.to_string_lossy().to_string(),
+            ),
+        ],
+    );
+
+    // 2026-04-13 UTC+08: Add an ETF information-layer red test here, because the
+    // user explicitly required the stack to stop treating ETF symbols as permanently
+    // missing stock-style information once governed ETF proxy history is available.
+    // Purpose: force fullstack to synthesize ETF-native evidence so later committee
+    // and chair layers can move beyond the automatic `technical_only` downgrade.
+    assert_eq!(
+        output["status"], "ok",
+        "unexpected ETF fullstack output: {output}"
+    );
+    assert_eq!(output["data"]["fundamental_context"]["status"], "available");
+    assert_eq!(
+        output["data"]["fundamental_context"]["source"],
+        "governed_etf_proxy_information"
+    );
+    assert_eq!(output["data"]["disclosure_context"]["status"], "available");
+    assert_eq!(
+        output["data"]["disclosure_context"]["source"],
+        "governed_etf_proxy_information"
+    );
+    assert_ne!(
+        output["data"]["integrated_conclusion"]["stance"],
+        "technical_only"
     );
 }
 
@@ -421,6 +592,39 @@ fn build_confirmed_breakdown_rows(day_count: usize, start_close: f64) -> Vec<Str
         let low = next_close.min(open) - 0.012;
         rows.push(format!(
             "{},{open:.3},{high:.3},{low:.3},{next_close:.3},{next_close:.3},{volume}",
+            trade_date.format("%Y-%m-%d")
+        ));
+        close = next_close;
+    }
+
+    rows
+}
+
+fn build_confirmed_breakout_rows(day_count: usize, start_close: f64) -> Vec<String> {
+    let mut rows = vec!["trade_date,open,high,low,close,adj_close,volume".to_string()];
+    let start_date = NaiveDate::from_ymd_opt(2025, 1, 1).expect("seed date should be valid");
+    let mut close = start_close;
+
+    for offset in 0..day_count {
+        let trade_date = start_date + Duration::days(offset as i64);
+        let (next_close, volume): (f64, i64) = if offset < day_count - 20 {
+            (close + 0.78, 880_000 + offset as i64 * 8_000)
+        } else {
+            let phase = offset - (day_count - 20);
+            match phase % 4 {
+                0 => (close + 1.35, 1_700_000 + phase as i64 * 26_000),
+                1 => (close - 0.18, 420_000),
+                2 => (close + 1.08, 1_540_000 + phase as i64 * 22_000),
+                _ => (close + 0.42, 1_240_000),
+            }
+        };
+
+        let open = close;
+        let high = next_close.max(open) + 1.0;
+        let low = next_close.min(open) - 0.86;
+        let adj_close = next_close;
+        rows.push(format!(
+            "{},{open:.2},{high:.2},{low:.2},{next_close:.2},{adj_close:.2},{volume}",
             trade_date.format("%Y-%m-%d")
         ));
         close = next_close;

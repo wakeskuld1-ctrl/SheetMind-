@@ -5,14 +5,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::ops::stock::security_condition_review::SecurityConditionReviewDocument;
 use crate::ops::stock::security_decision_package::{
     SecurityDecisionPackageArtifact, SecurityDecisionPackageBuildInput,
-    SecurityDecisionPackageDocument, build_security_decision_package, sha256_for_bytes,
-    sha256_for_json_value,
+    SecurityDecisionPackageDocument, SecurityDecisionPackageLifecycleGovernanceSummary,
+    build_security_decision_package, sha256_for_bytes, sha256_for_json_value,
 };
 use crate::ops::stock::security_decision_verify_package::{
     SecurityDecisionVerifyPackageRequest, security_decision_verify_package,
 };
+use crate::ops::stock::security_execution_record::SecurityExecutionRecordDocument;
+use crate::ops::stock::security_post_trade_review::SecurityPostTradeReviewDocument;
 
 // 2026-04-02 CST: 这里定义审批包版本化请求，原因是 P0-6 需要一个正式 Tool 把旧 package 升级成下一版本；
 // 目的：把版本化所需的包路径、修订原因和是否重跑校验等参数统一收口，避免调用方自己拼接内部步骤。
@@ -23,6 +26,12 @@ pub struct SecurityDecisionPackageRevisionRequest {
     pub revision_reason: String,
     #[serde(default = "default_reverify_after_revision")]
     pub reverify_after_revision: bool,
+    #[serde(default)]
+    pub condition_review_path: Option<String>,
+    #[serde(default)]
+    pub execution_record_path: Option<String>,
+    #[serde(default)]
+    pub post_trade_review_path: Option<String>,
     #[serde(default)]
     pub approval_brief_signing_key_secret: Option<String>,
     #[serde(default)]
@@ -48,6 +57,24 @@ pub enum SecurityDecisionPackageRevisionError {
     Revision(String),
 }
 
+// 2026-04-12 CST: Track optional lifecycle attachments during revision, because
+// P8 needs condition/execution/post-trade records to join the formal package
+// only after those events exist.
+// Purpose: keep lifecycle refs, paths, payloads, and feedback summary aligned in one temporary context.
+#[derive(Debug, Clone, Default)]
+struct LifecycleAttachmentContext {
+    condition_review_ref: Option<String>,
+    execution_record_ref: Option<String>,
+    post_trade_review_ref: Option<String>,
+    condition_review_path: Option<String>,
+    execution_record_path: Option<String>,
+    post_trade_review_path: Option<String>,
+    condition_review_value: Option<Value>,
+    execution_record_value: Option<Value>,
+    post_trade_review_value: Option<Value>,
+    lifecycle_governance_summary: Option<SecurityDecisionPackageLifecycleGovernanceSummary>,
+}
+
 // 2026-04-02 CST: 这里实现正式审批包版本化入口，原因是审批包需要随着审批动作生成后续版本，而不是停留在初始提交态；
 // 目的：读取旧 package 与最新审批工件，生成新版本 package，并在需要时立即附带新的 verification report。
 pub fn security_decision_package_revision(
@@ -65,8 +92,10 @@ pub fn security_decision_package_revision(
             .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?,
     )
     .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
+    let lifecycle_context = load_lifecycle_attachment_context(request, &previous_package)?;
 
-    let updated_artifact_manifest = rebuild_artifact_manifest(&previous_package.artifact_manifest)?;
+    let updated_artifact_manifest =
+        rebuild_artifact_manifest(&previous_package.artifact_manifest, &lifecycle_context)?;
     let trigger_event_summary = infer_trigger_event_summary(&updated_artifact_manifest);
     let next_version = previous_package.package_version.saturating_add(1);
     let revised_package_path = resolve_revision_package_path(
@@ -91,16 +120,55 @@ pub fn security_decision_package_revision(
         analysis_date: previous_package.analysis_date.clone(),
         decision_status: previous_package.package_status.clone(),
         approval_status: approval_request_status,
+        model_grade_summary: previous_package.model_grade_summary.clone(),
+        // 2026-04-11 CST: Carry forward package-level governance summary during
+        // revision, because P6 needs versioned packages to preserve shadow
+        // counts and blocker context across manifest-only upgrades.
+        // Purpose: keep package lineage complete when approval artifacts are
+        // revised without changing the underlying governance verdict.
+        model_governance_summary: previous_package.model_governance_summary.clone(),
+        // 2026-04-12 CST: Carry lifecycle feedback into revised packages, because
+        // P8 needs post-review governance actions and attribution to remain visible
+        // after condition/execution/review artifacts are attached.
+        // Purpose: keep operator-facing lifecycle feedback inside the formal package contract.
+        lifecycle_governance_summary: lifecycle_context
+            .lifecycle_governance_summary
+            .clone()
+            .or_else(|| previous_package.lifecycle_governance_summary.clone()),
         // 2026-04-08 CST: 这里沿用上一版 package 的对象图绑定，原因是 Task 1 新增的显式对象图不能在 revision 时丢失；
         // 目的：确保 package 版本升级只更新版本与 manifest，而不破坏已经冻结的正式对象引用。
         position_plan_ref: previous_package.object_graph.position_plan_ref.clone(),
         approval_brief_ref: previous_package.object_graph.approval_brief_ref.clone(),
         scorecard_ref: previous_package.object_graph.scorecard_ref.clone(),
+        condition_review_ref: lifecycle_context
+            .condition_review_ref
+            .clone()
+            .or_else(|| previous_package.object_graph.condition_review_ref.clone()),
+        execution_record_ref: lifecycle_context
+            .execution_record_ref
+            .clone()
+            .or_else(|| previous_package.object_graph.execution_record_ref.clone()),
+        post_trade_review_ref: lifecycle_context
+            .post_trade_review_ref
+            .clone()
+            .or_else(|| previous_package.object_graph.post_trade_review_ref.clone()),
         decision_card_path: previous_package.object_graph.decision_card_path.clone(),
         approval_request_path: previous_package.object_graph.approval_request_path.clone(),
         position_plan_path: previous_package.object_graph.position_plan_path.clone(),
         approval_brief_path: previous_package.object_graph.approval_brief_path.clone(),
         scorecard_path: previous_package.object_graph.scorecard_path.clone(),
+        condition_review_path: lifecycle_context
+            .condition_review_path
+            .clone()
+            .or_else(|| previous_package.object_graph.condition_review_path.clone()),
+        execution_record_path: lifecycle_context
+            .execution_record_path
+            .clone()
+            .or_else(|| previous_package.object_graph.execution_record_path.clone()),
+        post_trade_review_path: lifecycle_context
+            .post_trade_review_path
+            .clone()
+            .or_else(|| previous_package.object_graph.post_trade_review_path.clone()),
         evidence_hash: previous_package.governance_binding.evidence_hash.clone(),
         governance_hash: previous_package.governance_binding.governance_hash.clone(),
         artifact_manifest: updated_artifact_manifest,
@@ -140,6 +208,7 @@ pub fn security_decision_package_revision(
 
 fn rebuild_artifact_manifest(
     previous_artifacts: &[SecurityDecisionPackageArtifact],
+    lifecycle_context: &LifecycleAttachmentContext,
 ) -> Result<Vec<SecurityDecisionPackageArtifact>, SecurityDecisionPackageRevisionError> {
     let mut rebuilt = Vec::new();
     for artifact in previous_artifacts {
@@ -168,7 +237,252 @@ fn rebuild_artifact_manifest(
             present: true,
         });
     }
+    upsert_lifecycle_artifact(
+        &mut rebuilt,
+        "condition_review",
+        "security_condition_review.v1",
+        lifecycle_context.condition_review_path.as_deref(),
+        lifecycle_context.condition_review_value.as_ref(),
+    )?;
+    upsert_lifecycle_artifact(
+        &mut rebuilt,
+        "execution_record",
+        "security_execution_record.v1",
+        lifecycle_context.execution_record_path.as_deref(),
+        lifecycle_context.execution_record_value.as_ref(),
+    )?;
+    upsert_lifecycle_artifact(
+        &mut rebuilt,
+        "post_trade_review",
+        "security_post_trade_review.v1",
+        lifecycle_context.post_trade_review_path.as_deref(),
+        lifecycle_context.post_trade_review_value.as_ref(),
+    )?;
     Ok(rebuilt)
+}
+
+// 2026-04-12 CST: Load optional lifecycle attachments during package revision,
+// because P8 needs review/execution/post-trade artifacts to become package refs
+// only after those lifecycle events actually happen.
+// Purpose: centralize binding validation and payload loading before package persistence.
+fn load_lifecycle_attachment_context(
+    request: &SecurityDecisionPackageRevisionRequest,
+    previous_package: &SecurityDecisionPackageDocument,
+) -> Result<LifecycleAttachmentContext, SecurityDecisionPackageRevisionError> {
+    let condition_review = load_optional_json_file::<SecurityConditionReviewDocument>(
+        request.condition_review_path.as_deref(),
+    )?;
+    if let Some(document) = condition_review.as_ref() {
+        validate_condition_review_binding(document, previous_package)?;
+    }
+
+    let execution_record = load_optional_json_file::<SecurityExecutionRecordDocument>(
+        request.execution_record_path.as_deref(),
+    )?;
+    if let Some(document) = execution_record.as_ref() {
+        validate_execution_record_binding(document, previous_package, condition_review.as_ref())?;
+    }
+
+    let post_trade_review = load_optional_json_file::<SecurityPostTradeReviewDocument>(
+        request.post_trade_review_path.as_deref(),
+    )?;
+    if let Some(document) = post_trade_review.as_ref() {
+        validate_post_trade_review_binding(document, previous_package, execution_record.as_ref())?;
+    }
+
+    let lifecycle_governance_summary = build_lifecycle_governance_summary(
+        condition_review.as_ref(),
+        execution_record.as_ref(),
+        post_trade_review.as_ref(),
+    );
+
+    Ok(LifecycleAttachmentContext {
+        condition_review_ref: condition_review
+            .as_ref()
+            .map(|document| document.condition_review_id.clone()),
+        execution_record_ref: execution_record
+            .as_ref()
+            .map(|document| document.execution_record_id.clone()),
+        post_trade_review_ref: post_trade_review
+            .as_ref()
+            .map(|document| document.post_trade_review_id.clone()),
+        condition_review_path: request.condition_review_path.clone(),
+        execution_record_path: request.execution_record_path.clone(),
+        post_trade_review_path: request.post_trade_review_path.clone(),
+        condition_review_value: condition_review
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?,
+        execution_record_value: execution_record
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?,
+        post_trade_review_value: post_trade_review
+            .as_ref()
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?,
+        lifecycle_governance_summary,
+    })
+}
+
+fn validate_condition_review_binding(
+    document: &SecurityConditionReviewDocument,
+    previous_package: &SecurityDecisionPackageDocument,
+) -> Result<(), SecurityDecisionPackageRevisionError> {
+    if document.binding.decision_ref != previous_package.decision_ref
+        || document.binding.approval_ref != previous_package.approval_ref
+        || document.binding.position_plan_ref != previous_package.object_graph.position_plan_ref
+    {
+        return Err(SecurityDecisionPackageRevisionError::Revision(
+            "condition review binding does not match the package object graph".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_execution_record_binding(
+    document: &SecurityExecutionRecordDocument,
+    previous_package: &SecurityDecisionPackageDocument,
+    condition_review: Option<&SecurityConditionReviewDocument>,
+) -> Result<(), SecurityDecisionPackageRevisionError> {
+    if document.binding.decision_ref != previous_package.decision_ref
+        || document.binding.approval_ref != previous_package.approval_ref
+        || document.binding.position_plan_ref != previous_package.object_graph.position_plan_ref
+    {
+        return Err(SecurityDecisionPackageRevisionError::Revision(
+            "execution record binding does not match the package object graph".to_string(),
+        ));
+    }
+    if let (Some(expected), Some(actual)) = (
+        condition_review.map(|review| review.condition_review_id.as_str()),
+        document.binding.condition_review_ref.as_deref(),
+    ) {
+        if expected != actual {
+            return Err(SecurityDecisionPackageRevisionError::Revision(
+                "execution record condition review ref does not match the attached condition review"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_post_trade_review_binding(
+    document: &SecurityPostTradeReviewDocument,
+    previous_package: &SecurityDecisionPackageDocument,
+    execution_record: Option<&SecurityExecutionRecordDocument>,
+) -> Result<(), SecurityDecisionPackageRevisionError> {
+    if document.binding.decision_ref != previous_package.decision_ref
+        || document.binding.approval_ref != previous_package.approval_ref
+        || document.binding.position_plan_ref != previous_package.object_graph.position_plan_ref
+    {
+        return Err(SecurityDecisionPackageRevisionError::Revision(
+            "post trade review binding does not match the package object graph".to_string(),
+        ));
+    }
+    if let Some(expected_execution_record) = execution_record {
+        if document.binding.execution_record_ref != expected_execution_record.execution_record_id {
+            return Err(SecurityDecisionPackageRevisionError::Revision(
+                "post trade review execution record ref does not match the attached execution record"
+                    .to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn build_lifecycle_governance_summary(
+    condition_review: Option<&SecurityConditionReviewDocument>,
+    execution_record: Option<&SecurityExecutionRecordDocument>,
+    post_trade_review: Option<&SecurityPostTradeReviewDocument>,
+) -> Option<SecurityDecisionPackageLifecycleGovernanceSummary> {
+    let lifecycle_status = if let Some(review) = post_trade_review {
+        review.review_status.clone()
+    } else if let Some(record) = execution_record {
+        record.execution_status.clone()
+    } else if let Some(review) = condition_review {
+        review.review_status.clone()
+    } else {
+        return None;
+    };
+
+    let mut attribution_layers = Vec::new();
+    if let Some(review) = post_trade_review {
+        if review.attribution.data_issue {
+            attribution_layers.push("data_issue".to_string());
+        }
+        if review.attribution.model_issue {
+            attribution_layers.push("model_issue".to_string());
+        }
+        if review.attribution.governance_issue {
+            attribution_layers.push("governance_issue".to_string());
+        }
+        if review.attribution.execution_issue {
+            attribution_layers.push("execution_issue".to_string());
+        }
+    }
+
+    Some(SecurityDecisionPackageLifecycleGovernanceSummary {
+        lifecycle_status,
+        condition_review_ref: condition_review.map(|review| review.condition_review_id.clone()),
+        execution_record_ref: execution_record.map(|record| record.execution_record_id.clone()),
+        post_trade_review_ref: post_trade_review.map(|review| review.post_trade_review_id.clone()),
+        recommended_governance_action: post_trade_review
+            .map(|review| review.recommended_governance_action.clone()),
+        attribution_layers,
+    })
+}
+
+fn load_optional_json_file<T: serde::de::DeserializeOwned>(
+    path: Option<&str>,
+) -> Result<Option<T>, SecurityDecisionPackageRevisionError> {
+    let Some(path) = path.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let payload = fs::read(path)
+        .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
+    let value = serde_json::from_slice::<T>(&payload)
+        .map_err(|error| SecurityDecisionPackageRevisionError::Revision(error.to_string()))?;
+    Ok(Some(value))
+}
+
+fn upsert_lifecycle_artifact(
+    artifacts: &mut Vec<SecurityDecisionPackageArtifact>,
+    artifact_role: &str,
+    contract_version: &str,
+    path: Option<&str>,
+    json_value: Option<&Value>,
+) -> Result<(), SecurityDecisionPackageRevisionError> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let Some(json_value) = json_value else {
+        return Ok(());
+    };
+
+    let replacement = SecurityDecisionPackageArtifact {
+        artifact_role: artifact_role.to_string(),
+        path: path.to_string(),
+        sha256: sha256_for_json_value(json_value)
+            .map_err(SecurityDecisionPackageRevisionError::Revision)?,
+        contract_version: contract_version.to_string(),
+        required: false,
+        present: true,
+    };
+
+    if let Some(existing) = artifacts
+        .iter_mut()
+        .find(|artifact| artifact.artifact_role == artifact_role)
+    {
+        *existing = replacement;
+    } else {
+        artifacts.push(replacement);
+    }
+
+    Ok(())
 }
 
 fn compute_manifest_compatible_sha256(

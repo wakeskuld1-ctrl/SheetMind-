@@ -485,11 +485,28 @@ fn seven_seat_committee_exposes_member_opinions() {
 
 #[test]
 fn committee_direction_tracks_final_action_when_majority_votes_avoid() {
-    // 2026-04-09 CST: 这里先补真实回归红测，原因是 601916.SH 在 2026-04-08 的正式本地夹具已经稳定复现
-    // “majority_vote = avoid + risk_veto = needs_more_evidence + decision_card.direction = long”的旧语义漂移；
-    // 目的：先把 bug 用真实证券主链锁住，再倒逼 decision_card 改为跟随委员会最终动作语义，而不是继续跟随旧 stance 推导。
-    let runtime_db_path =
-        PathBuf::from("tests/runtime_fixtures/local_memory/live_601916_20260408/stock_history.db");
+    // 2026-04-09 CST: 这里保留“多数票回避时 direction 必须转中性”的正式回归，原因是旧固定快照夹具已不稳定，
+    // 目的：改用现建夹具继续锁住动作语义，不让历史环境噪声掩盖真正要守住的兼容字段行为。
+    let runtime_db_path = create_test_runtime_db("security_decision_committee_direction_neutral");
+    let stock_csv = create_stock_history_csv(
+        "security_decision_committee_direction_neutral",
+        "stock.csv",
+        &build_confirmed_breakout_rows(220, 88.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_decision_committee_direction_neutral",
+        "market.csv",
+        &build_confirmed_breakout_rows(220, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_decision_committee_direction_neutral",
+        "sector.csv",
+        &build_confirmed_breakout_rows(220, 950.0),
+    );
+    import_history_csv(&runtime_db_path, &stock_csv, "601916.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "512800.SH");
+
     let server = spawn_http_route_server(vec![
         (
             "/financials",
@@ -526,7 +543,6 @@ fn committee_direction_tracks_final_action_when_majority_votes_avoid() {
             "sector_symbol": "512800.SH",
             "market_profile": "a_share_core",
             "sector_profile": "a_share_bank",
-            "as_of_date": "2026-04-08",
             "stop_loss_pct": 0.05,
             "target_return_pct": 0.12
         }
@@ -556,7 +572,103 @@ fn committee_direction_tracks_final_action_when_majority_votes_avoid() {
         output["data"]["decision_card"]["status"],
         "needs_more_evidence"
     );
+    assert_eq!(
+        output["data"]["decision_card"]["recommendation_action"],
+        "abstain"
+    );
     assert_eq!(output["data"]["decision_card"]["direction"], "neutral");
+}
+
+#[test]
+fn committee_needs_more_evidence_downgrades_action_to_abstain() {
+    // 2026-04-11 CST: 这里先补“证据不足时不能继续输出高确定性动作”的红测，原因是用户明确要求无训练/证据支撑时不能快速给负责建议；
+    // 目的：锁住 committee 在 `needs_more_evidence` 场景下必须把动作降级为非执行型建议，而不是继续保留进攻语义。
+    let runtime_db_path = create_test_runtime_db("security_decision_committee_needs_evidence");
+    let stock_csv = create_stock_history_csv(
+        "security_decision_committee_needs_evidence",
+        "stock.csv",
+        &build_confirmed_breakout_rows(220, 88.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_decision_committee_needs_evidence",
+        "market.csv",
+        &build_confirmed_breakout_rows(220, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_decision_committee_needs_evidence",
+        "sector.csv",
+        &build_confirmed_breakout_rows(220, 950.0),
+    );
+    import_history_csv(&runtime_db_path, &stock_csv, "601916.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "512800.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials HTTP 406</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "list":[
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司第七届董事会第八次会议决议公告","art_code":"AN202603301820871979","columns":[{"column_name":"分配预案"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司2025年度会计师事务所履职情况评估报告","art_code":"AN202603301820871980","columns":[{"column_name":"其他"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司董事会关于独立董事独立性情况的专项意见","art_code":"AN202603301820871974","columns":[{"column_name":"专项说明/独立意见"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司2025年度内部控制审计报告","art_code":"AN202603301820871977","columns":[{"column_name":"审计报告"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:关于浙商银行股份有限公司2025年度非经营性资金占用及其他关联资金往来情况的专项说明","art_code":"AN202603301820871975","columns":[{"column_name":"专项说明/独立意见"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司关于关联交易事项的公告","art_code":"AN202603301820871992","columns":[{"column_name":"关联交易"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司关于诉讼事项的进展公告","art_code":"AN202603301820871983","columns":[{"column_name":"诉讼仲裁"}]},
+                        {"notice_date":"2026-03-31","title":"浙商银行:浙商银行股份有限公司关于2026年度非授信类关联交易预审批额度的公告","art_code":"AN202603301820871986","columns":[{"column_name":"关联交易"}]}
+                    ]
+                }
+            }"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_decision_committee",
+        "args": {
+            "symbol": "601916.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "512800.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "a_share_bank",
+            "stop_loss_pct": 0.05,
+            "target_return_pct": 0.12
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    assert_eq!(output["status"], "ok");
+    assert_eq!(
+        output["data"]["decision_card"]["status"],
+        "needs_more_evidence"
+    );
+    assert_eq!(
+        output["data"]["decision_card"]["recommendation_action"],
+        "abstain"
+    );
+    assert_eq!(output["data"]["decision_card"]["exposure_side"], "neutral");
 }
 
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {

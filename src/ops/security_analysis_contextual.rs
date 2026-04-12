@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ops::stock::eastmoney_enrichment::{CapitalFlowContext, fetch_capital_flow_context};
 use crate::ops::stock::technical_consultation_basic::{
     TechnicalConsultationBasicError, TechnicalConsultationBasicRequest,
     TechnicalConsultationBasicResult, technical_consultation_basic,
@@ -34,6 +35,7 @@ pub struct SecurityAnalysisContextualResult {
     pub symbol: String,
     pub market_symbol: String,
     pub sector_symbol: String,
+    pub capital_flow_context: CapitalFlowContext,
     pub stock_analysis: TechnicalConsultationBasicResult,
     pub market_analysis: TechnicalConsultationBasicResult,
     pub sector_analysis: TechnicalConsultationBasicResult,
@@ -77,6 +79,9 @@ pub fn security_analysis_contextual(
 ) -> Result<SecurityAnalysisContextualResult, SecurityAnalysisContextualError> {
     let market_symbol = resolve_market_symbol(request)?;
     let sector_symbol = resolve_sector_symbol(request)?;
+    // 2026-04-11 UTC+08: Added capital-flow enrichment before returning contextual output;
+    // reason: the approved EastMoney enhancement needs funding context without changing the core technical engine.
+    let capital_flow_context = fetch_capital_flow_context(&request.symbol);
 
     let stock_request = build_basic_request(
         &request.symbol,
@@ -108,6 +113,7 @@ pub fn security_analysis_contextual(
         symbol: request.symbol.clone(),
         market_symbol,
         sector_symbol,
+        capital_flow_context,
         stock_analysis,
         market_analysis,
         sector_analysis,
@@ -156,13 +162,27 @@ fn resolve_sector_symbol(
         return Ok(symbol.clone());
     }
 
-    match request.sector_profile.as_deref() {
-        Some("a_share_bank") => Ok("512800.SH".to_string()),
+    match normalize_sector_profile(request.sector_profile.as_deref()) {
+        Some("a_share_bank") | Some("equity_etf_peer") | Some("equity_etf") => {
+            Ok("512800.SH".to_string())
+        }
+        Some("treasury_etf") | Some("bond_etf_peer") => Ok("511060.SH".to_string()),
+        Some("gold_etf") | Some("gold_etf_peer") => Ok("518800.SH".to_string()),
+        Some("cross_border_etf") | Some("cross_border_etf_peer") => Ok("513500.SH".to_string()),
         Some(profile) => Err(SecurityAnalysisContextualError::UnsupportedSectorProfile {
             profile: profile.to_string(),
         }),
         None => Err(SecurityAnalysisContextualError::MissingSectorProxy),
     }
+}
+
+// 2026-04-12 CST: Normalize ETF-native sector profiles here, because the real
+// validation slice and ETF chair chain now use ETF pool semantics instead of
+// falling back to industry-only profiles such as a_share_bank.
+// Purpose: let contextual/fullstack resolution keep ETF-native profile language
+// while still mapping to one governed peer symbol for technical environment reads.
+fn normalize_sector_profile(sector_profile: Option<&str>) -> Option<&str> {
+    sector_profile.map(|value| value.trim())
 }
 
 // 2026-04-01 CST: 这里聚合三层分析结论，原因是综合 Tool 的价值不在重算指标，而在把个股与环境方向关系收成稳定语义。

@@ -119,6 +119,13 @@ pub fn security_record_post_meeting_conclusion(
         package_path: package_path.to_string_lossy().to_string(),
         revision_reason: revision_reason.clone(),
         reverify_after_revision: request.reverify_after_revision,
+        // 2026-04-12 CST: Keep lifecycle attachment paths empty for post-meeting
+        // package revisions unless this flow explicitly records them, because P8
+        // introduced optional lifecycle attachments on the shared revision contract.
+        // Purpose: preserve backward-compatible package revision behavior for conclusion-only updates.
+        condition_review_path: None,
+        execution_record_path: None,
+        post_trade_review_path: None,
         approval_brief_signing_key_secret: request.approval_brief_signing_key_secret.clone(),
         approval_brief_signing_key_secret_env: request
             .approval_brief_signing_key_secret_env

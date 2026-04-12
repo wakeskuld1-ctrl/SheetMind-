@@ -166,16 +166,92 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         // 2026-04-09 CST: 这里把主席正式裁决 Tool 接入主 dispatcher，原因是 Task 1 要让主席线成为独立可路由能力；
         // 目的：让最终正式决议对象能够像 committee / scorecard 一样被 CLI 和 Skill 正式调用。
         "security_chair_resolution" => stock_ops::dispatch_security_chair_resolution(request.args),
+        // 2026-04-12 CST: Route the formal condition-review tool through the main
+        // dispatcher, because P8 begins the execution loop by formalizing review triggers.
+        // Purpose: keep lifecycle review on the same public path as approval and scorecards.
+        "security_condition_review" => stock_ops::dispatch_security_condition_review(request.args),
+        // 2026-04-12 CST: Route the formal execution-record tool through the main
+        // dispatcher, because P8 turns execution events into first-class replayable artifacts.
+        // Purpose: keep execution facts on the same public stock path as reviews and approvals.
+        "security_execution_record" => stock_ops::dispatch_security_execution_record(request.args),
+        // 2026-04-12 CST: Route the formal post-trade review tool through the main
+        // dispatcher, because P8 closes the execution loop with layered replayable review artifacts.
+        // Purpose: keep post-trade review on the same public stock path as the rest of the lifecycle.
+        "security_post_trade_review" => {
+            stock_ops::dispatch_security_post_trade_review(request.args)
+        }
         // 2026-04-09 CST: 这里把特征快照 Tool 接入主 dispatcher，原因是 Task 2 要让训练底座对象成为正式可路由能力；
         // 目的：让 feature_snapshot 不再只是内部辅助逻辑，而是 CLI / Skill 可直接调用的正式入口。
         "security_feature_snapshot" => stock_ops::dispatch_security_feature_snapshot(request.args),
         // 2026-04-09 CST: 这里把未来标签回填 Tool 接入主 dispatcher，原因是 Task 3 要让 forward_outcome 成为主链一等能力；
         // 目的：让 CLI / Skill 可以直接路由到 snapshot 绑定的多期限标签结果，而不是外层手工拼调用链。
+        "security_external_proxy_backfill" => {
+            // 2026-04-11 CST: Route the dated external-proxy backfill tool through the
+            // main dispatcher, because governed historical proxy ingestion now belongs
+            // to the same public stock tool chain as feature snapshots and approvals.
+            // Purpose: let CLI and Skills persist dated proxy rows without hidden helpers.
+            stock_ops::dispatch_security_external_proxy_backfill(request.args)
+        }
+        "security_external_proxy_history_import" => {
+            // 2026-04-12 CST: Route the file-based proxy-history import tool through the
+            // main dispatcher, because real ETF proxy batches now belong to the same
+            // public stock chain as other governed history tools.
+            // Purpose: keep proxy-history import off ad-hoc shell paths.
+            stock_ops::dispatch_security_external_proxy_history_import(request.args)
+        }
+        "security_fundamental_history_backfill" => {
+            // 2026-04-12 CST: Route the governed stock fundamental-history backfill
+            // tool through the main dispatcher, because replayable financial history
+            // now belongs to the same public stock chain as price and proxy backfill.
+            // Purpose: keep stock financial-history writes off ad-hoc shell flows.
+            stock_ops::dispatch_security_fundamental_history_backfill(request.args)
+        }
+        "security_fundamental_history_live_backfill" => {
+            // 2026-04-12 CST: Route the live governed financial-history tool through the
+            // main dispatcher, because multi-period provider imports now belong to the
+            // same public stock chain as other governed history tools.
+            // Purpose: keep live financial-history import off ad-hoc shell paths.
+            stock_ops::dispatch_security_fundamental_history_live_backfill(request.args)
+        }
+        "security_disclosure_history_backfill" => {
+            // 2026-04-12 CST: Route the governed stock disclosure-history backfill
+            // tool through the main dispatcher, because replayable announcement history
+            // now belongs to the same public stock chain as price and proxy backfill.
+            // Purpose: keep stock disclosure-history writes off ad-hoc shell flows.
+            stock_ops::dispatch_security_disclosure_history_backfill(request.args)
+        }
+        "security_disclosure_history_live_backfill" => {
+            // 2026-04-12 CST: Route the live governed disclosure-history tool through the
+            // main dispatcher, because multi-page provider imports now belong to the
+            // same public stock chain as other governed history tools.
+            // Purpose: keep live disclosure-history import off ad-hoc shell paths.
+            stock_ops::dispatch_security_disclosure_history_live_backfill(request.args)
+        }
+        "security_real_data_validation_backfill" => {
+            // 2026-04-12 CST: Route the governed real-data validation backfill tool
+            // through the main dispatcher, because validation-slice refresh now belongs
+            // to the same public stock chain as lifecycle replay and proxy backfill.
+            // Purpose: keep live-compatible validation refresh off ad-hoc shell paths.
+            stock_ops::dispatch_security_real_data_validation_backfill(request.args)
+        }
+        "security_history_expansion" => {
+            stock_ops::dispatch_security_history_expansion(request.args)
+        }
+        "security_shadow_evaluation" => {
+            stock_ops::dispatch_security_shadow_evaluation(request.args)
+        }
+        "security_model_promotion" => stock_ops::dispatch_security_model_promotion(request.args),
         "security_forward_outcome" => stock_ops::dispatch_security_forward_outcome(request.args),
+        // 2026-04-11 CST: 这里把 master_scorecard Tool 接入主 dispatcher，原因是方案 C 已确认要让
+        // “未来几日赚钱效益总卡”成为正式主链能力。
+        // 目的：让 CLI / Skill 直接获得 committee + scorecard + master_scorecard 的统一输出。
+        "security_master_scorecard" => stock_ops::dispatch_security_master_scorecard(request.args),
         "security_scorecard_refit" => stock_ops::dispatch_security_scorecard_refit(request.args),
         // 2026-04-09 CST: 这里把正式 scorecard training Tool 接入主 dispatcher，原因是 Task 5 需要让训练入口成为一等可路由能力；
         // 目的：让训练主链可以像 snapshot/forward_outcome/refit 一样被 CLI 和 Skill 正式调度。
-        "security_scorecard_training" => stock_ops::dispatch_security_scorecard_training(request.args),
+        "security_scorecard_training" => {
+            stock_ops::dispatch_security_scorecard_training(request.args)
+        }
         // 2026-04-02 CST: 这里接入证券审批提交总入口 Tool，原因是用户已经批准把证券投决结果正式送进审批治理主线；
         // 目的：让 CLI / Skill 可以一次完成“投决 + 提交审批”，不再停留在单纯研究建议。
         "security_decision_submit_approval" => {

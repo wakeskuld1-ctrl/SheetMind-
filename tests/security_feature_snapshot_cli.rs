@@ -212,6 +212,653 @@ fn security_feature_snapshot_freezes_raw_and_group_features_with_hash() {
     );
 }
 
+#[test]
+fn security_feature_snapshot_exposes_etf_specific_numeric_features() {
+    let runtime_db_path = create_test_runtime_db("security_feature_snapshot_etf");
+
+    let etf_csv = create_stock_history_csv(
+        "security_feature_snapshot_etf",
+        "etf.csv",
+        &build_confirmed_breakout_rows(260, 101.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_feature_snapshot_etf",
+        "market.csv",
+        &build_confirmed_breakout_rows(260, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_feature_snapshot_etf",
+        "sector.csv",
+        &build_confirmed_breakout_rows(260, 110.0),
+    );
+    import_history_csv(&runtime_db_path, &etf_csv, "511010.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "511060.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for etf fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_feature_snapshot",
+        "args": {
+            "symbol": "511010.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "511060.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "bond_etf_peer",
+            "stop_loss_pct": 0.01,
+            "target_return_pct": 0.015
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-11 CST: Lock the ETF raw snapshot feature family on the public feature
+    // snapshot contract, because ETF training/runtime now depend on these numeric
+    // differentiators instead of the old coarse-only seed.
+    // Purpose: prove the ETF-specific fields are emitted through the formal tool path,
+    // not only through internal helpers.
+    assert_eq!(output["status"], "ok", "feature snapshot output: {output}");
+    assert_eq!(output["data"]["instrument_type"], "ETF");
+    assert!(output["data"]["raw_features_json"]["close_vs_sma50"].is_number());
+    assert!(output["data"]["raw_features_json"]["close_vs_sma200"].is_number());
+    assert!(output["data"]["raw_features_json"]["volume_ratio_20"].is_number());
+    assert!(output["data"]["raw_features_json"]["mfi_14"].is_number());
+    assert!(output["data"]["raw_features_json"]["rsrs_zscore_18_60"].is_number());
+    assert!(output["data"]["raw_features_json"]["support_gap_pct_20"].is_number());
+    assert!(output["data"]["raw_features_json"]["resistance_gap_pct_20"].is_number());
+}
+
+#[test]
+fn security_feature_snapshot_preserves_gold_etf_manual_proxy_inputs() {
+    let runtime_db_path = create_test_runtime_db("security_feature_snapshot_gold_proxy_inputs");
+
+    let etf_csv = create_stock_history_csv(
+        "security_feature_snapshot_gold_proxy_inputs",
+        "gold_etf.csv",
+        &build_confirmed_breakout_rows(260, 101.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_feature_snapshot_gold_proxy_inputs",
+        "market.csv",
+        &build_confirmed_breakout_rows(260, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_feature_snapshot_gold_proxy_inputs",
+        "sector.csv",
+        &build_confirmed_breakout_rows(260, 99.0),
+    );
+    import_history_csv(&runtime_db_path, &etf_csv, "518880.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "518800.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for gold etf fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_feature_snapshot",
+        "args": {
+            "symbol": "518880.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "518800.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "gold_etf_peer",
+            "external_proxy_inputs": {
+                "gold_spot_proxy_status": "manual_bound",
+                "gold_spot_proxy_return_5d": 0.024,
+                "usd_index_proxy_status": "manual_bound",
+                "usd_index_proxy_return_5d": -0.013,
+                "real_rate_proxy_status": "manual_bound",
+                "real_rate_proxy_delta_bp_5d": -8.5
+            }
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-11 CST: Add a red snapshot regression for gold ETF manual proxy inputs,
+    // reason: Scheme B now needs live gold/FX/rate proxy values to enter the formal
+    // feature snapshot instead of staying outside the governed raw-feature contract.
+    // Purpose: prove the public snapshot tool can freeze supplied gold ETF proxy
+    // inputs for downstream scorecard, committee, and approval consumers.
+    assert_eq!(output["status"], "ok", "feature snapshot output: {output}");
+    assert_eq!(
+        output["data"]["raw_features_json"]["gold_spot_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["gold_spot_proxy_return_5d"],
+        json!(0.024)
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["usd_index_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["usd_index_proxy_return_5d"],
+        json!(-0.013)
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["real_rate_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["real_rate_proxy_delta_bp_5d"],
+        json!(-8.5)
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["gold_spot_proxy_status"],
+        "manual_bound"
+    );
+}
+
+#[test]
+fn security_feature_snapshot_preserves_treasury_etf_manual_proxy_inputs() {
+    let runtime_db_path = create_test_runtime_db("security_feature_snapshot_treasury_proxy_inputs");
+
+    let etf_csv = create_stock_history_csv(
+        "security_feature_snapshot_treasury_proxy_inputs",
+        "treasury_etf.csv",
+        &build_confirmed_breakout_rows(260, 101.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_feature_snapshot_treasury_proxy_inputs",
+        "market.csv",
+        &build_confirmed_breakout_rows(260, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_feature_snapshot_treasury_proxy_inputs",
+        "sector.csv",
+        &build_confirmed_breakout_rows(260, 110.0),
+    );
+    import_history_csv(&runtime_db_path, &etf_csv, "511010.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "511060.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for treasury etf fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_feature_snapshot",
+        "args": {
+            "symbol": "511010.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "511060.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "bond_etf_peer",
+            "external_proxy_inputs": {
+                "yield_curve_proxy_status": "manual_bound",
+                "yield_curve_slope_delta_bp_5d": -6.0,
+                "funding_liquidity_proxy_status": "manual_bound",
+                "funding_liquidity_spread_delta_bp_5d": -12.5
+            }
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-11 CST: Add a red snapshot regression for treasury ETF manual proxy
+    // inputs, reason: Scheme B now needs live yield-curve and funding-liquidity
+    // proxies to enter the governed feature snapshot instead of staying outside it.
+    // Purpose: prove the public snapshot tool can freeze supplied treasury ETF
+    // proxy inputs for downstream scorecard and approval consumers.
+    assert_eq!(output["status"], "ok", "feature snapshot output: {output}");
+    assert_eq!(
+        output["data"]["raw_features_json"]["yield_curve_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["yield_curve_slope_delta_bp_5d"],
+        json!(-6.0)
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["funding_liquidity_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["funding_liquidity_spread_delta_bp_5d"],
+        json!(-12.5)
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["yield_curve_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["yield_curve_slope_delta_bp_5d"],
+        json!(-6.0)
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["funding_liquidity_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["funding_liquidity_spread_delta_bp_5d"],
+        json!(-12.5)
+    );
+}
+
+#[test]
+fn security_feature_snapshot_hydrates_historical_proxy_backfill_for_treasury_etf() {
+    let runtime_db_path =
+        create_test_runtime_db("security_feature_snapshot_historical_treasury_proxy");
+
+    let etf_csv = create_stock_history_csv(
+        "security_feature_snapshot_historical_treasury_proxy",
+        "treasury_etf.csv",
+        &build_confirmed_breakout_rows(260, 101.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_feature_snapshot_historical_treasury_proxy",
+        "market.csv",
+        &build_confirmed_breakout_rows(260, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_feature_snapshot_historical_treasury_proxy",
+        "sector.csv",
+        &build_confirmed_breakout_rows(260, 110.0),
+    );
+    import_history_csv(&runtime_db_path, &etf_csv, "511010.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "511060.SH");
+
+    let backfill_request = json!({
+        "tool": "security_external_proxy_backfill",
+        "args": {
+            "batch_id": "snapshot-historical-treasury-batch",
+            "created_at": "2026-04-11T23:58:00+08:00",
+            "records": [{
+                "symbol": "511010.SH",
+                "as_of_date": "2025-09-17",
+                "instrument_subscope": "treasury_etf",
+                "external_proxy_inputs": {
+                    "yield_curve_proxy_status": "manual_bound",
+                    "yield_curve_slope_delta_bp_5d": -7.25,
+                    "funding_liquidity_proxy_status": "manual_bound",
+                    "funding_liquidity_spread_delta_bp_5d": 2.75
+                }
+            }]
+        }
+    });
+    let backfill_output =
+        run_cli_with_json_runtime_and_envs(&backfill_request.to_string(), &runtime_db_path, &[]);
+    assert_eq!(backfill_output["status"], "ok");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 200 OK",
+            r#"[
+                {
+                    "REPORT_DATE":"2025-12-31",
+                    "NOTICE_DATE":"2026-03-28",
+                    "TOTAL_OPERATE_INCOME":308227000000.0,
+                    "YSTZ":8.37,
+                    "PARENT_NETPROFIT":11117000000.0,
+                    "SJLTZ":9.31,
+                    "ROEJQ":14.8
+                }
+            ]"#,
+            "application/json",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{
+                "data":{
+                    "list":[
+                        {"notice_date":"2026-03-28","title":"2025年度报告","art_code":"AN202603281234567890","columns":[{"column_name":"定期报告"}]}
+                    ]
+                }
+            }"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_feature_snapshot",
+        "args": {
+            "symbol": "511010.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "511060.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "treasury_etf",
+            "as_of_date": "2025-09-17"
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-11 CST: Add a historical-proxy snapshot regression, because P4 needs
+    // dated proxy backfill to rehydrate formal feature snapshots for replay and
+    // training instead of only supporting same-request manual proxy overrides.
+    // Purpose: prove the governed snapshot path can hydrate stored treasury inputs.
+    assert_eq!(output["status"], "ok", "feature snapshot output: {output}");
+    assert_eq!(
+        output["data"]["raw_features_json"]["yield_curve_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["yield_curve_slope_delta_bp_5d"],
+        json!(-7.25)
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["funding_liquidity_spread_delta_bp_5d"],
+        json!(2.75)
+    );
+}
+
+#[test]
+fn security_feature_snapshot_preserves_cross_border_etf_manual_proxy_inputs() {
+    let runtime_db_path =
+        create_test_runtime_db("security_feature_snapshot_cross_border_proxy_inputs");
+
+    let etf_csv = create_stock_history_csv(
+        "security_feature_snapshot_cross_border_proxy_inputs",
+        "cross_border_etf.csv",
+        &build_confirmed_breakout_rows(260, 101.0),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_feature_snapshot_cross_border_proxy_inputs",
+        "market.csv",
+        &build_confirmed_breakout_rows(260, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_feature_snapshot_cross_border_proxy_inputs",
+        "sector.csv",
+        &build_confirmed_breakout_rows(260, 110.0),
+    );
+    import_history_csv(&runtime_db_path, &etf_csv, "513800.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "1326.T");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for cross-border etf fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_feature_snapshot",
+        "args": {
+            "symbol": "513800.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "1326.T",
+            "market_profile": "a_share_core",
+            "sector_profile": "nikkei_qdii_cross_border_peer",
+            "external_proxy_inputs": {
+                "fx_proxy_status": "manual_bound",
+                "fx_return_5d": 0.011,
+                "overseas_market_proxy_status": "manual_bound",
+                "overseas_market_return_5d": -0.018,
+                "market_session_gap_status": "manual_bound",
+                "market_session_gap_days": 1.0
+            }
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-11 CST: Add a red snapshot regression for cross-border ETF manual
+    // proxy inputs, reason: Scheme B now needs FX, overseas-market, and session-gap
+    // inputs to enter the governed feature snapshot instead of staying outside it.
+    // Purpose: prove the public snapshot tool can freeze supplied cross-border ETF
+    // proxy inputs for downstream scorecard and approval consumers.
+    assert_eq!(output["status"], "ok", "feature snapshot output: {output}");
+    assert_eq!(
+        output["data"]["raw_features_json"]["fx_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["fx_return_5d"],
+        json!(0.011)
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["overseas_market_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["overseas_market_return_5d"],
+        json!(-0.018)
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["market_session_gap_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["market_session_gap_days"],
+        json!(1.0)
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["fx_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["market_session_gap_days"],
+        json!(1.0)
+    );
+}
+
+#[test]
+fn security_feature_snapshot_preserves_equity_etf_manual_proxy_inputs() {
+    let runtime_db_path = create_test_runtime_db("security_feature_snapshot_equity_proxy_inputs");
+    let etf_csv = create_stock_history_csv(
+        "security_feature_snapshot_equity_proxy_inputs",
+        "equity_etf.csv",
+        &build_confirmed_breakout_rows(260, 1.25),
+    );
+    let market_csv = create_stock_history_csv(
+        "security_feature_snapshot_equity_proxy_inputs",
+        "market.csv",
+        &build_confirmed_breakout_rows(260, 3200.0),
+    );
+    let sector_csv = create_stock_history_csv(
+        "security_feature_snapshot_equity_proxy_inputs",
+        "sector.csv",
+        &build_confirmed_breakout_rows(260, 980.0),
+    );
+    import_history_csv(&runtime_db_path, &etf_csv, "512880.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "512800.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for equity etf fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_feature_snapshot",
+        "args": {
+            "symbol": "512880.SH",
+            "market_symbol": "510300.SH",
+            "sector_symbol": "512800.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "equity_etf_peer",
+            "external_proxy_inputs": {
+                "etf_fund_flow_proxy_status": "manual_bound",
+                "etf_fund_flow_5d": 0.067,
+                "premium_discount_proxy_status": "manual_bound",
+                "premium_discount_pct": 0.0042,
+                "benchmark_relative_strength_status": "manual_bound",
+                "benchmark_relative_return_5d": 0.013
+            }
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-11 CST: Add a red snapshot regression for equity ETF manual proxy
+    // inputs, reason: Scheme B now needs fund-flow, premium-discount, and
+    // benchmark-relative inputs to enter the governed feature snapshot.
+    // Purpose: prove the public snapshot tool can freeze supplied equity ETF
+    // proxy inputs for downstream scorecard and approval consumers.
+    assert_eq!(output["status"], "ok", "feature snapshot output: {output}");
+    assert_eq!(
+        output["data"]["raw_features_json"]["etf_fund_flow_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["etf_fund_flow_5d"],
+        json!(0.067)
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["premium_discount_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["premium_discount_pct"],
+        json!(0.0042)
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["benchmark_relative_strength_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["raw_features_json"]["benchmark_relative_return_5d"],
+        json!(0.013)
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["etf_fund_flow_proxy_status"],
+        "manual_bound"
+    );
+    assert_eq!(
+        output["data"]["group_features_json"]["X"]["benchmark_relative_return_5d"],
+        json!(0.013)
+    );
+}
+
 fn import_history_csv(runtime_db_path: &Path, csv_path: &Path, symbol: &str) {
     let request = json!({
         "tool": "import_stock_price_history",

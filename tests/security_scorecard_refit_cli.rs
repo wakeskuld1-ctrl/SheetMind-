@@ -135,14 +135,8 @@ fn security_scorecard_refit_records_run_and_registers_candidate_artifact() {
         output["data"]["refit_run"]["document_type"],
         "security_scorecard_refit_run"
     );
-    assert_eq!(
-        output["data"]["refit_run"]["market_scope"],
-        "A_SHARE"
-    );
-    assert_eq!(
-        output["data"]["refit_run"]["instrument_scope"],
-        "EQUITY"
-    );
+    assert_eq!(output["data"]["refit_run"]["market_scope"], "A_SHARE");
+    assert_eq!(output["data"]["refit_run"]["instrument_scope"], "EQUITY");
     assert_eq!(
         output["data"]["refit_run"]["feature_set_version"],
         "security_feature_snapshot.v1"
@@ -258,5 +252,68 @@ fn security_scorecard_refit_records_run_and_registers_candidate_artifact() {
     assert_eq!(
         persisted_model_registry["artifact_path"],
         Value::String(artifact_path.to_string_lossy().to_string())
+    );
+}
+
+#[test]
+fn security_scorecard_refit_exposes_shadow_grade_when_promotion_decision_requests_it() {
+    let runtime_db_path = create_test_runtime_db("security_scorecard_refit_shadow_grade");
+    let runtime_root = runtime_db_path
+        .parent()
+        .expect("runtime db should have parent")
+        .join("scorecard_runtime");
+    let fixture_dir = create_refit_fixture_dir("security_scorecard_refit_shadow_grade");
+    let artifact_path = write_scorecard_model_artifact(
+        &fixture_dir,
+        "candidate_model.json",
+        "a_share_etf_treasury_etf_10d_direction",
+        "candidate_20260411_shadow",
+    );
+
+    let request = json!({
+        "tool": "security_scorecard_refit",
+        "args": {
+            "created_at": "2026-04-11T19:10:00+08:00",
+            "refit_runtime_root": runtime_root.to_string_lossy(),
+            "market_scope": "A_SHARE",
+            "instrument_scope": "ETF",
+            "feature_set_version": "security_feature_snapshot.v1",
+            "label_definition_version": "security_forward_outcome.v1",
+            "train_range": "2024-01-01..2024-12-31",
+            "valid_range": "2025-01-01..2025-06-30",
+            "test_range": "2025-07-01..2025-12-31",
+            "candidate_artifact": {
+                "model_id": "a_share_etf_treasury_etf_10d_direction",
+                "model_version": "candidate_20260411_shadow",
+                "horizon_days": 10,
+                "target_head": "direction_head",
+                "status": "candidate",
+                "artifact_path": artifact_path.to_string_lossy(),
+                "metrics_summary_json": {
+                    "auc": 0.73,
+                    "readiness_assessment": {
+                        "minimum_sample_status": "sample_ready",
+                        "class_balance_status": "class_balance_ready",
+                        "path_event_coverage_status": "path_event_ready",
+                        "production_readiness": "shadow_ready"
+                    }
+                }
+            },
+            "promotion_decision": "shadow"
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-11 CST: Add a red test for explicit model-grade semantics,
+    // because P5 needs refit and registry outputs to distinguish research
+    // candidates from shadow-grade artifacts before approval consumes them.
+    // Purpose: force refit outputs to publish a governed grade instead of only a raw status.
+    assert_eq!(output["status"], "ok");
+    assert_eq!(output["data"]["refit_run"]["model_grade"], "shadow");
+    assert_eq!(output["data"]["model_registry"]["model_grade"], "shadow");
+    assert_eq!(
+        output["data"]["model_registry"]["grade_reason"],
+        "promoted_by_refit_decision"
     );
 }

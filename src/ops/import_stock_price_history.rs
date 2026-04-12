@@ -145,17 +145,6 @@ fn build_header_index_map(
         ("high", ["high"].as_slice()),
         ("low", ["low"].as_slice()),
         ("close", ["close"].as_slice()),
-        (
-            "adj_close",
-            [
-                "adj_close",
-                "adjclose",
-                "adj close",
-                "adjusted_close",
-                "adjustedclose",
-            ]
-            .as_slice(),
-        ),
         ("volume", ["volume"].as_slice()),
     ];
 
@@ -172,6 +161,26 @@ fn build_header_index_map(
         } else {
             missing_fields.push(canonical_name.to_string());
         }
+    }
+
+    // 2026-04-12 CST: Keep adj_close as an optional alias group, because some
+    // sources provide an explicit adjusted close while validation fixtures may
+    // only provide close.
+    // Purpose: reuse adjusted prices when available without rejecting lean CSV inputs.
+    if let Some(index) = [
+        "adj_close",
+        "adjclose",
+        "adj close",
+        "adjusted_close",
+        "adjustedclose",
+    ]
+    .iter()
+    .find_map(|alias| {
+        normalized_positions
+            .get(&normalize_header_name(alias))
+            .copied()
+    }) {
+        header_map.insert("adj_close", index);
     }
 
     if !missing_fields.is_empty() {
@@ -217,10 +226,15 @@ fn parse_stock_price_row(
             "close",
             field_value(&values, header_map, "close", line_number)?,
         )?,
-        adj_close: parse_f64_field(
+        // 2026-04-12 CST: Treat adj_close as optional, because validation slices
+        // and lightweight fixtures often only carry close while still being
+        // perfectly valid for governed replay.
+        // Purpose: keep price-history import usable when adjusted close is absent by reusing close.
+        adj_close: parse_optional_adj_close(
             line_number,
-            "adj_close",
-            field_value(&values, header_map, "adj_close", line_number)?,
+            &values,
+            header_map,
+            field_value(&values, header_map, "close", line_number)?,
         )?,
         volume: parse_i64_field(
             line_number,
@@ -228,6 +242,26 @@ fn parse_stock_price_row(
             field_value(&values, header_map, "volume", line_number)?,
         )?,
     })
+}
+
+// 2026-04-12 CST: Parse adj_close when present, because some upstream CSV files
+// provide explicit adjusted close while lighter fixtures only provide close.
+// Purpose: preserve adjusted prices when available and fall back to close otherwise.
+fn parse_optional_adj_close(
+    line_number: usize,
+    values: &[String],
+    header_map: &HashMap<&'static str, usize>,
+    close_value: &str,
+) -> Result<f64, ImportStockPriceHistoryError> {
+    if header_map.contains_key("adj_close") {
+        return parse_f64_field(
+            line_number,
+            "adj_close",
+            field_value(values, header_map, "adj_close", line_number)?,
+        );
+    }
+
+    parse_f64_field(line_number, "close", close_value)
 }
 
 // 2026-03-28 CST: 这里统一读取字段值，原因是 CSV 行列数不足时需要返回清晰的列名和行号；

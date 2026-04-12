@@ -2,14 +2,16 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ops::stock::security_decision_card::derive_exposure_side_from_action;
 use crate::ops::stock::security_decision_committee::{
-    SecurityDecisionCommitteeError, SecurityDecisionCommitteeRequest,
-    SecurityDecisionCommitteeResult, security_decision_committee,
+    SecurityDecisionCommitteeError, SecurityDecisionCommitteeResult,
 };
-use crate::ops::stock::security_scorecard::{
-    SecurityScorecardBuildInput, SecurityScorecardDocument, SecurityScorecardError,
-    build_security_scorecard,
+use crate::ops::stock::security_decision_evidence_bundle::SecurityExternalProxyInputs;
+use crate::ops::stock::security_master_scorecard::{
+    SecurityMasterScorecardDocument, SecurityMasterScorecardError, SecurityMasterScorecardRequest,
+    security_master_scorecard,
 };
+use crate::ops::stock::security_scorecard::{SecurityScorecardDocument, SecurityScorecardError};
 
 // 2026-04-09 CST: 这里新增主席裁决请求合同，原因是 Task 1 要把“最终正式决议”从投委会线中拆出来，
 // 目的：让主席线拥有独立 Tool 入口，后续 package / verify / audit 都可以围绕这条线接入，而不是继续把 committee 当最终出口。
@@ -40,6 +42,27 @@ pub struct SecurityChairResolutionRequest {
     pub created_at: String,
     #[serde(default)]
     pub scorecard_model_path: Option<String>,
+    #[serde(default)]
+    pub return_head_model_path: Option<String>,
+    #[serde(default)]
+    pub drawdown_head_model_path: Option<String>,
+    #[serde(default)]
+    pub path_quality_head_model_path: Option<String>,
+    #[serde(default)]
+    pub upside_first_head_model_path: Option<String>,
+    #[serde(default)]
+    pub stop_first_head_model_path: Option<String>,
+    #[serde(default)]
+    pub external_proxy_inputs: Option<SecurityExternalProxyInputs>,
+    // 2026-04-12 UTC+08: Add a chair-level prediction-mode switch, because the
+    // product now needs future-looking 180d judgement from the current analysis
+    // date instead of replay-only conclusions.
+    // Purpose: keep chair-resolution aligned with master_scorecard prediction
+    // mode and avoid silently falling back to replay semantics.
+    #[serde(default)]
+    pub prediction_mode: Option<String>,
+    #[serde(default = "default_prediction_horizon_days")]
+    pub prediction_horizon_days: usize,
 }
 
 // 2026-04-09 CST: 这里新增主席正式裁决对象，原因是设计已经明确主席才是唯一正式决议出口，
@@ -83,6 +106,8 @@ pub enum SecurityChairResolutionError {
     Committee(#[from] SecurityDecisionCommitteeError),
     #[error("security chair resolution scorecard preparation failed: {0}")]
     Scorecard(#[from] SecurityScorecardError),
+    #[error("security chair resolution master scorecard preparation failed: {0}")]
+    MasterScorecard(#[from] SecurityMasterScorecardError),
 }
 
 // 2026-04-09 CST: 这里实现主席正式裁决总入口，原因是 Task 1 要先提供最小可用的主席线产品入口，
@@ -90,7 +115,7 @@ pub enum SecurityChairResolutionError {
 pub fn security_chair_resolution(
     request: &SecurityChairResolutionRequest,
 ) -> Result<SecurityChairResolutionResult, SecurityChairResolutionError> {
-    let committee_request = SecurityDecisionCommitteeRequest {
+    let master_result = security_master_scorecard(&SecurityMasterScorecardRequest {
         symbol: request.symbol.clone(),
         market_symbol: request.market_symbol.clone(),
         sector_symbol: request.sector_symbol.clone(),
@@ -102,24 +127,28 @@ pub fn security_chair_resolution(
         stop_loss_pct: request.stop_loss_pct,
         target_return_pct: request.target_return_pct,
         min_risk_reward_ratio: request.min_risk_reward_ratio,
-    };
-    let committee_result = security_decision_committee(&committee_request)?;
-    let scorecard = build_security_scorecard(
-        &committee_result,
-        &SecurityScorecardBuildInput {
-            generated_at: request.created_at.clone(),
-            decision_id: committee_result.decision_card.decision_id.clone(),
-            decision_ref: committee_result.decision_card.decision_id.clone(),
-            approval_ref: format!("chair-only-{}", committee_result.decision_card.decision_id),
-            scorecard_model_path: request.scorecard_model_path.clone(),
-        },
-    )?;
-    let chair_resolution =
-        build_security_chair_resolution(&committee_result, &scorecard, &request.created_at);
+        created_at: request.created_at.clone(),
+        horizons: vec![5, 10, 20, 30, 60, 180],
+        scorecard_model_path: request.scorecard_model_path.clone(),
+        return_head_model_path: request.return_head_model_path.clone(),
+        drawdown_head_model_path: request.drawdown_head_model_path.clone(),
+        path_quality_head_model_path: request.path_quality_head_model_path.clone(),
+        upside_first_head_model_path: request.upside_first_head_model_path.clone(),
+        stop_first_head_model_path: request.stop_first_head_model_path.clone(),
+        external_proxy_inputs: request.external_proxy_inputs.clone(),
+        prediction_mode: request.prediction_mode.clone(),
+        prediction_horizon_days: request.prediction_horizon_days,
+    })?;
+    let chair_resolution = build_security_chair_resolution(
+        &master_result.committee_result,
+        &master_result.scorecard,
+        &master_result.master_scorecard,
+        &request.created_at,
+    );
 
     Ok(SecurityChairResolutionResult {
-        committee_result,
-        scorecard,
+        committee_result: master_result.committee_result,
+        scorecard: master_result.scorecard,
         chair_resolution,
     })
 }
@@ -129,15 +158,26 @@ pub fn security_chair_resolution(
 pub fn build_security_chair_resolution(
     committee_result: &SecurityDecisionCommitteeResult,
     scorecard: &SecurityScorecardDocument,
+    master_scorecard: &SecurityMasterScorecardDocument,
     generated_at: &str,
 ) -> SecurityChairResolutionDocument {
-    let selected_action = committee_result.decision_card.recommendation_action.clone();
-    let selected_exposure_side = committee_result.decision_card.exposure_side.clone();
+    let selected_action =
+        resolve_training_guarded_chair_action(committee_result, scorecard).to_string();
+    let selected_exposure_side = derive_exposure_side_from_action(&selected_action).to_string();
     let signed_off_at = normalize_created_at(generated_at);
     let committee_session_ref = committee_result.committee_session_ref.clone();
-    let master_scorecard_ref = scorecard.scorecard_id.clone();
-    let execution_constraints =
-        build_execution_constraints(committee_result, scorecard, &selected_action);
+    let master_scorecard_ref = master_scorecard.master_scorecard_id.clone();
+    let execution_constraints = build_execution_constraints(
+        committee_result,
+        scorecard,
+        master_scorecard,
+        &selected_action,
+    );
+    let final_confidence = if scorecard.score_status == "ready" {
+        committee_result.decision_card.confidence_score
+    } else {
+        committee_result.decision_card.confidence_score.min(0.49)
+    };
 
     SecurityChairResolutionDocument {
         chair_resolution_id: format!("chair-{}", committee_result.decision_card.decision_id),
@@ -151,13 +191,48 @@ pub fn build_security_chair_resolution(
         master_scorecard_ref,
         selected_action: selected_action.clone(),
         selected_exposure_side,
-        chair_reasoning: build_chair_reasoning(committee_result, scorecard, &selected_action),
+        chair_reasoning: build_chair_reasoning(
+            committee_result,
+            scorecard,
+            master_scorecard,
+            &selected_action,
+        ),
         why_followed_quant: build_quant_reason(scorecard),
         why_followed_committee: build_committee_reason(committee_result),
         override_reason: None,
         execution_constraints,
-        final_confidence: committee_result.decision_card.confidence_score,
+        final_confidence,
         signed_off_at,
+    }
+}
+
+// 2026-04-11 CST: Add chair-level training fallback, reason: the user required
+// the final formal decision to stop short of executable conviction when the
+// scorecard model is unavailable.
+// Purpose: downgrade the chair action to a neutral abstain unless the scorecard
+// has a ready model-backed result.
+fn resolve_training_guarded_chair_action(
+    committee_result: &SecurityDecisionCommitteeResult,
+    scorecard: &SecurityScorecardDocument,
+) -> &'static str {
+    if scorecard.score_status == "ready" {
+        return match committee_result
+            .decision_card
+            .recommendation_action
+            .as_str()
+        {
+            "buy" => "buy",
+            "hold" => "hold",
+            "reduce" => "reduce",
+            "avoid" => "avoid",
+            _ => "abstain",
+        };
+    }
+
+    if committee_result.decision_card.status == "blocked" {
+        "avoid"
+    } else {
+        "abstain"
     }
 }
 
@@ -194,8 +269,71 @@ fn build_committee_reason(committee_result: &SecurityDecisionCommitteeResult) ->
 fn build_chair_reasoning(
     committee_result: &SecurityDecisionCommitteeResult,
     scorecard: &SecurityScorecardDocument,
+    master_scorecard: &SecurityMasterScorecardDocument,
     selected_action: &str,
 ) -> String {
+    if is_prediction_mode(master_scorecard) {
+        if let Some(prediction_summary) = &master_scorecard.prediction_summary {
+            return format!(
+                "chair signed `{}` after reading committee majority `{}`, scorecard status `{}`, and prediction-mode quant context with expected {}d return {:.4}, expected drawdown {:.4}, expected path quality {:.4}, regime cluster `{}`, and analog sample count {}.",
+                selected_action,
+                committee_result.vote_tally.majority_vote,
+                scorecard.score_status,
+                prediction_summary.prediction_horizon_days,
+                prediction_summary
+                    .regression_line
+                    .expected_return
+                    .unwrap_or(0.0),
+                prediction_summary
+                    .risk_line
+                    .expected_drawdown
+                    .unwrap_or(0.0),
+                prediction_summary
+                    .regression_line
+                    .expected_path_quality
+                    .unwrap_or(0.0),
+                prediction_summary.cluster_line.regime_cluster_label,
+                prediction_summary.cluster_line.analog_sample_count,
+            );
+        }
+    }
+
+    if master_scorecard.trained_head_summary.head_count >= 5 {
+        return format!(
+            "chair signed `{}` after reading committee majority `{}`, scorecard status `{}`, and multi-head quant context with expected return {:.4}, expected drawdown {:.4}, expected path quality {:.2}, upside-first probability {:.4}, and stop-first probability {:.4}.",
+            selected_action,
+            committee_result.vote_tally.majority_vote,
+            scorecard.score_status,
+            master_scorecard
+                .trained_head_summary
+                .expected_return
+                .unwrap_or(0.0),
+            master_scorecard
+                .trained_head_summary
+                .expected_drawdown
+                .unwrap_or(0.0),
+            master_scorecard
+                .trained_head_summary
+                .expected_path_quality
+                .unwrap_or(0.0),
+            master_scorecard
+                .trained_head_summary
+                .expected_upside_first_probability
+                .unwrap_or(0.0),
+            master_scorecard
+                .trained_head_summary
+                .expected_stop_first_probability
+                .unwrap_or(0.0),
+        );
+    }
+
+    if scorecard.score_status != "ready" {
+        return format!(
+            "主席在同读投委会线与量化线后，因训练支撑尚未就绪而将正式动作降级为 `{}`；投委会多数票为 `{}`，量化线状态为 `{}`。",
+            selected_action, committee_result.vote_tally.majority_vote, scorecard.score_status
+        );
+    }
+
     format!(
         "主席在同读投委会线与量化线后，正式签发 `{}` 动作；投委会多数票为 `{}`，量化线状态为 `{}`。",
         selected_action, committee_result.vote_tally.majority_vote, scorecard.score_status
@@ -207,6 +345,7 @@ fn build_chair_reasoning(
 fn build_execution_constraints(
     committee_result: &SecurityDecisionCommitteeResult,
     scorecard: &SecurityScorecardDocument,
+    master_scorecard: &SecurityMasterScorecardDocument,
     selected_action: &str,
 ) -> Vec<String> {
     let mut constraints = Vec::new();
@@ -222,6 +361,34 @@ fn build_execution_constraints(
             .take(3)
             .cloned(),
     );
+    if let Some(expected_drawdown) = master_scorecard.trained_head_summary.expected_drawdown {
+        constraints.push(format!(
+            "expected drawdown from multi-head quant context is {:.4}; position sizing should respect that bound before execution",
+            expected_drawdown
+        ));
+    }
+    if let Some(prediction_summary) = &master_scorecard.prediction_summary {
+        constraints.push(format!(
+            "regime cluster `{}` carries {} analog observations over {}d prediction horizon; execution should stay conservative until that cluster remains stable",
+            prediction_summary.cluster_line.regime_cluster_label,
+            prediction_summary.cluster_line.analog_sample_count,
+            prediction_summary.prediction_horizon_days,
+        ));
+    }
+    if let (Some(upside_first_probability), Some(stop_first_probability)) = (
+        master_scorecard
+            .trained_head_summary
+            .expected_upside_first_probability,
+        master_scorecard
+            .trained_head_summary
+            .expected_stop_first_probability,
+    ) {
+        constraints.push(format!(
+            "path-event asymmetry shows upside-first {:.4} vs stop-first {:.4}; execution should tighten if stop-first dominates",
+            upside_first_probability,
+            stop_first_probability
+        ));
+    }
     constraints.extend(scorecard.limitations.iter().take(2).cloned());
     dedupe_strings(&mut constraints);
     constraints
@@ -267,4 +434,13 @@ fn default_target_return_pct() -> f64 {
 
 fn default_min_risk_reward_ratio() -> f64 {
     2.0
+}
+
+fn default_prediction_horizon_days() -> usize {
+    180
+}
+
+fn is_prediction_mode(master_scorecard: &SecurityMasterScorecardDocument) -> bool {
+    master_scorecard.aggregation_status == "future_prediction_quant_context"
+        || master_scorecard.prediction_summary.is_some()
 }

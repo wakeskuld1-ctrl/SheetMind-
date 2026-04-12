@@ -33,6 +33,16 @@ pub struct SyncStockPriceHistoryResult {
     pub date_range: ImportDateRange,
 }
 
+// 2026-04-12 CST: Add a reusable fetched-rows contract, because the real-data
+// validation slice now needs provider fetch reuse without forcing writes into the
+// workspace-default stock-history database.
+// Purpose: let validation and future governed import flows reuse one canonical fetch path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SyncStockPriceHistoryFetchedRows {
+    pub provider_used: String,
+    pub rows: Vec<StockHistoryRow>,
+}
+
 // 2026-03-29 CST: 这里集中定义 HTTP 股票同步错误，原因是 symbol 归一化、HTTP、解析、日期和落库任一环节都可能失败；
 // 目的：把外部老接口的不稳定性翻译成中文、可定位、可聚合的错误，而不是直接把底层异常抛给用户。
 #[derive(Debug, Error)]
@@ -130,6 +140,25 @@ struct SinaKlineRow {
 pub fn sync_stock_price_history(
     request: &SyncStockPriceHistoryRequest,
 ) -> Result<SyncStockPriceHistoryResult, SyncStockPriceHistoryError> {
+    let fetched_rows = fetch_stock_price_history_rows(request)?;
+    let store = StockHistoryStore::workspace_default()?;
+    let summary = store.import_rows(
+        &request.symbol,
+        &format!("{}_http_{}", fetched_rows.provider_used, request.adjustment),
+        &fetched_rows.rows,
+    )?;
+
+    let provider = SyncProvider::from_name(&fetched_rows.provider_used)?;
+    Ok(build_sync_result(request, &store, &summary, provider))
+}
+
+// 2026-04-12 CST: Reuse the provider-fetch path without implicit persistence,
+// because the governed real-data validation slice must import into a dedicated
+// runtime DB instead of always mutating the workspace default stock DB.
+// Purpose: separate network/provider concerns from storage concerns while keeping one fetch contract.
+pub fn fetch_stock_price_history_rows(
+    request: &SyncStockPriceHistoryRequest,
+) -> Result<SyncStockPriceHistoryFetchedRows, SyncStockPriceHistoryError> {
     if request.adjustment.trim().to_lowercase() != "qfq" {
         return Err(SyncStockPriceHistoryError::UnsupportedAdjustment(
             request.adjustment.clone(),
@@ -144,22 +173,10 @@ pub fn sync_stock_price_history(
     for provider in providers {
         match fetch_provider_rows(provider, &provider_symbol, &window, &request.adjustment) {
             Ok(provider_rows) => {
-                let store = StockHistoryStore::workspace_default()?;
-                let summary = store.import_rows(
-                    &request.symbol,
-                    &format!(
-                        "{}_http_{}",
-                        provider_rows.provider.as_str(),
-                        request.adjustment
-                    ),
-                    &provider_rows.rows,
-                )?;
-                return Ok(build_sync_result(
-                    request,
-                    &store,
-                    &summary,
-                    provider_rows.provider,
-                ));
+                return Ok(SyncStockPriceHistoryFetchedRows {
+                    provider_used: provider_rows.provider.as_str().to_string(),
+                    rows: provider_rows.rows,
+                });
             }
             Err(error) => provider_errors.push(error.to_string()),
         }
