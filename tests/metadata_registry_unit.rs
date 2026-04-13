@@ -1,13 +1,11 @@
 use excel_skill::ops::foundation::metadata_registry::{
-    MetadataConstraintOperator, MetadataFieldGovernance, MetadataFieldGroup,
-    MetadataRegistryAuditReport,
-    MetadataFieldTarget, MetadataRegistry, MetadataRegistryAliasMapping,
-    MetadataRegistryCanonicalFieldAggregationEntry,
-    MetadataRegistryCompatibilityEntry, MetadataRegistryCompatibilitySummary,
-    MetadataRegistryFieldResolution, MetadataRegistryFieldResolutionBatch,
-    MetadataRegistryFieldResolutionBatchSummary,
-    MetadataRegistryUnknownFieldEntry,
-    MetadataRegistryValidationIssue, MetadataRegistryValidationIssueKind,
+    MetadataConstraintOperator, MetadataFieldGovernance, MetadataFieldGroup, MetadataFieldTarget,
+    MetadataRegistry, MetadataRegistryAliasMapping, MetadataRegistryAuditReport,
+    MetadataRegistryCanonicalFieldAggregationEntry, MetadataRegistryCompatibilityEntry,
+    MetadataRegistryCompatibilitySummary, MetadataRegistryFieldResolution,
+    MetadataRegistryFieldResolutionBatch, MetadataRegistryFieldResolutionBatchSummary,
+    MetadataRegistryUnknownFieldEntry, MetadataRegistryValidationIssue,
+    MetadataRegistryValidationIssueKind,
 };
 
 // 2026-04-09 CST: 这里先补 metadata registry 的首条红测，原因是方案B下一阶段要把 metadata 字段管理从
@@ -713,14 +711,20 @@ fn metadata_registry_audit_report_combines_registry_and_batch_views() {
         );
 
     assert_eq!(
-        registry.audit_fields(vec!["source", "evidence_source", "namespace", "unknown_field"]),
+        registry.audit_fields(vec![
+            "source",
+            "evidence_source",
+            "namespace",
+            "unknown_field"
+        ]),
         MetadataRegistryAuditReport {
-            governance: excel_skill::ops::foundation::metadata_registry::MetadataRegistryValidationSummary {
-                issues: vec![MetadataRegistryValidationIssue {
-                    field: "source".to_string(),
-                    kind: MetadataRegistryValidationIssueKind::Deprecated,
-                }],
-            },
+            governance:
+                excel_skill::ops::foundation::metadata_registry::MetadataRegistryValidationSummary {
+                    issues: vec![MetadataRegistryValidationIssue {
+                        field: "source".to_string(),
+                        kind: MetadataRegistryValidationIssueKind::Deprecated,
+                    }],
+                },
             compatibility: MetadataRegistryCompatibilitySummary {
                 fields: vec![
                     MetadataRegistryCompatibilityEntry {

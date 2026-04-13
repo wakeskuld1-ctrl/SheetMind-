@@ -1,186 +1,202 @@
-# 任务计划
+# Task Plan
 
-<!-- 2026-04-08 CST: 重写 task_plan。原因：原文件仍停留在七席委员会旧任务，已经不能反映当前 foundation 通用标准能力工作。目的：把当前任务范围、非目标、完成状态和后续建议统一收口。 -->
+## 2026-04-13 Position Plan Sizing Layer Stage 2
 
-## 当前任务目标
+### Goal
+- 在不再做大重构的前提下，把第二阶段“给多少合适”正式接入 `position_plan + chair + submit_approval` 三条链，并统一对外呈现。
 
-- 在 foundation 线上继续推进 Phase 3 第一阶段，补齐 `Metadata Schema Registry`。
-- 本轮只做“字段注册 + concept policy 绑定”，不做 validator 和 versioning。
-- 保持 foundation 仍为独立通用层，不接证券分析主链。
+### Scope
+- 在 `src/ops/security_position_plan.rs` 中补齐共享 sizing builder、overlay 和正式字段映射。
+- 在 `src/ops/security_chair_resolution.rs` 中补齐 `target_gross_pct / sizing_grade / sizing_reason`。
+- 在 `src/ops/security_decision_submit_approval.rs` 中接入 sizing overlay，并统一 `approval_brief.entry_summary`。
 
-## 当前任务阶段
+### Current Status
+- [x] 第二阶段 sizing 规则对象、共享 builder 与 overlay 已落地。
+- [x] `chair_resolution` 已同步暴露 sizing 结果。
+- [x] `submit_approval` 已在 scorecard/master_scorecard 后刷新 sizing 层。
+- [x] 聚焦红测已全部转绿。
 
-| 阶段 | 状态 | 说明 |
-| --- | --- | --- |
-| P1 范围收口 | 完成 | 已按用户确认选择方案 B，只做字段注册与 concept policy 绑定。 |
-| P2 红测建立 | 完成 | 已新增 `metadata_schema_registry_unit`，先钉住字段定义、concept 绑定和未知字段引用错误。 |
-| P3 最小实现 | 完成 | 已补 `MetadataValueType`、`MetadataFieldDefinition`、`ConceptMetadataPolicy`、`MetadataSchema`。 |
-| P4 定向回归 | 完成 | `metadata_schema_registry_unit` 已全绿。 |
-| P5 文档与日志 | 完成 | 已同步 README、AI_HANDOFF、计划文档、任务日志与发现记录。 |
+### Acceptance Criteria
+- [x] `position_plan` 包含 `target_gross_pct / sizing_grade / sizing_reason / sizing_risk_flags`
+- [x] `chair_resolution` 包含 `target_gross_pct / sizing_grade / sizing_reason`
+- [x] `approval_brief.entry_summary` 统一展示 `entry grade / target / 首仓 / max / reason`
+- [x] `watch` 固定为 1% 观察仓且 `allow_add = false`
+- [x] `blocked` 固定为 0 仓
+- [x] `pilot_long / standard_long` 分别落到 6% / 12% 目标仓
 
-## 已完成范围
+### Phases
+1. 复现第二阶段红测与缺失编译口
+2. 补共享 sizing builder 与 position_plan 映射
+3. 接入 submit_approval / chair_resolution
+4. 运行聚焦验证并补 task journal
 
-- 标准知识包：`KnowledgeBundle`
-- 标准仓储：`KnowledgeRepository`
-- 通用 metadata 精确过滤：`MetadataFilter`
-- 节点 metadata 标准化：`KnowledgeNode.metadata`
-- 标准导入能力：`knowledge_ingestion`
-- 扩展过滤能力：`MetadataFilter` 多字段 AND + concept scope
-- 标准布局能力：`bundle.json + repository.manifest.json`
-- 元数据管理能力：`MetadataSchema + ConceptMetadataPolicy`
+### Errors Encountered
+| Error | Attempt | Resolution |
+|-------|---------|------------|
+| ready case 的 `plan_status` 被 sizing helper 意外改成 `probe_only` | 1 | 保持 sizing 层只刷新仓位能力，不再改原有 approval 状态语义 |
 
-## 非目标
+## 2026-04-12 Foundation Hygiene Export DTO V1
 
-- 不做证券分析业务适配。
-- 不做向量检索。
-- 不做高级 metadata DSL。
-- 不做业务原始文件直接入库。
-- 不做 foundation 与业务主链整合。
+### Goal
+- 在不改动 `RepositoryMetadataAudit` 内部聚合主流程的前提下，补一层稳定的 `v1` 对外 DTO，让后续 AI、上层封装和未来界面层不再直接耦合内部 report 结构。
+### Scope
+- 为 foundation repository hygiene audit 增加版本化导出 DTO。
+- 锁定 summary / grouped views / reason views 的导出契约。
+- 保持当前内部模型与既有语义不变，只增加单向导出层。
+### Current Status
+- 用户已批准 `方案 C`。
+- 当前 foundation 主线已经锁定了：
+  - 大仓库稳定性
+  - repeated reason 边界语义
+- 本轮准备进入 DTO 契约层的 TDD 切片。
+### Acceptance Criteria
+- [ ] 新增 `RepositoryMetadataAuditExportDtoV1` 及其必要子 DTO。
+- [ ] `RepositoryMetadataAuditReport` 能稳定转换为 `v1` DTO。
+- [ ] 导出 DTO 保持当前 summary / views / reason views 的既有语义与排序。
+- [ ] 基础 fixture、大样本 fixture、边界 fixture 的 DTO 导出测试全部通过。
+- [ ] foundation 回归测试通过。
+### Phases
+1. 写设计文档与实施计划
+2. 先补 DTO 导出红测
+3. 最小实现 DTO 与转换层
+4. 跑 DTO 聚焦测试转绿
+5. 跑 foundation 回归
+6. 补 handoff 与 task journal
+### Errors Encountered
+| Error | Attempt | Resolution |
+|-------|---------|------------|
+| None yet | 0 | Design and plan stage |
 
-## 已知约束
+## 2026-04-12 ETF 训练链路体检
 
-- 不能误改用户已有证券分析链相关脏改动。
-- Windows 上大块 `apply_patch` 可能失败，需要分块修改。
-- Windows 下 `cargo test` 偶发会被残留 `excel_skill.exe` / `cargo` 进程锁住并触发 `os error 5`。
-- 当前 `task-journal` 脚本在本地 PowerShell 编码环境下解析失败，需要手工追加 `CHANGELOG_TASK.MD`。
+### Goal
+- 在不改动主架构的前提下，确认 ETF / 证券训练链路是否已经具备“进入提准阶段”的基础，并定位当前最主要的精度瓶颈。
 
-## 下一阶段建议
+### Scope
+- 核对 ETF 主线关键 CLI 测试是否已通过。
+- 核对训练 / refit / shadow evaluation / promotion 是否形成闭环。
+- 判断瓶颈更偏向样本、标签、特征、聚合还是运行时模型接入。
 
-## 2026-04-08 最新状态补充
+### Current Status
+- A1 已完成首个 ETF 端到端训练回归，并修复路径事件头标签契约错误。
+- `security_external_proxy_history_import / feature_snapshot / master_scorecard / chair_resolution` 关键 ETF 主链测试已通过。
+- `security_scorecard_training / security_scorecard_refit / security_shadow_evaluation / security_model_promotion` 关键训练治理测试已通过。
+- 训练体检进入“瓶颈归因”阶段，重点确认 ETF 端到端训练覆盖、样本厚度与运行时接模路径。
 
-<!-- 2026-04-08 CST: 追加 metadata validator 阶段状态。原因：task_plan 当前正文仍停留在 schema registry 阶段。目的：不覆盖历史，但把本轮已完成内容和下一步优先级补充清楚。 -->
+## Goal
+- 一次性推进证券主链到“只有通过明确验收门槛才算可实盘”的阶段。
+- 当前最小阻断点是 latest `2026-04-10` 运行时的 ETF `feature_incomplete`，需要先修掉 validation/pool 链漏导 ETF 池级代理历史的问题，再继续推进整包剩余事项。
 
-- 已完成：`MetadataValidator + MetadataValidationIssue`
-- 已完成范围：
-  - required 字段校验
-  - concept policy 缺失校验
-  - disallowed field 校验
-  - allowed values 校验
-  - value type 校验
-  - multi-concept compatibility 校验
-- 已完成验证：
-  - `cargo test --test metadata_validator_unit -- --nocapture`
-  - `cargo test --test metadata_schema_registry_unit --test metadata_validator_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
-- 当前下一步应转入：
-  - `Schema Versioning`
-  - `Migration Contract`
-  - repository 级批量 metadata 校验（仅在后续获批时进入）
+## Acceptance Criteria
+- [x] latest runtime 中 `cross_border_etf / equity_etf` 不再因为缺少 ETF 代理历史而出现 `feature_incomplete`
+- [x] pooled holdout 与 latest chair 结果能在同一代理历史口径下对齐
+- [x] validation/pool 流程会自动导入 ETF 池级代理历史
+- [x] 如果 ETF validation slice 缺少对应池级代理历史，流程会显式失败
+- [x] `513180.SH / 515790.SH` latest raw 与 summary 同步更新，`score_status = ready`
+- [ ] 只有全部主链门槛通过，才声明“可以做实盘”
 
-## 2026-04-08 Schema Versioning 第一阶段补充
+## Phases
+1. 确认 latest `feature_incomplete` 的真实根因
+2. 补红测锁定 ETF 池级代理历史自动导入与缺失显式失败
+3. 修复 validation/pool 流程并回归
+4. 导入真实池级代理历史并重跑 latest chair
+5. 继续推进整包剩余验收项
 
-<!-- 2026-04-08 CST: 追加 schema versioning 第一阶段状态。原因：本轮已经完成 metadata schema 正式版本契约。目的：把下一步优先级进一步收口到 migration contract。 -->
+## Errors Encountered
+| Error | Attempt | Resolution |
+|-------|---------|------------|
+| latest raw 仍为 `feature_incomplete`，但 summary 假阳性显示 `ready` | 1 | 继续向下追查 raw feature snapshot，确认真实问题是 ETF 池级代理历史未正式导入 governed external proxy 库 |
+## 2026-04-12 Regression Head Precision Scheme C
 
-- 已完成：
-  - `MetadataSchema.schema_version`
-  - `DEFAULT_METADATA_SCHEMA_VERSION`
-  - `MetadataSchema::new_with_version(...)`
-  - `MetadataSchema::is_compatible_with(...)`
-  - `MetadataSchemaError::InvalidSchemaVersion`
-- 已完成验证：
-  - `cargo test --test metadata_schema_versioning_unit -- --nocapture`
-  - `cargo test --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_validator_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
-- 当前下一步应转入：
-  - `Migration Contract`
-  - repository 级批量版本审计
-  - 更强 compatibility 规则（仅在后续获批时进入）
+### Goal
+- 在不改主架构的前提下，把回归头从“门槛偏松 + 预测偏脆”推进到“治理更严 + 预测更稳”的下一阶段。
 
-## 2026-04-08 Migration Contract 第一阶段补充
+### Scope
+- 收紧 `security_scorecard_training` 中回归头 readiness。
+- 增加回归头相对基线的质量度量。
+- 对回归 bin 预测值做一次最小幅度的 baseline shrinkage。
 
-<!-- 2026-04-08 CST: 追加 migration contract 第一阶段状态。原因：本轮已经完成字段演进治理对象与最小构建期校验。目的：把下一步优先级收口到 validator 联动或 repository 级审计。 -->
+### Current Status
+- 用户已批准 `方案 C`。
+- 已完成测试锁定、最小实现与关键回归验证。
+- 本轮没有扩散到 runtime registry 或训练大改。
 
-- 已完成：
-  - `MetadataFieldDefinition.deprecated`
-  - `MetadataFieldDefinition.replaced_by`
-  - `MetadataFieldDefinition.aliases`
-  - `MetadataFieldDefinition::deprecated()`
-  - `MetadataFieldDefinition::with_replaced_by(...)`
-  - `MetadataFieldDefinition::with_alias(...)`
-- 已完成错误边界：
-  - `UnknownReplacementTarget`
-  - `SelfReplacementTarget`
-  - `DuplicateFieldAlias`
-- 已完成验证：
-  - `cargo test --test metadata_migration_contract_unit -- --nocapture`
-  - `cargo test --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_migration_contract_unit --test metadata_validator_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
-- 当前下一步应转入：
-  - validator 联动
-  - repository 级批量演进审计
-  - migration executor（仅在后续获批时进入）
+### Acceptance Criteria
+- [x] 回归头训练输出包含 `baseline_rmse` 与 `rmse_improvement_vs_baseline`
+- [x] readiness 输出包含 `regression_quality_status`
+- [x] 回归头只有在优于基线且方向性达标时才进入 `shadow_candidate_ready`
+- [x] 薄 support 的回归 bin 会向全局 baseline 收缩
+- [x] `security_scorecard_training_cli / security_master_scorecard_cli / security_chair_resolution_cli` 关键回归通过
 
-## 2026-04-08 下一阶段方案收口
+### Phases
+1. 先补红测锁定新的回归治理契约
+2. 实现回归 bin shrinkage 与基线对比指标
+3. 收紧回归 readiness 门槛
+4. 跑关键回归并更新交接记忆
 
-<!-- 2026-04-08 CST: 追加下一阶段候选方案收口。原因：用户已要求把下一步方案一并写入仓库文档并推送。目的：把默认推荐路线固定到计划文件，避免交接时重复讨论范围。 -->
+## 2026-04-12 Direction-First Training Run Slice
 
-- 候选方案 A：`Validator` 联动
-  - 把 `deprecated / aliases / replaced_by` 接入节点级 issue 输出
-  - 优先级最高，默认先做
-- 候选方案 B：Repository-Level Audit
-  - 基于 schema 和 validator 信号做整库批量扫描与清单聚合
-- 候选方案 C：Migration Executor
-  - 只在后续继续获批时再进入 dry-run / rewrite 执行层
-- 当前默认顺序：
-  - 先 A
-  - 后 B
-  - 最后 C
+### Goal
+- 在不改训练主链架构的前提下，补一个“方向优先、回归次优”的正式训练编排入口。
+- 让后续 7 小时长训不再依赖 shell 临时循环，而是走可发现、可落盘、可续跑的工具入口。
 
-1. Metadata Validator
-   - 校验 required 字段、allowed values、字段类型和 concept-field 兼容性。
-2. Schema Versioning
-   - 增加 metadata schema version、deprecated / replaced_by 和 migration 入口。
-3. 更强 registry 治理
-   - 如再次获批，再考虑 concept inheritance、field alias 和审计记录。
-## 2026-04-10 Validator Linkage 状态补充
+### Scope
+- 新增 `security_direction_first_training_run`
+- 接入 `catalog + dispatcher + stock dispatcher + ops export`
+- 支持：
+  - 读取现有 registry 做排序
+  - 桥接 training request 直接生成 registry 后再排序
+- 输出一份 `stage_summary`
 
-<!-- 2026-04-10 CST：补充 validator linkage 阶段状态。原因：task_plan 当前正文停留在 migration contract 之后的候选方案，和已完成代码不一致。目的：把方案 A 已完成、方案 B 成为下一步的状态正式写实。 -->
+### Current Status
+- [x] 红测已补齐并验证失败原因正确
+- [x] 最小实现已完成
+- [x] catalog 与 dispatcher 已接通
+- [x] 排序单测与训练 CLI 回归已通过
 
-- 已完成：`Validator Linkage`
-- 已完成范围：
-  - `MetadataSchema` 正式保留 alias 解析索引
-  - `MetadataValidator` 正式消费 `deprecated / replaced_by / aliases`
-  - 新增结构化 issue：
-    - `AliasFieldUsed`
-    - `DeprecatedFieldUsed`
-  - alias 不再误伤 required / disallowed 校验
-  - deprecated 字段可通过 `replaced_by` 满足 required 字段兼容语义
-- 已完成验证：
-  - `cargo test --test metadata_validator_unit -- --nocapture`
-  - `cargo test --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_migration_contract_unit --test metadata_validator_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
-- 当前下一步顺序：
-  1. `Repository-Level Audit`
-  2. `Migration Executor` 仅在再次获批后进入
-- 当前非目标再次重申：
-  - 不做自动 rewrite
-  - 不做 repository 以外的业务层接线
-  - 不因为已完成 validator linkage 就回头重开 foundation 架构
+### Acceptance Criteria
+- [x] `tool_catalog` 能发现 `security_direction_first_training_run`
+- [x] 方向指标强、回归指标弱的候选，仍能在 survivor 里获胜
+- [x] 新工具能把排序摘要落盘
+- [x] 新工具支持 registry source 与 training request source
+- [ ] 基于真实多池子、多 horizon 的正式 7 小时请求完成组装
+- [ ] 长训 checkpoint 记录模板补到 execution notes
 
-## 2026-04-10 Repository-Level Audit 状态补充
+### Phases
+1. 补齐红测导入并确认真正 RED
+2. 新增方向优先训练 op 与排序逻辑
+3. 接入 dispatcher / catalog
+4. 跑聚焦验证与 `security_scorecard_training_cli` 全回归
+5. 进入真实长训请求组装
+## 2026-04-13 Direction-First 7h Long Run Execution
 
-<!-- 2026-04-10 CST：补充 repository-level audit 阶段状态。原因：方案B已经完成实现与验证，task_plan 需要从“下一步候选”推进到“当前已完成”。目的：明确当前做到仓库级审计，但仍未进入 migration executor。 -->
+### Goal
+- 在不继续重构的前提下，直接启动正式的方向优先长训，并把运行证据固定下来，保证 7 小时后可以验收。
 
-- 已完成：`Repository-Level Audit`
-- 已完成范围：
-  - 新增 `RepositoryMetadataAuditReport`
-  - 新增 `RepositoryMetadataAuditIssue`
-  - 新增 `RepositoryEvidenceHygieneDiagnostic`
-  - 正式复用 `MetadataValidator` 聚合 repository 全节点 issue
-  - 正式输出 `issue_type_counts`
-  - 正式输出 `concept_issue_counts`
-  - 正式输出最小 hygiene diagnostics：
-    - `DuplicateEvidenceRef`
-    - `WeakLocator`
-    - `WeakSourceRef`
-- 已完成验证：
-  - `cargo test --test repository_metadata_audit_unit -- --nocapture`
-  - `cargo test --test repository_metadata_audit_unit --test metadata_validator_unit --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_migration_contract_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
-- 当前下一步顺序：
-  1. 扩细 evidence hygiene diagnostics
-  2. `Migration Executor` 仅在再次获批后进入
-- 当前非目标再次重申：
-  - 不做自动 rewrite
-  - 不做自动迁移执行
-  - 不把 foundation 审计层接到证券业务层
+### Scope
+- 生成正式请求 JSON
+- 生成执行说明
+- 启动后台进程
+- 完成首轮健康检查
 
-## 2026-04-10 Task Update: Foundation Evidence Hygiene Diagnostics Expansion
-- 已完成：扩展 repository metadata audit 的 hygiene diagnostics，新增 `MissingEvidenceRef`、`DuplicateEvidenceRefWithinNode`、`RepositoryWeakLocatorReason`、`RepositoryWeakSourceRefReason`。
-- 已验证：`cargo test --test repository_metadata_audit_unit -- --nocapture`；`cargo test --test repository_metadata_audit_unit --test metadata_validator_unit --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_migration_contract_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`。
-- 下一步候选：1) 细化 locator/source_ref 结构规则；2) 给 audit report 增加 severity/summary；3) 仍然不进入 migration executor。
+### Current Status
+- [x] 正式请求 JSON 已生成
+- [x] 执行说明已生成
+- [x] 后台进程已启动
+- [x] 首轮健康检查已完成
+- [ ] 最终 `stage_summary` 待进程结束后生成
+- [ ] 40 个候选的最终排序待进程结束后确认
+
+### Acceptance Criteria
+- [x] 进程不是秒退
+- [x] runtime root 下开始生成候选目录与 artifact
+- [x] PID、日志路径、请求路径已落文档
+- [ ] 最终 stdout 返回 `security_direction_first_training_run` 成功结果
+- [ ] 最终 stage summary 可用于后续 AI/人工验收
+
+### Phases
+1. 生成 40 候选正式请求
+2. 落执行说明
+3. 启动后台 EXE
+4. 检查存活与落盘
+5. 等待最终产物完成后验收

@@ -11,7 +11,12 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::{
-    create_test_runtime_db, run_cli_with_json, run_cli_with_json_runtime_and_envs,
+    // 2026-04-12 CST: Add the runtime-aware CLI helper import, because the new
+    // direction-first orchestration red test must execute against an isolated
+    // runtime db instead of the catalog-only helper.
+    // Purpose: let the RED phase fail on missing orchestration behavior rather than on a test compile gap.
+    create_test_runtime_db, run_cli_with_json, run_cli_with_json_and_runtime,
+    run_cli_with_json_runtime_and_envs,
 };
 
 // 2026-04-09 CST: 这里新增 scorecard training CLI 测试夹具，原因是 Task 5 需要先把正式训练入口的契约锁进红测；
@@ -108,6 +113,142 @@ fn tool_catalog_includes_security_scorecard_training() {
 }
 
 #[test]
+fn tool_catalog_includes_security_direction_first_training_run() {
+    let output = run_cli_with_json("");
+
+    // 2026-04-12 UTC+08: Add a catalog red test for the staged direction-first
+    // training tool, because the seven-hour training round now needs one
+    // discoverable orchestration entry instead of shell-only ad-hoc loops.
+    // Purpose: keep long-run training orchestration visible to CLI and later AI handoff.
+    assert!(
+        output["data"]["tool_catalog"]
+            .as_array()
+            .expect("tool catalog should be an array")
+            .iter()
+            .any(|tool| tool == "security_direction_first_training_run")
+    );
+}
+
+#[test]
+fn security_direction_first_training_run_prefers_direction_accuracy_before_regression() {
+    let runtime_db_path = create_test_runtime_db("security_direction_first_training_run");
+    let fixture_dir = create_training_fixture_dir("security_direction_first_training_run");
+    let stronger_direction_path = write_registry_ranking_fixture(
+        &fixture_dir,
+        "direction_stronger_direction.json",
+        "candidate_direction_stronger",
+        "direction_head",
+        5,
+        json!({
+            "test": {
+                "accuracy": 0.78,
+                "auc": 0.73
+            },
+            "readiness_assessment": {
+                "production_readiness": "shadow_candidate_ready",
+                "path_event_coverage_status": "path_event_ready"
+            }
+        }),
+    );
+    let weaker_direction_path = write_registry_ranking_fixture(
+        &fixture_dir,
+        "direction_weaker_direction.json",
+        "candidate_regression_stronger",
+        "direction_head",
+        5,
+        json!({
+            "test": {
+                "accuracy": 0.71,
+                "auc": 0.76
+            },
+            "readiness_assessment": {
+                "production_readiness": "shadow_candidate_ready",
+                "path_event_coverage_status": "path_event_ready"
+            }
+        }),
+    );
+    let stronger_regression_path = write_registry_ranking_fixture(
+        &fixture_dir,
+        "direction_stronger_return.json",
+        "candidate_direction_stronger",
+        "return_head",
+        5,
+        json!({
+            "test": {
+                "directional_hit_rate": 0.54,
+                "rmse_improvement_vs_baseline": 0.002
+            },
+            "readiness_assessment": {
+                "production_readiness": "research_candidate_only",
+                "regression_quality_status": "regression_quality_weak"
+            }
+        }),
+    );
+    let weaker_regression_path = write_registry_ranking_fixture(
+        &fixture_dir,
+        "direction_weaker_return.json",
+        "candidate_regression_stronger",
+        "return_head",
+        5,
+        json!({
+            "test": {
+                "directional_hit_rate": 0.66,
+                "rmse_improvement_vs_baseline": 0.014
+            },
+            "readiness_assessment": {
+                "production_readiness": "shadow_candidate_ready",
+                "regression_quality_status": "regression_quality_ready"
+            }
+        }),
+    );
+
+    let request = json!({
+        "tool": "security_direction_first_training_run",
+        "args": {
+            "created_at": "2026-04-12T22:40:00+08:00",
+            "survivor_count": 1,
+            "candidate_pairs": [
+                {
+                    "candidate_id": "candidate_direction_stronger",
+                    "market_pool": "a_share_bank",
+                    "horizon_days": 5,
+                    "direction_model_registry_path": stronger_direction_path.to_string_lossy(),
+                    "return_model_registry_path": stronger_regression_path.to_string_lossy()
+                },
+                {
+                    "candidate_id": "candidate_regression_stronger",
+                    "market_pool": "a_share_bank",
+                    "horizon_days": 5,
+                    "direction_model_registry_path": weaker_direction_path.to_string_lossy(),
+                    "return_model_registry_path": weaker_regression_path.to_string_lossy()
+                }
+            ]
+        }
+    });
+
+    let output = run_cli_with_json_and_runtime(&request.to_string(), &runtime_db_path);
+
+    // 2026-04-12 UTC+08: Add a red ranking test for the staged direction-first
+    // run, because the user explicitly wants direction quality to dominate the
+    // seven-hour selection loop before regression metrics are used as tie-breakers.
+    // Purpose: force survivor selection to keep the stronger direction candidate
+    // even when another candidate has better regression metrics.
+    assert_eq!(output["status"], "ok", "unexpected direction-first output: {output}");
+    assert_eq!(
+        output["data"]["stage_summary"]["survivors"][0]["candidate_id"],
+        "candidate_direction_stronger"
+    );
+    assert_eq!(
+        output["data"]["stage_summary"]["eliminated"][0]["candidate_id"],
+        "candidate_regression_stronger"
+    );
+    assert_eq!(
+        output["data"]["stage_summary"]["ranking_policy"]["primary_metric"],
+        "direction_test_accuracy"
+    );
+}
+
+#[test]
 fn security_scorecard_training_generates_artifact_and_registers_refit_outputs() {
     let runtime_db_path = create_test_runtime_db("security_scorecard_training_ready");
     let runtime_root = runtime_db_path
@@ -200,9 +341,13 @@ fn security_scorecard_training_generates_artifact_and_registers_refit_outputs() 
             // contract, because Scheme B requires the training pool to become a
             // materially larger governed dataset instead of staying at the old
             // toy-sized 2/1/1 split.
-            "train_samples_per_symbol": 6,
-            "valid_samples_per_symbol": 3,
-            "test_samples_per_symbol": 3,
+            // 2026-04-12 UTC+08: Move the explicit fixture onto the thicker
+            // governed sample plan here, because A2-standard raises the baseline
+            // training pool instead of keeping the older thin split.
+            // Purpose: keep the legacy readiness assertions aligned with the new gate.
+            "train_samples_per_symbol": 8,
+            "valid_samples_per_symbol": 4,
+            "test_samples_per_symbol": 4,
             "feature_set_version": "security_feature_snapshot.v1",
             "label_definition_version": "security_forward_outcome.v1"
         }
@@ -245,18 +390,18 @@ fn security_scorecard_training_generates_artifact_and_registers_refit_outputs() 
     // 2026-04-11 CST: Lock the richer fit panel and larger governed sample pool,
     // because the user explicitly required training-backed conclusions to disclose
     // enough fit evidence instead of relying on a tiny opaque fixture.
-    assert_eq!(output["data"]["metrics_summary_json"]["sample_count"], 24);
+    assert_eq!(output["data"]["metrics_summary_json"]["sample_count"], 32);
     assert_eq!(
         output["data"]["metrics_summary_json"]["sample_breakdown"]["train"]["sample_count"],
-        12
+        16
     );
     assert_eq!(
         output["data"]["metrics_summary_json"]["sample_breakdown"]["valid"]["sample_count"],
-        6
+        8
     );
     assert_eq!(
         output["data"]["metrics_summary_json"]["sample_breakdown"]["test"]["sample_count"],
-        6
+        8
     );
     assert_eq!(
         output["data"]["metrics_summary_json"]["sample_breakdown"]["train"]["unique_symbol_count"],
@@ -424,6 +569,705 @@ fn security_scorecard_training_supports_stop_first_head_with_classification_metr
     );
 }
 
+#[test]
+fn security_scorecard_training_supports_treasury_etf_upside_first_head_contract() {
+    let runtime_db_path =
+        create_test_runtime_db("security_scorecard_training_treasury_etf_upside_first_head");
+    let runtime_root = runtime_db_path
+        .parent()
+        .expect("runtime db should have parent")
+        .join("scorecard_training_runtime");
+    let fixture_dir =
+        create_training_fixture_dir("security_scorecard_training_treasury_etf_upside_first_head");
+
+    let etf_one_csv = fixture_dir.join("treasury_etf_one.csv");
+    let etf_two_csv = fixture_dir.join("treasury_etf_two.csv");
+    let market_csv = fixture_dir.join("market.csv");
+    let sector_csv = fixture_dir.join("sector.csv");
+
+    // 2026-04-12 UTC+08: Add an ETF end-to-end training regression fixture here,
+    // because A1 now needs one real treasury-ETF training path instead of only
+    // relying on equity-oriented CLI coverage plus ETF unit tests.
+    // Purpose: lock the treasury ETF training contract from request -> artifact.
+    fs::write(
+        &etf_one_csv,
+        build_path_event_rows(420, 101.0, 1.10, 0.50, 0.18).join("\n"),
+    )
+    .expect("treasury etf one csv should be written");
+    fs::write(
+        &etf_two_csv,
+        build_path_event_rows(420, 103.0, -1.35, 0.28, 1.65).join("\n"),
+    )
+    .expect("treasury etf two csv should be written");
+    fs::write(
+        &market_csv,
+        build_trend_rows(420, 3200.0, 2.4, 5.0).join("\n"),
+    )
+    .expect("market csv should be written");
+    fs::write(
+        &sector_csv,
+        build_trend_rows(420, 110.0, 0.08, 0.6).join("\n"),
+    )
+    .expect("sector csv should be written");
+
+    import_history_csv(&runtime_db_path, &etf_one_csv, "511010.SH");
+    import_history_csv(&runtime_db_path, &etf_two_csv, "511360.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "511060.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for treasury etf training fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_scorecard_training",
+        "args": {
+            "created_at": "2026-04-12T18:20:00+08:00",
+            "training_runtime_root": runtime_root.to_string_lossy(),
+            "market_scope": "A_SHARE",
+            "instrument_scope": "ETF",
+            "symbol_list": ["511010.SH", "511360.SH"],
+            "market_symbol": "510300.SH",
+            "sector_symbol": "511060.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "bond_etf_peer",
+            "horizon_days": 10,
+            "target_head": "upside_first_head",
+            "train_range": "2025-03-01..2025-08-31",
+            "valid_range": "2025-09-01..2025-11-30",
+            "test_range": "2025-12-01..2026-01-31",
+            "train_samples_per_symbol": 8,
+            "valid_samples_per_symbol": 4,
+            "test_samples_per_symbol": 4,
+            "feature_set_version": "security_feature_snapshot.v1",
+            "label_definition_version": "security_forward_outcome.v1",
+            "stop_loss_pct": 0.03,
+            "target_return_pct": 0.04,
+            "external_proxy_inputs": {
+                "yield_curve_proxy_status": "manual_bound",
+                "yield_curve_slope_delta_bp_5d": -6.0,
+                "funding_liquidity_proxy_status": "manual_bound",
+                "funding_liquidity_spread_delta_bp_5d": -12.5
+            }
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-12 UTC+08: Add a treasury-ETF path-head red test here, because the
+    // current A1 target is not just "ETF can train" but "ETF path-event training
+    // publishes the right governed identity and label contract".
+    // Purpose: force the CLI path to prove treasury subscope, X-group proxy
+    // features, and upside-first label semantics in one end-to-end run.
+    assert_eq!(output["status"], "ok", "unexpected treasury ETF output: {output}");
+    assert_eq!(
+        output["data"]["model_registry"]["instrument_subscope"],
+        "treasury_etf"
+    );
+    assert_eq!(
+        output["data"]["model_registry"]["target_head"],
+        "upside_first_head"
+    );
+    assert_eq!(
+        output["data"]["metrics_summary_json"]["target_mode"],
+        "classification"
+    );
+
+    let artifact_path = PathBuf::from(
+        output["data"]["artifact_path"]
+            .as_str()
+            .expect("artifact path should exist"),
+    );
+    let artifact_json: Value =
+        serde_json::from_slice(&fs::read(&artifact_path).expect("artifact should be readable"))
+            .expect("artifact should be valid json");
+
+    assert_eq!(
+        artifact_json["model_id"],
+        "a_share_etf_treasury_etf_10d_upside_first_head"
+    );
+    assert_eq!(artifact_json["instrument_subscope"], "treasury_etf");
+    assert_eq!(
+        artifact_json["positive_label_definition"],
+        "hit_upside_first_10d"
+    );
+    assert!(
+        artifact_json["features"]
+            .as_array()
+            .expect("features should be an array")
+            .iter()
+            .any(|feature| {
+                feature["feature_name"] == "yield_curve_proxy_status"
+                    && feature["group_name"] == "X"
+            }),
+        "treasury ETF artifact should keep proxy status in X group"
+    );
+    assert!(
+        artifact_json["features"]
+            .as_array()
+            .expect("features should be an array")
+            .iter()
+            .any(|feature| {
+                feature["feature_name"] == "yield_curve_slope_delta_bp_5d"
+                    && feature["group_name"] == "X"
+            }),
+        "treasury ETF artifact should keep proxy numeric value in X group"
+    );
+}
+
+#[test]
+fn security_scorecard_training_supports_treasury_etf_stop_first_head_with_thicker_default_plan() {
+    let runtime_db_path =
+        create_test_runtime_db("security_scorecard_training_treasury_etf_stop_first_head");
+    let runtime_root = runtime_db_path
+        .parent()
+        .expect("runtime db should have parent")
+        .join("scorecard_training_runtime");
+    let fixture_dir =
+        create_training_fixture_dir("security_scorecard_training_treasury_etf_stop_first_head");
+
+    let etf_one_csv = fixture_dir.join("treasury_stop_etf_one.csv");
+    let etf_two_csv = fixture_dir.join("treasury_stop_etf_two.csv");
+    let market_csv = fixture_dir.join("market.csv");
+    let sector_csv = fixture_dir.join("sector.csv");
+
+    // 2026-04-12 UTC+08: Add the symmetric ETF stop-first regression here,
+    // because A2-standard now needs both ETF path-event heads covered end-to-end
+    // while the thicker default sample plan is being introduced.
+    // Purpose: lock treasury ETF stop-first training plus the new default pool size.
+    fs::write(
+        &etf_one_csv,
+        build_path_event_rows(420, 101.0, 0.22, 0.05, 0.01).join("\n"),
+    )
+    .expect("treasury stop etf one csv should be written");
+    fs::write(
+        &etf_two_csv,
+        build_path_event_rows(420, 420.0, -0.30, 0.05, 8.00).join("\n"),
+    )
+    .expect("treasury stop etf two csv should be written");
+    fs::write(
+        &market_csv,
+        build_trend_rows(420, 3200.0, 2.4, 5.0).join("\n"),
+    )
+    .expect("market csv should be written");
+    fs::write(
+        &sector_csv,
+        build_trend_rows(420, 110.0, 0.08, 0.6).join("\n"),
+    )
+    .expect("sector csv should be written");
+
+    import_history_csv(&runtime_db_path, &etf_one_csv, "511010.SH");
+    import_history_csv(&runtime_db_path, &etf_two_csv, "511360.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "511060.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for treasury etf stop fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_scorecard_training",
+        "args": {
+            "created_at": "2026-04-12T18:40:00+08:00",
+            "training_runtime_root": runtime_root.to_string_lossy(),
+            "market_scope": "A_SHARE",
+            "instrument_scope": "ETF",
+            "symbol_list": ["511010.SH", "511360.SH"],
+            "market_symbol": "510300.SH",
+            "sector_symbol": "511060.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "bond_etf_peer",
+            "horizon_days": 10,
+            "target_head": "stop_first_head",
+            "train_range": "2025-03-01..2025-08-31",
+            "valid_range": "2025-09-01..2025-11-30",
+            "test_range": "2025-12-01..2026-01-31",
+            "feature_set_version": "security_feature_snapshot.v1",
+            "label_definition_version": "security_forward_outcome.v1",
+            "stop_loss_pct": 0.015,
+            "target_return_pct": 0.20,
+            "external_proxy_inputs": {
+                "yield_curve_proxy_status": "manual_bound",
+                "yield_curve_slope_delta_bp_5d": -6.0,
+                "funding_liquidity_proxy_status": "manual_bound",
+                "funding_liquidity_spread_delta_bp_5d": -12.5
+            }
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-12 UTC+08: Lock the thicker default sample plan through one ETF
+    // stop-first end-to-end test, because A2-standard should prove that callers
+    // who omit explicit sample counts no longer fall back to the old thin pool.
+    // Purpose: make default sample governance visible in one real ETF artifact.
+    assert_eq!(output["status"], "ok", "unexpected treasury ETF stop output: {output}");
+    assert_eq!(
+        output["data"]["metrics_summary_json"]["sample_count"],
+        32
+    );
+    assert_eq!(
+        output["data"]["metrics_summary_json"]["sample_breakdown"]["train"]["sample_count"],
+        16
+    );
+    assert_eq!(
+        output["data"]["metrics_summary_json"]["sample_breakdown"]["valid"]["sample_count"],
+        8
+    );
+    assert_eq!(
+        output["data"]["metrics_summary_json"]["sample_breakdown"]["test"]["sample_count"],
+        8
+    );
+
+    let artifact_path = PathBuf::from(
+        output["data"]["artifact_path"]
+            .as_str()
+            .expect("artifact path should exist"),
+    );
+    let artifact_json: Value =
+        serde_json::from_slice(&fs::read(&artifact_path).expect("artifact should be readable"))
+            .expect("artifact should be valid json");
+
+    assert_eq!(
+        artifact_json["model_id"],
+        "a_share_etf_treasury_etf_10d_stop_first_head"
+    );
+    assert_eq!(
+        artifact_json["positive_label_definition"],
+        "hit_stop_first_10d"
+    );
+}
+
+#[test]
+fn security_scorecard_training_supports_treasury_etf_return_head_contract() {
+    assert_etf_regression_head_training_contract(
+        "security_scorecard_training_treasury_etf_return_head",
+        "2026-04-12T19:10:00+08:00",
+        "treasury_etf",
+        "bond_etf_peer",
+        "511060.SH",
+        [
+            ("511010.SH", build_trend_rows(420, 101.0, 0.18, 0.35)),
+            ("511360.SH", build_trend_rows(420, 103.0, -0.14, 0.40)),
+        ],
+        build_trend_rows(420, 110.0, 0.06, 0.30),
+        json!({
+            "yield_curve_proxy_status": "manual_bound",
+            "yield_curve_slope_delta_bp_5d": -6.0,
+            "funding_liquidity_proxy_status": "manual_bound",
+            "funding_liquidity_spread_delta_bp_5d": -12.5
+        }),
+        &[
+            "yield_curve_proxy_status",
+            "yield_curve_slope_delta_bp_5d",
+            "funding_liquidity_proxy_status",
+            "funding_liquidity_spread_delta_bp_5d",
+        ],
+    );
+}
+
+#[test]
+fn security_scorecard_training_supports_gold_etf_return_head_contract() {
+    assert_etf_regression_head_training_contract(
+        "security_scorecard_training_gold_etf_return_head",
+        "2026-04-12T19:20:00+08:00",
+        "gold_etf",
+        "gold_etf_peer",
+        "518800.SH",
+        [
+            ("518880.SH", build_trend_rows(420, 101.0, 0.22, 0.38)),
+            ("518660.SH", build_trend_rows(420, 106.0, -0.16, 0.42)),
+        ],
+        build_trend_rows(420, 99.0, 0.08, 0.32),
+        json!({
+            "gold_spot_proxy_status": "manual_bound",
+            "gold_spot_proxy_return_5d": 0.024,
+            "usd_index_proxy_status": "manual_bound",
+            "usd_index_proxy_return_5d": -0.013,
+            "real_rate_proxy_status": "manual_bound",
+            "real_rate_proxy_delta_bp_5d": -8.5
+        }),
+        &[
+            "gold_spot_proxy_status",
+            "gold_spot_proxy_return_5d",
+            "usd_index_proxy_status",
+            "usd_index_proxy_return_5d",
+            "real_rate_proxy_status",
+            "real_rate_proxy_delta_bp_5d",
+        ],
+    );
+}
+
+#[test]
+fn security_scorecard_training_marks_legacy_regression_sample_plan_as_research_only() {
+    let runtime_db_path = create_test_runtime_db("security_scorecard_training_regression_legacy");
+    let runtime_root = runtime_db_path
+        .parent()
+        .expect("runtime db should have parent")
+        .join("scorecard_training_runtime");
+    let fixture_dir = create_training_fixture_dir("security_scorecard_training_regression_legacy");
+
+    let stock_up_csv = fixture_dir.join("stock_up.csv");
+    let stock_down_csv = fixture_dir.join("stock_down.csv");
+    let market_csv = fixture_dir.join("market.csv");
+    let sector_csv = fixture_dir.join("sector.csv");
+
+    // 2026-04-12 UTC+08: Add a regression readiness red test here, because
+    // A2-standard now explicitly tightens training governance so the old 6/3/3
+    // pool should no longer look shadow-ready for regression heads.
+    // Purpose: force legacy-thin regression sampling to stay research-only.
+    fs::write(
+        &stock_up_csv,
+        build_trend_rows(420, 92.0, 1.1, 1.0).join("\n"),
+    )
+    .expect("upward symbol csv should be written");
+    fs::write(
+        &stock_down_csv,
+        build_trend_rows(420, 118.0, -0.8, 1.0).join("\n"),
+    )
+    .expect("downward symbol csv should be written");
+    fs::write(
+        &market_csv,
+        build_trend_rows(420, 3200.0, 2.4, 5.0).join("\n"),
+    )
+    .expect("market csv should be written");
+    fs::write(
+        &sector_csv,
+        build_trend_rows(420, 980.0, 1.6, 2.0).join("\n"),
+    )
+    .expect("sector csv should be written");
+
+    import_history_csv(&runtime_db_path, &stock_up_csv, "601916.SH");
+    import_history_csv(&runtime_db_path, &stock_down_csv, "600000.SH");
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, "512800.SH");
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 200 OK",
+            r#"[{"REPORT_DATE":"2025-12-31","NOTICE_DATE":"2026-03-28","TOTAL_OPERATE_INCOME":308227000000.0,"YSTZ":8.37,"PARENT_NETPROFIT":11117000000.0,"SJLTZ":9.31,"ROEJQ":14.8}]"#,
+            "application/json",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[{"notice_date":"2026-03-28","title":"2025年度报告","art_code":"AN202603281234567890","columns":[{"column_name":"定期报告"}]}]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_scorecard_training",
+        "args": {
+            "created_at": "2026-04-12T18:50:00+08:00",
+            "training_runtime_root": runtime_root.to_string_lossy(),
+            "market_scope": "A_SHARE",
+            "instrument_scope": "EQUITY",
+            "symbol_list": ["601916.SH", "600000.SH"],
+            "market_symbol": "510300.SH",
+            "sector_symbol": "512800.SH",
+            "market_profile": "a_share_core",
+            "sector_profile": "a_share_bank",
+            "horizon_days": 10,
+            "target_head": "return_head",
+            "train_range": "2025-03-01..2025-08-31",
+            "valid_range": "2025-09-01..2025-11-30",
+            "test_range": "2025-12-01..2026-01-31",
+            // 2026-04-12 UTC+08: Keep the legacy regression fixture on the old
+            // thin plan here, because this red/green governance test exists to
+            // prove the older 6/3/3 split is now demoted to research-only under
+            // the tightened A2-standard readiness gate.
+            // Purpose: stop future bulk sample-plan upgrades from accidentally
+            // erasing the thin-plan regression guardrail.
+            "train_samples_per_symbol": 6,
+            "valid_samples_per_symbol": 3,
+            "test_samples_per_symbol": 3,
+            "feature_set_version": "security_feature_snapshot.v1",
+            "label_definition_version": "security_forward_outcome.v1"
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    assert_eq!(output["status"], "ok", "unexpected regression legacy output: {output}");
+    assert_eq!(
+        output["data"]["metrics_summary_json"]["readiness_assessment"]["minimum_sample_status"],
+        "sample_thin"
+    );
+    assert_eq!(
+        output["data"]["metrics_summary_json"]["readiness_assessment"]["production_readiness"],
+        "research_candidate_only"
+    );
+}
+
+fn assert_etf_regression_head_training_contract(
+    fixture_prefix: &str,
+    created_at: &str,
+    instrument_subscope: &str,
+    sector_profile: &str,
+    sector_symbol: &str,
+    instrument_series: [(&str, Vec<String>); 2],
+    sector_rows: Vec<String>,
+    external_proxy_inputs: Value,
+    required_proxy_features: &[&str],
+) {
+    let runtime_db_path = create_test_runtime_db(fixture_prefix);
+    let runtime_root = runtime_db_path
+        .parent()
+        .expect("runtime db should have parent")
+        .join("scorecard_training_runtime");
+    let fixture_dir = create_training_fixture_dir(fixture_prefix);
+
+    let instrument_one_csv = fixture_dir.join(format!("{instrument_subscope}_one.csv"));
+    let instrument_two_csv = fixture_dir.join(format!("{instrument_subscope}_two.csv"));
+    let market_csv = fixture_dir.join("market.csv");
+    let sector_csv = fixture_dir.join("sector.csv");
+
+    // 2026-04-12 UTC+08: Add ETF regression contract fixtures here, because
+    // A2 now needs treasury and gold ETF return-head runs to prove the ETF
+    // training path carries regression identity, metrics, and proxy features.
+    // Purpose: lock one end-to-end regression contract per ETF subscope before
+    // we spend effort on heavier precision upgrades.
+    fs::write(&instrument_one_csv, instrument_series[0].1.join("\n"))
+        .expect("first etf csv should be written");
+    fs::write(&instrument_two_csv, instrument_series[1].1.join("\n"))
+        .expect("second etf csv should be written");
+    fs::write(
+        &market_csv,
+        build_trend_rows(420, 3200.0, 2.4, 5.0).join("\n"),
+    )
+    .expect("market csv should be written");
+    fs::write(&sector_csv, sector_rows.join("\n")).expect("sector csv should be written");
+
+    import_history_csv(&runtime_db_path, &instrument_one_csv, instrument_series[0].0);
+    import_history_csv(&runtime_db_path, &instrument_two_csv, instrument_series[1].0);
+    import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
+    import_history_csv(&runtime_db_path, &sector_csv, sector_symbol);
+
+    let server = spawn_http_route_server(vec![
+        (
+            "/financials",
+            "HTTP/1.1 406 Not Acceptable",
+            "<html><body>financials unavailable for etf regression fixture</body></html>",
+            "text/html",
+        ),
+        (
+            "/announcements",
+            "HTTP/1.1 200 OK",
+            r#"{"data":{"list":[]}}"#,
+            "application/json",
+        ),
+    ]);
+
+    let request = json!({
+        "tool": "security_scorecard_training",
+        "args": {
+            "created_at": created_at,
+            "training_runtime_root": runtime_root.to_string_lossy(),
+            "market_scope": "A_SHARE",
+            "instrument_scope": "ETF",
+            "symbol_list": [instrument_series[0].0, instrument_series[1].0],
+            "market_symbol": "510300.SH",
+            "sector_symbol": sector_symbol,
+            "market_profile": "a_share_core",
+            "sector_profile": sector_profile,
+            "horizon_days": 10,
+            "target_head": "return_head",
+            "train_range": "2025-03-01..2025-08-31",
+            "valid_range": "2025-09-01..2025-11-30",
+            "test_range": "2025-12-01..2026-01-31",
+            "train_samples_per_symbol": 8,
+            "valid_samples_per_symbol": 4,
+            "test_samples_per_symbol": 4,
+            "feature_set_version": "security_feature_snapshot.v1",
+            "label_definition_version": "security_forward_outcome.v1",
+            "external_proxy_inputs": external_proxy_inputs
+        }
+    });
+
+    let output = run_cli_with_json_runtime_and_envs(
+        &request.to_string(),
+        &runtime_db_path,
+        &[
+            (
+                "EXCEL_SKILL_EASTMONEY_FINANCIAL_URL_BASE",
+                format!("{server}/financials"),
+            ),
+            (
+                "EXCEL_SKILL_EASTMONEY_ANNOUNCEMENT_URL_BASE",
+                format!("{server}/announcements"),
+            ),
+        ],
+    );
+
+    // 2026-04-12 UTC+08: Add ETF regression contract assertions here, because
+    // the existing regression slice only proves equity heads and leaves ETF
+    // sub-pool identity plus proxy-family carry-through unguarded end to end.
+    // Purpose: require ETF regression training to publish governed metrics and
+    // preserve subscope-specific proxy features in the artifact X group.
+    assert_eq!(output["status"], "ok", "unexpected etf regression output: {output}");
+    assert_eq!(
+        output["data"]["model_registry"]["instrument_subscope"],
+        instrument_subscope
+    );
+    assert_eq!(output["data"]["model_registry"]["target_head"], "return_head");
+    assert_eq!(
+        output["data"]["metrics_summary_json"]["target_mode"],
+        "regression"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["valid"]["baseline_rmse"].is_number(),
+        "etf regression valid split should expose baseline RMSE"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["test"]["baseline_rmse"].is_number(),
+        "etf regression test split should expose baseline RMSE"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["valid"]["rmse_improvement_vs_baseline"].is_number(),
+        "etf regression valid split should expose RMSE improvement vs baseline"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["test"]["rmse_improvement_vs_baseline"].is_number(),
+        "etf regression test split should expose RMSE improvement vs baseline"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["readiness_assessment"]["regression_quality_status"]
+            .is_string(),
+        "etf regression readiness should expose a dedicated quality status"
+    );
+
+    let artifact_path = PathBuf::from(
+        output["data"]["artifact_path"]
+            .as_str()
+            .expect("artifact path should exist"),
+    );
+    let artifact_json: Value =
+        serde_json::from_slice(&fs::read(&artifact_path).expect("artifact should be readable"))
+            .expect("artifact should be valid json");
+
+    assert_eq!(
+        artifact_json["model_id"],
+        format!("a_share_etf_{instrument_subscope}_10d_return_head")
+    );
+    assert_eq!(artifact_json["instrument_subscope"], instrument_subscope);
+    assert_eq!(artifact_json["prediction_mode"], "regression");
+
+    for feature_name in required_proxy_features {
+        assert!(
+            artifact_json["features"]
+                .as_array()
+                .expect("features should be an array")
+                .iter()
+                .any(|feature| {
+                    feature["feature_name"] == *feature_name && feature["group_name"] == "X"
+                }),
+            "etf regression artifact should keep `{feature_name}` in X group"
+        );
+    }
+}
+
+fn write_registry_ranking_fixture(
+    fixture_dir: &Path,
+    file_name: &str,
+    candidate_id: &str,
+    target_head: &str,
+    horizon_days: usize,
+    metrics_summary_json: Value,
+) -> PathBuf {
+    let path = fixture_dir.join(file_name);
+    let payload = json!({
+        "registry_id": format!("registry-{candidate_id}-{target_head}-{horizon_days}d"),
+        "contract_version": "security_scorecard_model_registry.v1",
+        "document_type": "security_scorecard_model_registry",
+        "model_id": format!("a_share_bank_{candidate_id}_{horizon_days}d_{target_head}"),
+        "market_scope": "A_SHARE",
+        "instrument_scope": "EQUITY",
+        "instrument_subscope": Value::Null,
+        "horizon_days": horizon_days,
+        "target_head": target_head,
+        "model_version": "candidate_20260412_ranking",
+        "status": "candidate",
+        "model_grade": "candidate",
+        "grade_reason": "ranking_fixture",
+        "training_window": "2025-01-01..2025-08-31",
+        "validation_window": "2025-09-01..2025-11-30",
+        "oot_window": "2025-12-01..2026-01-31",
+        "artifact_path": format!("tests/runtime_fixtures/security_scorecard_training/{candidate_id}_{target_head}.json"),
+        "artifact_sha256": "fixture-sha",
+        "metrics_summary_json": metrics_summary_json,
+        "published_at": "2026-04-12T22:35:00+08:00"
+    });
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(&payload).expect("registry ranking payload should serialize"),
+    )
+    .expect("registry ranking fixture should be written");
+    path
+}
+
 fn assert_regression_head_training_support(
     fixture_prefix: &str,
     target_head: &str,
@@ -521,9 +1365,9 @@ fn assert_regression_head_training_support(
             "train_range": "2025-03-01..2025-08-31",
             "valid_range": "2025-09-01..2025-11-30",
             "test_range": "2025-12-01..2026-01-31",
-            "train_samples_per_symbol": 6,
-            "valid_samples_per_symbol": 3,
-            "test_samples_per_symbol": 3,
+            "train_samples_per_symbol": 8,
+            "valid_samples_per_symbol": 4,
+            "test_samples_per_symbol": 4,
             "feature_set_version": "security_feature_snapshot.v1",
             "label_definition_version": "security_forward_outcome.v1"
         }
@@ -565,6 +1409,32 @@ fn assert_regression_head_training_support(
     assert!(
         output["data"]["metrics_summary_json"]["train"]["rmse"].is_number(),
         "return head should expose RMSE"
+    );
+    // 2026-04-12 UTC+08: Add regression-vs-baseline governance assertions here,
+    // because Scheme C now needs regression heads to disclose whether they beat
+    // a naive baseline instead of only publishing raw error metrics.
+    // Purpose: lock the additive regression quality contract before tightening
+    // readiness and prediction behavior in the Rust training path.
+    assert!(
+        output["data"]["metrics_summary_json"]["valid"]["baseline_rmse"].is_number(),
+        "regression valid split should expose baseline RMSE"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["test"]["baseline_rmse"].is_number(),
+        "regression test split should expose baseline RMSE"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["valid"]["rmse_improvement_vs_baseline"].is_number(),
+        "regression valid split should expose RMSE improvement vs baseline"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["test"]["rmse_improvement_vs_baseline"].is_number(),
+        "regression test split should expose RMSE improvement vs baseline"
+    );
+    assert!(
+        output["data"]["metrics_summary_json"]["readiness_assessment"]["regression_quality_status"]
+            .is_string(),
+        "regression readiness should expose a dedicated quality status"
     );
 }
 

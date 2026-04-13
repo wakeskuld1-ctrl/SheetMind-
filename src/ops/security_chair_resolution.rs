@@ -11,6 +11,10 @@ use crate::ops::stock::security_master_scorecard::{
     SecurityMasterScorecardDocument, SecurityMasterScorecardError, SecurityMasterScorecardRequest,
     security_master_scorecard,
 };
+use crate::ops::stock::security_position_plan::{
+    build_security_entry_assessment_from_documents,
+    build_security_sizing_assessment_from_documents,
+};
 use crate::ops::stock::security_scorecard::{SecurityScorecardDocument, SecurityScorecardError};
 
 // 2026-04-09 CST: 这里新增主席裁决请求合同，原因是 Task 1 要把“最终正式决议”从投委会线中拆出来，
@@ -85,6 +89,18 @@ pub struct SecurityChairResolutionDocument {
     pub why_followed_committee: String,
     pub override_reason: Option<String>,
     pub execution_constraints: Vec<String>,
+    #[serde(default)]
+    pub entry_grade: String,
+    #[serde(default)]
+    pub entry_reason: String,
+    #[serde(default)]
+    pub entry_blockers: Vec<String>,
+    #[serde(default)]
+    pub target_gross_pct: f64,
+    #[serde(default)]
+    pub sizing_grade: String,
+    #[serde(default)]
+    pub sizing_reason: String,
     pub final_confidence: f64,
     pub signed_off_at: String,
 }
@@ -164,6 +180,25 @@ pub fn build_security_chair_resolution(
     let selected_action =
         resolve_training_guarded_chair_action(committee_result, scorecard).to_string();
     let selected_exposure_side = derive_exposure_side_from_action(&selected_action).to_string();
+    let plan_direction = normalize_chair_plan_direction(&selected_exposure_side);
+    let entry_assessment = build_security_entry_assessment_from_documents(
+        committee_result,
+        scorecard,
+        Some(master_scorecard),
+        &plan_direction,
+        &selected_action,
+    );
+    // 2026-04-13 CST: Reuse the shared sizing builder here, because chair now
+    // needs to expose the same target sizing semantics as approval artifacts.
+    // Purpose: keep the dual-anchor contract on one governed ruleset.
+    let sizing_assessment = build_security_sizing_assessment_from_documents(
+        committee_result,
+        scorecard,
+        Some(master_scorecard),
+        &plan_direction,
+        &selected_action,
+        &entry_assessment.entry_grade,
+    );
     let signed_off_at = normalize_created_at(generated_at);
     let committee_session_ref = committee_result.committee_session_ref.clone();
     let master_scorecard_ref = master_scorecard.master_scorecard_id.clone();
@@ -196,11 +231,19 @@ pub fn build_security_chair_resolution(
             scorecard,
             master_scorecard,
             &selected_action,
+            &entry_assessment.entry_grade,
+            &entry_assessment.entry_reason,
         ),
         why_followed_quant: build_quant_reason(scorecard),
         why_followed_committee: build_committee_reason(committee_result),
         override_reason: None,
         execution_constraints,
+        entry_grade: entry_assessment.entry_grade,
+        entry_reason: entry_assessment.entry_reason,
+        entry_blockers: entry_assessment.entry_blockers,
+        target_gross_pct: sizing_assessment.target_gross_pct,
+        sizing_grade: sizing_assessment.sizing_grade,
+        sizing_reason: sizing_assessment.sizing_reason,
         final_confidence,
         signed_off_at,
     }
@@ -234,6 +277,17 @@ fn resolve_training_guarded_chair_action(
     } else {
         "abstain"
     }
+}
+
+// 2026-04-13 CST: Expose the governed chair-action resolver, because the
+// approval flow now needs the same chair-action semantics before it refreshes
+// the position-plan entry layer after scorecard generation.
+// Purpose: keep chair and approval on one action contract without a new module.
+pub fn derive_training_guarded_chair_action(
+    committee_result: &SecurityDecisionCommitteeResult,
+    scorecard: &SecurityScorecardDocument,
+) -> &'static str {
+    resolve_training_guarded_chair_action(committee_result, scorecard)
 }
 
 // 2026-04-09 CST: 这里把主席对量化线的采纳说明单独成句，原因是用户明确要求量化计分卡线与主席裁决线分离，
@@ -271,11 +325,13 @@ fn build_chair_reasoning(
     scorecard: &SecurityScorecardDocument,
     master_scorecard: &SecurityMasterScorecardDocument,
     selected_action: &str,
+    entry_grade: &str,
+    entry_reason: &str,
 ) -> String {
     if is_prediction_mode(master_scorecard) {
         if let Some(prediction_summary) = &master_scorecard.prediction_summary {
             return format!(
-                "chair signed `{}` after reading committee majority `{}`, scorecard status `{}`, and prediction-mode quant context with expected {}d return {:.4}, expected drawdown {:.4}, expected path quality {:.4}, regime cluster `{}`, and analog sample count {}.",
+                "chair signed `{}` after reading committee majority `{}`, scorecard status `{}`, and prediction-mode quant context with expected {}d return {:.4}, expected drawdown {:.4}, expected path quality {:.4}, regime cluster `{}`, and analog sample count {}. Entry grade `{}`: {}.",
                 selected_action,
                 committee_result.vote_tally.majority_vote,
                 scorecard.score_status,
@@ -294,13 +350,15 @@ fn build_chair_reasoning(
                     .unwrap_or(0.0),
                 prediction_summary.cluster_line.regime_cluster_label,
                 prediction_summary.cluster_line.analog_sample_count,
+                entry_grade,
+                entry_reason,
             );
         }
     }
 
     if master_scorecard.trained_head_summary.head_count >= 5 {
         return format!(
-            "chair signed `{}` after reading committee majority `{}`, scorecard status `{}`, and multi-head quant context with expected return {:.4}, expected drawdown {:.4}, expected path quality {:.2}, upside-first probability {:.4}, and stop-first probability {:.4}.",
+            "chair signed `{}` after reading committee majority `{}`, scorecard status `{}`, and multi-head quant context with expected return {:.4}, expected drawdown {:.4}, expected path quality {:.2}, upside-first probability {:.4}, and stop-first probability {:.4}. Entry grade `{}`: {}.",
             selected_action,
             committee_result.vote_tally.majority_vote,
             scorecard.score_status,
@@ -324,19 +382,29 @@ fn build_chair_reasoning(
                 .trained_head_summary
                 .expected_stop_first_probability
                 .unwrap_or(0.0),
+            entry_grade,
+            entry_reason,
         );
     }
 
     if scorecard.score_status != "ready" {
         return format!(
-            "主席在同读投委会线与量化线后，因训练支撑尚未就绪而将正式动作降级为 `{}`；投委会多数票为 `{}`，量化线状态为 `{}`。",
-            selected_action, committee_result.vote_tally.majority_vote, scorecard.score_status
+            "主席在同读投委会线与量化线后，因训练支撑尚未就绪而将正式动作降级为 `{}`；投委会多数票为 `{}`，量化线状态为 `{}`。Entry grade `{}`: {}.",
+            selected_action,
+            committee_result.vote_tally.majority_vote,
+            scorecard.score_status,
+            entry_grade,
+            entry_reason
         );
     }
 
     format!(
-        "主席在同读投委会线与量化线后，正式签发 `{}` 动作；投委会多数票为 `{}`，量化线状态为 `{}`。",
-        selected_action, committee_result.vote_tally.majority_vote, scorecard.score_status
+        "主席在同读投委会线与量化线后，正式签发 `{}` 动作；投委会多数票为 `{}`，量化线状态为 `{}`。Entry grade `{}`: {}.",
+        selected_action,
+        committee_result.vote_tally.majority_vote,
+        scorecard.score_status,
+        entry_grade,
+        entry_reason
     )
 }
 
@@ -443,4 +511,13 @@ fn default_prediction_horizon_days() -> usize {
 fn is_prediction_mode(master_scorecard: &SecurityMasterScorecardDocument) -> bool {
     master_scorecard.aggregation_status == "future_prediction_quant_context"
         || master_scorecard.prediction_summary.is_some()
+}
+
+fn normalize_chair_plan_direction(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "long" => "Long".to_string(),
+        "short" => "Short".to_string(),
+        "hedge" => "Hedge".to_string(),
+        _ => "NoTrade".to_string(),
+    }
 }

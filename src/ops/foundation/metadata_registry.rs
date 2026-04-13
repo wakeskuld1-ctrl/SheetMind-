@@ -33,7 +33,9 @@ pub enum MetadataFieldGroup {
 // 目的：为 route / roam / retrieve 共用同一套 fail-fast 错误边界。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MetadataRegistryError {
-    UnregisteredField { field: String },
+    UnregisteredField {
+        field: String,
+    },
     UnsupportedOperator {
         field: String,
         operator: MetadataConstraintOperator,
@@ -553,7 +555,8 @@ impl MetadataRegistry {
                 if definition.governance.compatibility_note.is_none() {
                     issues.push(MetadataRegistryValidationIssue {
                         field: definition.field.clone(),
-                        kind: MetadataRegistryValidationIssueKind::DeprecatedWithoutCompatibilityNote,
+                        kind:
+                            MetadataRegistryValidationIssueKind::DeprecatedWithoutCompatibilityNote,
                     });
                 }
             }

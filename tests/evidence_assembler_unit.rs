@@ -1,5 +1,7 @@
 use excel_skill::ops::foundation::capability_router::CapabilityRoute;
-use excel_skill::ops::foundation::evidence_assembler::{EvidenceAssembler, NavigationEvidence};
+use excel_skill::ops::foundation::evidence_assembler::{
+    EvidenceAssembler, NavigationEvidence, NavigationEvidenceExportDtoV1,
+};
 use excel_skill::ops::foundation::knowledge_record::EvidenceRef;
 use excel_skill::ops::foundation::metadata_constraint::MetadataScope;
 use excel_skill::ops::foundation::ontology_schema::OntologyRelationType;
@@ -32,6 +34,28 @@ fn evidence_assembler_builds_citations_and_summary() {
     );
     assert!(evidence.summary.contains("1"));
     assert!(evidence.summary.contains("revenue"));
+}
+
+#[test]
+fn navigation_evidence_export_dto_v1_preserves_mainline_shape() {
+    let evidence = sample_assembler().assemble(sample_route(), sample_scope(), sample_hits());
+    let dto = NavigationEvidenceExportDtoV1::from_evidence(&evidence);
+
+    // 2026-04-12 CST: Added a DTO red test because foundation mainline now
+    // needs a stable export surface above the internal NavigationEvidence
+    // struct. Purpose: lock the external contract before wiring upper layers to
+    // the roaming pipeline output.
+    assert_eq!(dto.route.matched_concept_ids, vec!["revenue"]);
+    assert_eq!(dto.route.matched_terms, vec!["sales"]);
+    assert_eq!(dto.roaming_path.len(), 1);
+    assert_eq!(dto.roaming_path[0].from_concept_id, "revenue");
+    assert_eq!(dto.hits.len(), 1);
+    assert_eq!(dto.hits[0].node_id, "node-revenue-1");
+    assert_eq!(
+        dto.citations,
+        vec![EvidenceRef::new("sheet:sales", "A1:B12")]
+    );
+    assert!(dto.summary.contains("revenue"));
 }
 
 // 2026-04-08 CST: 这里集中构造 assembler，原因是当前 Task 8 只验证 foundation 侧的装配逻辑，

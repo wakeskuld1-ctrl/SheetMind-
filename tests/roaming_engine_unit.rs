@@ -1,7 +1,7 @@
+use excel_skill::ops::foundation::metadata_constraint::{MetadataConstraint, MetadataScope};
 use excel_skill::ops::foundation::ontology_schema::{
     OntologyConcept, OntologyRelation, OntologyRelationType, OntologySchema,
 };
-use excel_skill::ops::foundation::metadata_constraint::{MetadataConstraint, MetadataScope};
 use excel_skill::ops::foundation::ontology_store::OntologyStore;
 use excel_skill::ops::foundation::roaming_engine::{RoamingEngine, RoamingPlan};
 
@@ -53,10 +53,8 @@ fn roaming_engine_respects_max_concepts_budget() {
 // 目的：先钉死 roaming 至少要把 metadata scope 稳定保留到输出 scope 中，为后续真正的元数据收敛留出统一合同。
 #[test]
 fn roaming_engine_preserves_metadata_scope_in_candidate_scope() {
-    let metadata_scope = MetadataScope::from_constraints(vec![MetadataConstraint::equals(
-        "source",
-        "sheet:sales",
-    )]);
+    let metadata_scope =
+        MetadataScope::from_constraints(vec![MetadataConstraint::equals("source", "sheet:sales")]);
     let scope = sample_roaming_engine()
         .roam(
             RoamingPlan::new(vec!["revenue"])

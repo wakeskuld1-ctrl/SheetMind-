@@ -437,6 +437,21 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
         output["data"]["committee_result"]["committee_session_ref"]
     );
     assert_eq!(output["data"]["position_plan"]["plan_status"], "reviewable");
+    // 2026-04-13 CST: Lock the first-stage entry-layer output on the formal
+    // approval chain, because the user now needs a governed "can we enter now"
+    // signal instead of only coarse position-plan sizing fields.
+    // Purpose: make submit_approval expose an explicit entry-grade summary even
+    // when the current ready fixture still resolves to a no-trade direction.
+    assert_eq!(output["data"]["position_plan"]["entry_grade"], "watch");
+    assert_eq!(output["data"]["position_plan"]["target_gross_pct"], 0.01);
+    assert_eq!(output["data"]["position_plan"]["sizing_grade"], "watch_probe");
+    assert_eq!(output["data"]["position_plan"]["add_plan"]["allow_add"], false);
+    assert!(
+        output["data"]["approval_brief"]["entry_summary"]
+            .as_str()
+            .expect("entry summary should exist")
+            .contains("watch")
+    );
     // 2026-04-08 CST: 这里先锁定 package 显式对象图合同，原因是 Task 1 要把 position_plan / approval_brief 从隐式 artifact 关系升级为正式对象引用；
     // 目的：确保 submit_approval 生成的新 package 不只是“文件清单存在”，而是已经把决策对象图写成可校验的正式合同。
     assert_eq!(
@@ -2010,6 +2025,24 @@ fn security_decision_submit_approval_requests_more_evidence_when_training_suppor
         output["data"]["approval_brief"]["recommended_review_action"],
         "request_more_evidence"
     );
+    // 2026-04-13 CST: Add the first-stage entry-layer regression for the
+    // no-training path, because users need the approval artifact to say "watch"
+    // explicitly instead of leaving entry readiness implicit in review wording.
+    // Purpose: keep the position-plan object aligned with the training guardrail.
+    assert_eq!(output["data"]["position_plan"]["entry_grade"], "watch");
+    assert_eq!(output["data"]["position_plan"]["target_gross_pct"], 0.01);
+    assert_eq!(output["data"]["position_plan"]["sizing_grade"], "watch_probe");
+    assert_eq!(output["data"]["position_plan"]["add_plan"]["allow_add"], false);
+    assert!(
+        output["data"]["position_plan"]["entry_blockers"]
+            .as_array()
+            .expect("entry blockers should be array")
+            .iter()
+            .any(|item| item
+                .as_str()
+                .expect("entry blocker should be string")
+                .contains("model_unavailable"))
+    );
     assert!(
         output["data"]["approval_brief"]["required_next_actions"]
             .as_array()
@@ -2329,6 +2362,20 @@ fn security_decision_submit_approval_maps_blocked_status_and_auto_reject_flags()
     assert_eq!(output["data"]["position_plan"]["suggested_gross_pct"], 0.0);
     assert_eq!(output["data"]["position_plan"]["starter_gross_pct"], 0.0);
     assert_eq!(output["data"]["position_plan"]["max_gross_pct"], 0.0);
+    // 2026-04-13 CST: Lock the blocked entry-grade branch, because the new
+    // first-stage entry layer must surface hard blockers in the formal plan
+    // output instead of relying on callers to infer them from plan_status alone.
+    // Purpose: keep blocked/no-entry semantics explicit and machine-readable.
+    assert_eq!(output["data"]["position_plan"]["entry_grade"], "blocked");
+    assert_eq!(output["data"]["position_plan"]["target_gross_pct"], 0.0);
+    assert_eq!(output["data"]["position_plan"]["sizing_grade"], "blocked_flat");
+    assert!(
+        output["data"]["position_plan"]["entry_blockers"]
+            .as_array()
+            .expect("entry blockers should be array")
+            .iter()
+            .any(|item| item == "risk_reward_gate")
+    );
     assert!(
         output["data"]["approval_brief"]["recommended_review_action"]
             .as_str()

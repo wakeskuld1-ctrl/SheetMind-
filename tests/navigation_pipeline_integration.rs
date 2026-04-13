@@ -34,6 +34,27 @@ fn navigation_pipeline_resolves_question_into_structured_evidence() {
     );
 }
 
+#[test]
+fn navigation_pipeline_exports_v1_navigation_evidence_dto() {
+    let result = sample_navigation_pipeline()
+        .run_export_v1(&NavigationRequest::new("show sales trend"))
+        .expect("pipeline should produce export dto");
+
+    // 2026-04-12 CST: Added a pipeline export red test because upper layers
+    // should consume a stable DTO instead of binding to the internal evidence
+    // assembly struct directly. Purpose: lock one public export path for the
+    // foundation roaming mainline before more adapters attach to it.
+    assert_eq!(result.route.matched_concept_ids, vec!["revenue"]);
+    assert_eq!(result.route.matched_terms, vec!["sales"]);
+    assert_eq!(result.roaming_path.len(), 1);
+    assert_eq!(result.hits.len(), 1);
+    assert_eq!(result.hits[0].node_id, "node-revenue-1");
+    assert_eq!(
+        result.citations,
+        vec![EvidenceRef::new("sheet:sales", "A1:B12")]
+    );
+}
+
 // 2026-04-08 CST: 这里补 pipeline 错误透传测试，原因是 Task 9 不只是要跑通 happy path，
 // 还要确保上游没有命中概念时，错误会在统一入口被清晰保留，而不是在集成层被吞掉。
 // 目的：固定本轮最小集成入口的失败语义，为后续上层调用提供稳定错误边界。
@@ -200,9 +221,8 @@ fn navigation_pipeline_filters_evidence_by_metadata_constraints() {
 fn navigation_pipeline_surfaces_retrieval_error_when_metadata_constraints_filter_all_evidence() {
     let error = sample_metadata_constrained_navigation_pipeline()
         .run(
-            &NavigationRequest::new("review sales trend").with_metadata_constraints(vec![
-                MetadataConstraint::equals("source", "doc:notes"),
-            ]),
+            &NavigationRequest::new("review sales trend")
+                .with_metadata_constraints(vec![MetadataConstraint::equals("source", "doc:notes")]),
         )
         .expect_err("pipeline should fail when metadata constraints filter all evidence");
 
@@ -386,10 +406,12 @@ fn navigation_pipeline_roams_only_from_kept_intersection_seeds() {
     assert_eq!(result.roaming_path[0].to_concept_id, "finance_report");
     assert_eq!(result.roaming_path[1].from_concept_id, "revenue");
     assert_eq!(result.roaming_path[1].to_concept_id, "invoice");
-    assert!(result
-        .roaming_path
-        .iter()
-        .all(|step| step.from_concept_id != "ghost_seed"));
+    assert!(
+        result
+            .roaming_path
+            .iter()
+            .all(|step| step.from_concept_id != "ghost_seed")
+    );
 }
 
 // 2026-04-09 CST: 这里补“多个交集 seed + 单标签约束”的复合集成测试，原因是当前主线已经分别验证了多交集保留和标签约束，
@@ -422,10 +444,12 @@ fn navigation_pipeline_keeps_tag_filtered_intersection_seeds_in_route_order() {
             EvidenceRef::new("sheet:revenue", "A1:B12"),
         ]
     );
-    assert!(result
-        .roaming_path
-        .iter()
-        .all(|step| step.from_concept_id != "layout_margin"));
+    assert!(
+        result
+            .roaming_path
+            .iter()
+            .all(|step| step.from_concept_id != "layout_margin")
+    );
 }
 
 // 2026-04-09 CST: 这里补“多个交集 seed + 多标签约束”的复合集成测试，原因是当前 route 的 required_concept_tags 已支持多标签输入，
@@ -461,10 +485,12 @@ fn navigation_pipeline_keeps_multi_tag_intersection_seeds_and_evidence() {
             EvidenceRef::new("sheet:revenue", "A1:B12"),
         ]
     );
-    assert!(result
-        .roaming_path
-        .iter()
-        .all(|step| step.from_concept_id != "ui_revenue"));
+    assert!(
+        result
+            .roaming_path
+            .iter()
+            .all(|step| step.from_concept_id != "ui_revenue")
+    );
 }
 
 // 2026-04-08 CST: 这里集中构造最小 pipeline 样本，原因是 Task 9 只验证 foundation 侧的纯内存闭环，
@@ -700,13 +726,15 @@ fn sample_retrieval_miss_navigation_pipeline() -> NavigationPipeline {
     );
 
     let graph_store = KnowledgeGraphStore::new(
-        vec![KnowledgeNode::new(
-            "node-gross-margin-1",
-            "Archive Snapshot",
-            "Legacy baseline figures for prior periods only.",
-        )
-        .with_concept_id("gross_margin")
-        .with_evidence_ref(EvidenceRef::new("sheet:archive", "D1:E4"))],
+        vec![
+            KnowledgeNode::new(
+                "node-gross-margin-1",
+                "Archive Snapshot",
+                "Legacy baseline figures for prior periods only.",
+            )
+            .with_concept_id("gross_margin")
+            .with_evidence_ref(EvidenceRef::new("sheet:archive", "D1:E4")),
+        ],
         vec![],
     );
 
@@ -741,13 +769,15 @@ fn sample_conflicting_seed_retrieval_miss_navigation_pipeline() -> NavigationPip
     );
 
     let graph_store = KnowledgeGraphStore::new(
-        vec![KnowledgeNode::new(
-            "node-gross-margin-1",
-            "Archive Snapshot",
-            "Legacy baseline figures for prior periods only.",
-        )
-        .with_concept_id("gross_margin")
-        .with_evidence_ref(EvidenceRef::new("sheet:archive", "D1:E4"))],
+        vec![
+            KnowledgeNode::new(
+                "node-gross-margin-1",
+                "Archive Snapshot",
+                "Legacy baseline figures for prior periods only.",
+            )
+            .with_concept_id("gross_margin")
+            .with_evidence_ref(EvidenceRef::new("sheet:archive", "D1:E4")),
+        ],
         vec![],
     );
 
@@ -923,10 +953,15 @@ fn sample_tag_filtered_multi_overlap_navigation_pipeline() -> NavigationPipeline
     NavigationPipeline::new(
         ontology_store,
         graph_store,
-        RoamingPlan::new(vec!["ghost_seed", "gross_margin", "revenue", "layout_margin"])
-            .with_allowed_relation_types(vec![OntologyRelationType::DependsOn])
-            .with_max_depth(1)
-            .with_max_concepts(6),
+        RoamingPlan::new(vec![
+            "ghost_seed",
+            "gross_margin",
+            "revenue",
+            "layout_margin",
+        ])
+        .with_allowed_relation_types(vec![OntologyRelationType::DependsOn])
+        .with_max_depth(1)
+        .with_max_concepts(6),
     )
 }
 
@@ -1166,14 +1201,16 @@ fn sample_node_only_metadata_registry_navigation_pipeline() -> NavigationPipelin
     );
 
     let graph_store = KnowledgeGraphStore::new(
-        vec![KnowledgeNode::new(
-            "node-revenue-1",
-            "Revenue Trend",
-            "Revenue trend analysis sourced from invoices.",
-        )
-        .with_concept_id("revenue")
-        .with_evidence_ref(EvidenceRef::new("sheet:revenue", "A1:B12"))
-        .with_metadata_text("source", "sheet:revenue")],
+        vec![
+            KnowledgeNode::new(
+                "node-revenue-1",
+                "Revenue Trend",
+                "Revenue trend analysis sourced from invoices.",
+            )
+            .with_concept_id("revenue")
+            .with_evidence_ref(EvidenceRef::new("sheet:revenue", "A1:B12"))
+            .with_metadata_text("source", "sheet:revenue"),
+        ],
         vec![],
     );
 

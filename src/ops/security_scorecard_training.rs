@@ -879,13 +879,25 @@ fn build_categorical_prediction_bins(
 
     let mut bins = bucket_targets
         .into_iter()
-        .map(|(category, values)| FeatureBinModel {
-            bin_label: category.clone(),
-            match_values: vec![category],
-            min_inclusive: None,
-            max_exclusive: None,
-            woe: 0.0,
-            predicted_value: Some(values.iter().sum::<f64>() / values.len() as f64),
+        .map(|(category, values)| {
+            // 2026-04-12 UTC+08: Shrink thin categorical regression bins toward
+            // the governed global baseline here, because Scheme C needs a small
+            // robustness upgrade without replacing the current Rust predictor.
+            // Purpose: reduce one-sample bin overreaction while keeping the
+            // artifact contract lightweight and deterministic.
+            let raw_bin_mean = values.iter().sum::<f64>() / values.len() as f64;
+            FeatureBinModel {
+                bin_label: category.clone(),
+                match_values: vec![category],
+                min_inclusive: None,
+                max_exclusive: None,
+                woe: 0.0,
+                predicted_value: Some(shrink_regression_bin_prediction(
+                    raw_bin_mean,
+                    fallback_prediction,
+                    values.len(),
+                )),
+            }
         })
         .collect::<Vec<_>>();
     // 2026-04-12 UTC+08: Append a categorical fallback bin for regression heads,
@@ -967,11 +979,38 @@ fn build_numeric_prediction_bins(
         bin.predicted_value = if values.is_empty() {
             None
         } else {
-            Some(values.iter().sum::<f64>() / values.len() as f64)
+            // 2026-04-12 UTC+08: Shrink thin numeric regression bins toward the
+            // governed global baseline here, because Scheme C should improve
+            // holdout stability without introducing a new model family.
+            // Purpose: keep sparse numeric intervals from publishing overly
+            // extreme regression estimates when support is shallow.
+            let raw_bin_mean = values.iter().sum::<f64>() / values.len() as f64;
+            let baseline_prediction =
+                train_samples.iter().map(|sample| sample.label).sum::<f64>() / train_samples.len() as f64;
+            Some(shrink_regression_bin_prediction(
+                raw_bin_mean,
+                baseline_prediction,
+                values.len(),
+            ))
         };
     }
 
     Ok(template_bins)
+}
+
+// 2026-04-12 UTC+08: Add a lightweight empirical-Bayes style shrinkage helper
+// here, because Scheme C needs a minimal regression robustness upgrade while
+// preserving the current bin-mean artifact structure.
+// Purpose: pull thin-support regression bins back toward the training baseline.
+fn shrink_regression_bin_prediction(
+    raw_bin_mean: f64,
+    baseline_prediction: f64,
+    support_count: usize,
+) -> f64 {
+    let support_weight = support_count as f64;
+    let baseline_prior_weight = 2.0_f64;
+    ((raw_bin_mean * support_weight) + (baseline_prediction * baseline_prior_weight))
+        / (support_weight + baseline_prior_weight)
 }
 
 fn build_categorical_bins(
@@ -1378,10 +1417,17 @@ fn build_artifact(
         },
         training_window: Some(request.train_range.clone()),
         oot_window: Some(request.test_range.clone()),
+        // 2026-04-12 UTC+08: Split classification label contracts by target head,
+        // because the new ETF end-to-end training regression proves path-event
+        // heads must not publish the generic positive-return label anymore.
+        // Purpose: keep training artifacts auditable and aligned with the actual
+        // supervised event each classification head was trained to predict.
         positive_label_definition: match trained_model {
-            TrainedHeadModel::Classification(_) => {
-                Some(format!("positive_return_{}d", request.horizon_days))
-            }
+            TrainedHeadModel::Classification(_) => Some(match request.target_head.as_str() {
+                "upside_first_head" => format!("hit_upside_first_{}d", request.horizon_days),
+                "stop_first_head" => format!("hit_stop_first_{}d", request.horizon_days),
+                _ => format!("positive_return_{}d", request.horizon_days),
+            }),
             TrainedHeadModel::Regression(_) => None,
         },
         instrument_subscope: instrument_subscope.map(|value| value.to_string()),
@@ -1493,8 +1539,13 @@ fn build_readiness_assessment(
     let train_sample_count = samples_for_split(samples, "train").len();
     let valid_sample_count = samples_for_split(samples, "valid").len();
     let test_sample_count = samples_for_split(samples, "test").len();
+    // 2026-04-12 UTC+08: Raise the governed minimum sample gate here, because
+    // A2-standard now thickens the default training pool and should stop the old
+    // 6/3/3 sample plan from reading as production-like readiness.
+    // Purpose: make readiness reflect the newer thicker baseline instead of the
+    // earlier exploratory split size.
     let minimum_sample_status =
-        if train_sample_count >= 12 && valid_sample_count >= 6 && test_sample_count >= 6 {
+        if train_sample_count >= 16 && valid_sample_count >= 8 && test_sample_count >= 8 {
             "sample_ready"
         } else {
             "sample_thin"
@@ -1567,17 +1618,20 @@ fn build_readiness_assessment(
             }
         }
         TrainingTargetMode::Regression => {
-            let valid_rmse = metric_f64(valid_metrics, &["rmse"]);
-            let test_rmse = metric_f64(test_metrics, &["rmse"]);
+            let regression_quality_status = regression_quality_status(valid_metrics, test_metrics);
             if minimum_sample_status == "sample_ready"
-                && valid_rmse.is_some()
-                && test_rmse.is_some()
+                && regression_quality_status == "regression_quality_ready"
             {
                 "shadow_candidate_ready"
             } else {
                 "research_candidate_only"
             }
         }
+    };
+    let regression_quality_status = if target_mode == TrainingTargetMode::Regression {
+        regression_quality_status(valid_metrics, test_metrics)
+    } else {
+        "not_applicable"
     };
 
     let mut notes = Vec::new();
@@ -1607,15 +1661,47 @@ fn build_readiness_assessment(
                 .to_string(),
         );
     }
+    if regression_quality_status == "regression_quality_weak" {
+        notes.push(
+            "regression quality is still weaker than the baseline or lacks enough directional usefulness out-of-sample"
+                .to_string(),
+        );
+    }
 
     json!({
         "minimum_sample_status": minimum_sample_status,
         "class_balance_status": class_balance_status,
         "path_event_coverage_status": path_event_coverage_status,
         "head_path_event_coverage_status": head_path_event_coverage_status,
+        "regression_quality_status": regression_quality_status,
         "production_readiness": production_readiness,
         "notes": notes,
     })
+}
+
+// 2026-04-12 UTC+08: Split out regression readiness quality here, because
+// Scheme C now requires regression heads to beat a naive baseline and retain
+// directional usefulness before they can look promotion-ready.
+// Purpose: keep regression governance explicit instead of piggybacking on RMSE presence.
+fn regression_quality_status(valid_metrics: &Value, test_metrics: &Value) -> &'static str {
+    let valid_rmse_improvement =
+        metric_f64(valid_metrics, &["rmse_improvement_vs_baseline"]).unwrap_or(f64::NEG_INFINITY);
+    let test_rmse_improvement =
+        metric_f64(test_metrics, &["rmse_improvement_vs_baseline"]).unwrap_or(f64::NEG_INFINITY);
+    let valid_directional_hit_rate =
+        metric_f64(valid_metrics, &["directional_hit_rate"]).unwrap_or(0.0);
+    let test_directional_hit_rate =
+        metric_f64(test_metrics, &["directional_hit_rate"]).unwrap_or(0.0);
+
+    if valid_rmse_improvement > 0.0
+        && test_rmse_improvement > 0.0
+        && valid_directional_hit_rate >= 0.55
+        && test_directional_hit_rate >= 0.55
+    {
+        "regression_quality_ready"
+    } else {
+        "regression_quality_weak"
+    }
 }
 
 fn metric_f64(metric_root: &Value, path: &[&str]) -> Option<f64> {
@@ -1682,6 +1768,9 @@ fn empty_split_metrics(target_mode: TrainingTargetMode) -> Value {
             "sample_count": 0,
             "mae": Value::Null,
             "rmse": Value::Null,
+            "baseline_mae": Value::Null,
+            "baseline_rmse": Value::Null,
+            "rmse_improvement_vs_baseline": Value::Null,
             "average_prediction": Value::Null,
             "average_actual": Value::Null,
             "directional_hit_rate": Value::Null,
@@ -1784,6 +1873,8 @@ fn evaluate_regression_split(
 
     let mut absolute_error_sum = 0.0_f64;
     let mut squared_error_sum = 0.0_f64;
+    let mut baseline_absolute_error_sum = 0.0_f64;
+    let mut baseline_squared_error_sum = 0.0_f64;
     let mut prediction_sum = 0.0_f64;
     let mut actual_sum = 0.0_f64;
     let mut directional_hit_count = 0_usize;
@@ -1797,8 +1888,11 @@ fn evaluate_regression_split(
         let prediction = predict_regression_value(sample, feature_models, trained_model)
             .unwrap_or(trained_model.baseline);
         let error = prediction - sample.label;
+        let baseline_error = trained_model.baseline - sample.label;
         absolute_error_sum += error.abs();
         squared_error_sum += error * error;
+        baseline_absolute_error_sum += baseline_error.abs();
+        baseline_squared_error_sum += baseline_error * baseline_error;
         prediction_sum += prediction;
         actual_sum += sample.label;
         if prediction.signum() == sample.label.signum() {
@@ -1817,11 +1911,20 @@ fn evaluate_regression_split(
 
     let sample_count = split_samples.len();
     let sample_count_f64 = sample_count as f64;
+    let rmse = (squared_error_sum / sample_count_f64).sqrt();
+    let baseline_rmse = (baseline_squared_error_sum / sample_count_f64).sqrt();
 
     json!({
         "sample_count": sample_count,
         "mae": absolute_error_sum / sample_count_f64,
-        "rmse": (squared_error_sum / sample_count_f64).sqrt(),
+        // 2026-04-12 UTC+08: Add baseline-relative regression metrics here,
+        // because Scheme C needs governance to decide whether the trained head
+        // is adding value beyond a naive constant predictor.
+        // Purpose: make regression readiness compare quality, not just presence.
+        "rmse": rmse,
+        "baseline_mae": baseline_absolute_error_sum / sample_count_f64,
+        "baseline_rmse": baseline_rmse,
+        "rmse_improvement_vs_baseline": baseline_rmse - rmse,
         "average_prediction": prediction_sum / sample_count_f64,
         "average_actual": actual_sum / sample_count_f64,
         "directional_hit_rate": directional_hit_count as f64 / sample_count_f64,
@@ -2029,15 +2132,28 @@ fn default_target_return_pct() -> f64 {
 }
 
 fn default_train_samples_per_symbol() -> usize {
-    6
+    // 2026-04-12 UTC+08: Increase the default train pool here, because
+    // A2-standard promotes the thicker governed sample plan to the default
+    // contract instead of keeping the earlier thin exploratory split.
+    // Purpose: make callers who omit explicit sample counts inherit the stronger
+    // ETF/stock baseline automatically.
+    8
 }
 
 fn default_valid_samples_per_symbol() -> usize {
-    3
+    // 2026-04-12 UTC+08: Increase the default validation pool here, because
+    // A2-standard needs a thicker out-of-sample slice before readiness can claim
+    // anything beyond research-grade confidence.
+    // Purpose: keep default validation evidence aligned with the raised readiness gate.
+    4
 }
 
 fn default_test_samples_per_symbol() -> usize {
-    3
+    // 2026-04-12 UTC+08: Increase the default test pool here, because
+    // A2-standard now treats the earlier 3-per-symbol holdout as too thin for
+    // the governed default training contract.
+    // Purpose: give default training runs a thicker final holdout slice.
+    4
 }
 
 #[cfg(test)]
@@ -2048,9 +2164,10 @@ mod tests {
 
     use super::{
         FeatureModel, SecurityScorecardTrainingRequest, TrainedHeadModel, TrainedLogisticModel,
-        TrainingFeatureKind, TrainingFeatureValue, TrainingSample, build_artifact,
-        build_categorical_bins, build_categorical_prediction_bins, extract_feature_values,
-        resolve_request_instrument_subscope, training_feature_configs_for_instrument,
+        TrainingFeatureKind, TrainingFeatureValue, TrainingSample, TrainingTargetMode,
+        build_artifact, build_categorical_bins, build_categorical_prediction_bins,
+        build_readiness_assessment, extract_feature_values, resolve_request_instrument_subscope,
+        training_feature_configs_for_instrument,
     };
 
     #[test]
@@ -2563,6 +2680,151 @@ mod tests {
                     && bin.predicted_value.is_some()
             }),
             "categorical regression bins should expose an other bucket with fallback prediction"
+        );
+    }
+
+    #[test]
+    fn regression_prediction_bins_shrink_thin_support_toward_baseline() {
+        // 2026-04-12 UTC+08: Add a red test for regression shrinkage, because
+        // Scheme C should stop one-sample extreme bins from publishing raw means
+        // as if they were fully trustworthy out-of-sample estimates.
+        // Purpose: require thin-support regression bins to move back toward the
+        // governed training baseline before artifact generation.
+        let samples = vec![
+            TrainingSample {
+                symbol: "512800.SH".to_string(),
+                as_of_date: "2025-01-10".to_string(),
+                split_name: "train".to_string(),
+                label: 0.12,
+                forward_return: 0.12,
+                max_drawdown: 0.01,
+                max_runup: 0.13,
+                hit_upside_first: true,
+                hit_stop_first: false,
+                feature_values: BTreeMap::from([(
+                    "integrated_stance".to_string(),
+                    TrainingFeatureValue::Category("extreme".to_string()),
+                )]),
+            },
+            TrainingSample {
+                symbol: "512000.SH".to_string(),
+                as_of_date: "2025-01-17".to_string(),
+                split_name: "train".to_string(),
+                label: 0.01,
+                forward_return: 0.01,
+                max_drawdown: 0.01,
+                max_runup: 0.02,
+                hit_upside_first: false,
+                hit_stop_first: false,
+                feature_values: BTreeMap::from([(
+                    "integrated_stance".to_string(),
+                    TrainingFeatureValue::Category("stable".to_string()),
+                )]),
+            },
+            TrainingSample {
+                symbol: "512100.SH".to_string(),
+                as_of_date: "2025-01-24".to_string(),
+                split_name: "train".to_string(),
+                label: 0.00,
+                forward_return: 0.00,
+                max_drawdown: 0.02,
+                max_runup: 0.01,
+                hit_upside_first: false,
+                hit_stop_first: true,
+                feature_values: BTreeMap::from([(
+                    "integrated_stance".to_string(),
+                    TrainingFeatureValue::Category("stable".to_string()),
+                )]),
+            },
+        ];
+        let train_refs = samples.iter().collect::<Vec<_>>();
+        let baseline = samples.iter().map(|sample| sample.label).sum::<f64>() / samples.len() as f64;
+
+        let bins = build_categorical_prediction_bins(&train_refs, "integrated_stance")
+            .expect("categorical prediction bins should build");
+        let extreme_prediction = bins
+            .iter()
+            .find(|bin| bin.bin_label == "extreme")
+            .and_then(|bin| bin.predicted_value)
+            .expect("extreme bin should expose a prediction");
+
+        assert!(
+            extreme_prediction < 0.12,
+            "thin-support regression bin should shrink below the raw extreme mean"
+        );
+        assert!(
+            extreme_prediction > baseline,
+            "thin-support regression bin should still stay above the global baseline when the bin is positive"
+        );
+    }
+
+    #[test]
+    fn regression_readiness_requires_quality_beyond_rmse_presence() {
+        // 2026-04-12 UTC+08: Add a red governance test for regression readiness,
+        // because Scheme C should stop sample-ready regression runs from becoming
+        // shadow-ready when they fail to beat the naive baseline out-of-sample.
+        // Purpose: force regression promotion logic to require real quality.
+        let make_sample = |split_name: &str, index: usize| TrainingSample {
+            symbol: format!("{split_name}_{index:02}"),
+            as_of_date: format!("2025-01-{:02}", index + 1),
+            split_name: split_name.to_string(),
+            label: 0.01,
+            forward_return: 0.01,
+            max_drawdown: 0.02,
+            max_runup: 0.03,
+            hit_upside_first: false,
+            hit_stop_first: false,
+            feature_values: BTreeMap::from([(
+                "integrated_stance".to_string(),
+                TrainingFeatureValue::Category("stable".to_string()),
+            )]),
+        };
+        let mut samples = Vec::new();
+        samples.extend((0..16).map(|index| make_sample("train", index)));
+        samples.extend((0..8).map(|index| make_sample("valid", index)));
+        samples.extend((0..8).map(|index| make_sample("test", index)));
+
+        let train_metrics = json!({
+            "positive_rate": Value::Null,
+            "negative_rate": Value::Null,
+            "horizon_event_summary": {
+                "hit_upside_first_rate": 0.10,
+                "hit_stop_first_rate": 0.10
+            },
+            "directional_hit_rate": 0.65,
+            "rmse": 0.030,
+            "baseline_rmse": 0.035,
+            "rmse_improvement_vs_baseline": 0.005
+        });
+        let valid_metrics = json!({
+            "directional_hit_rate": 0.49,
+            "rmse": 0.040,
+            "baseline_rmse": 0.039,
+            "rmse_improvement_vs_baseline": -0.001
+        });
+        let test_metrics = json!({
+            "directional_hit_rate": 0.48,
+            "rmse": 0.041,
+            "baseline_rmse": 0.040,
+            "rmse_improvement_vs_baseline": -0.001
+        });
+
+        let readiness = build_readiness_assessment(
+            &samples,
+            &train_metrics,
+            &valid_metrics,
+            &test_metrics,
+            TrainingTargetMode::Regression,
+            "return_head",
+        );
+
+        assert_eq!(
+            readiness["regression_quality_status"],
+            "regression_quality_weak"
+        );
+        assert_eq!(
+            readiness["production_readiness"],
+            "research_candidate_only"
         );
     }
 }

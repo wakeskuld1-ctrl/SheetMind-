@@ -12,8 +12,11 @@ use crate::ops::stock::security_decision_approval_bridge::{
     SecurityDecisionApprovalBridgeOptions, bridge_security_decision_to_approval,
 };
 use crate::ops::stock::security_decision_approval_brief::{
-    build_master_scorecard_summary, build_model_governance_summary, build_model_grade_summary,
+    SecurityApprovalBriefBuildInput, build_master_scorecard_summary,
+    build_model_governance_summary, build_model_grade_summary,
+    build_security_decision_approval_brief,
 };
+use crate::ops::stock::security_chair_resolution::derive_training_guarded_chair_action;
 use crate::ops::stock::security_decision_committee::{
     SecurityDecisionCommitteeError, SecurityDecisionCommitteeRequest,
     SecurityDecisionCommitteeResult, security_decision_committee,
@@ -32,6 +35,9 @@ use crate::ops::stock::security_master_scorecard::{
     build_security_master_scorecard_document, build_unavailable_security_master_scorecard_document,
 };
 use crate::ops::stock::security_model_promotion::SecurityModelPromotionDocument;
+use crate::ops::stock::security_position_plan::{
+    apply_security_entry_layer_to_position_plan, apply_security_sizing_layer_to_position_plan,
+};
 use crate::ops::stock::security_scorecard::{
     SecurityScorecardBuildInput, SecurityScorecardDocument, SecurityScorecardError,
     build_security_scorecard,
@@ -262,6 +268,72 @@ pub fn security_decision_submit_approval(
         }
     };
     let model_grade_summary = load_model_grade_summary(request)?;
+    // 2026-04-13 CST: Refresh the formal position_plan after scorecard and
+    // master_scorecard land, because the first-stage entry layer depends on the
+    // later quant readiness and chair-action semantics.
+    // Purpose: keep the rollout incremental without moving bridge construction.
+    let chair_action = derive_training_guarded_chair_action(&committee_result, &scorecard);
+    apply_security_entry_layer_to_position_plan(
+        &mut bridge.position_plan,
+        &committee_result,
+        &scorecard,
+        Some(&master_scorecard),
+        chair_action,
+    );
+    // 2026-04-13 CST: Refresh the second-stage sizing layer right after the
+    // entry layer, because approval reviewers now need a governed "how much"
+    // answer on the same formal position_plan object.
+    // Purpose: keep the rollout incremental while unifying approval output.
+    apply_security_sizing_layer_to_position_plan(
+        &mut bridge.position_plan,
+        &committee_result,
+        &scorecard,
+        Some(&master_scorecard),
+        chair_action,
+    );
+    bridge.approval_request.position_plan_binding = Some(build_position_plan_binding(
+        &bridge.position_plan,
+        &position_plan_path,
+    )?);
+    bridge.approval_brief = build_security_decision_approval_brief(
+        &committee_result,
+        &bridge.position_plan,
+        &SecurityApprovalBriefBuildInput {
+            scene_name: request.scene_name.clone(),
+            generated_at: bridge.approval_request.created_at.clone(),
+            decision_id: bridge.decision_card.decision_id.clone(),
+            decision_ref: bridge.decision_ref.clone(),
+            approval_ref: bridge.approval_ref.clone(),
+            approval_status: format!("{:?}", bridge.approval_request.status),
+            evidence_hash: committee_result.evidence_bundle.evidence_hash.clone(),
+            governance_hash: bridge
+                .approval_request
+                .governance_hash
+                .clone()
+                .unwrap_or_default(),
+        },
+    );
+    // 2026-04-13 CST: Mirror the entry-grade summary into the approval brief,
+    // because the user asked for unified presentation across approval surfaces.
+    // Purpose: keep later AI or human reviewers from opening multiple artifacts.
+    bridge.approval_brief.entry_summary = format!(
+        "entry grade {} | target {:.2}% | 首仓 {:.2}% | max {:.2}% | reason {}{}",
+        bridge.position_plan.entry_grade,
+        bridge.position_plan.target_gross_pct * 100.0,
+        bridge.position_plan.starter_gross_pct * 100.0,
+        bridge.position_plan.max_gross_pct * 100.0,
+        format!(
+            "{} ; {}",
+            bridge.position_plan.entry_reason, bridge.position_plan.sizing_reason
+        ),
+        if bridge.position_plan.entry_blockers.is_empty() {
+            String::new()
+        } else {
+            format!(" | blockers {}", bridge.position_plan.entry_blockers.join(","))
+        }
+    );
+    bridge.approval_brief.position_plan_summary.entry_summary =
+        bridge.approval_brief.entry_summary.clone();
     bridge.approval_brief.master_scorecard_summary =
         Some(build_master_scorecard_summary(&master_scorecard));
     bridge.approval_brief.model_grade_summary = model_grade_summary

@@ -10,9 +10,18 @@ use crate::ops::foundation::metadata_registry::{
 // 目的：先把 MetadataConstraint 固定成 business-agnostic 的一等输入，为后续 metadata 知识漫游与检索收敛提供统一协议。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MetadataConstraint {
-    Equals { field: String, value: String },
-    In { field: String, values: Vec<String> },
-    HasAny { field: String, values: Vec<String> },
+    Equals {
+        field: String,
+        value: String,
+    },
+    In {
+        field: String,
+        values: Vec<String>,
+    },
+    HasAny {
+        field: String,
+        values: Vec<String>,
+    },
     Range {
         field: String,
         min: Option<String>,
@@ -177,11 +186,7 @@ impl MetadataConstraint {
     // 2026-04-09 CST: 这里补范围约束构造器，原因是 observed_at / effective_at / version 这类元数据不能只做离散过滤，
     // 需要一个可扩展到时间窗和版本窗的通用范围语义。
     // 目的：先用字符串区间承载标准范围过滤，为 ISO 日期等可比较字段提供最小可用能力。
-    pub fn range(
-        field: impl Into<String>,
-        min: Option<&str>,
-        max: Option<&str>,
-    ) -> Self {
+    pub fn range(field: impl Into<String>, min: Option<&str>, max: Option<&str>) -> Self {
         Self::Range {
             field: field.into(),
             min: min.map(str::to_string),
@@ -205,12 +210,11 @@ impl MetadataConstraint {
                 .get(field)
                 .map(|field_value| field_value.contains(value))
                 .unwrap_or(false),
-            MetadataConstraint::In { field, values } | MetadataConstraint::HasAny { field, values } => {
-                metadata
-                    .get(field)
-                    .map(|field_value| field_value.intersects(values))
-                    .unwrap_or(false)
-            }
+            MetadataConstraint::In { field, values }
+            | MetadataConstraint::HasAny { field, values } => metadata
+                .get(field)
+                .map(|field_value| field_value.intersects(values))
+                .unwrap_or(false),
             MetadataConstraint::Range { field, min, max } => metadata
                 .get(field)
                 .and_then(MetadataFieldValue::as_text)

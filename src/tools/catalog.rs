@@ -58,6 +58,16 @@ pub const FOUNDATION_TOOL_NAMES: &[&str] = &[
     "logistic_regression",
     "cluster_kmeans",
     "decision_assistant",
+    // 2026-04-12 CST: Expose the versioned repository metadata audit export tool
+    // because foundation governance now needs one stable DTO-facing outlet for
+    // downstream AI and CLI consumers. Purpose: keep callers off the internal
+    // audit report shape and on the versioned export contract.
+    "repository_metadata_audit_export_v1",
+    // 2026-04-12 CST: Expose the versioned navigation evidence export tool
+    // because higher-level AI and CLI flows now need one stable roaming DTO
+    // outlet above the internal NavigationEvidence struct. Purpose: keep the
+    // foundation mainline export boundary discoverable from the public catalog.
+    "navigation_evidence_export_v1",
 ];
 
 pub const STOCK_TOOL_NAMES: &[&str] = &[
@@ -133,6 +143,11 @@ pub const STOCK_TOOL_NAMES: &[&str] = &[
     // promotion decisions must be discoverable and auditable from the CLI layer.
     // Purpose: keep candidate/shadow/champion transitions on the public stock chain.
     "security_model_promotion",
+    // 2026-04-12 CST: Expose the direction-first training orchestration tool,
+    // because the seven-hour accuracy push now depends on one discoverable
+    // survivor-ranking entry instead of shell-only loops.
+    // Purpose: make long-run direction-first training orchestration a public stock capability.
+    "security_direction_first_training_run",
     // 2026-04-09 CST: 这里把未来标签回填 Tool 暴露到 stock 目录，原因是 Task 3 要让 forward_outcome 成为正式训练底座入口；
     // 目的：让 CLI / Skill / 回算流水线可以稳定发现 snapshot 绑定的多期限标签能力。
     "security_forward_outcome",
@@ -141,6 +156,11 @@ pub const STOCK_TOOL_NAMES: &[&str] = &[
     // 目的：让 CLI / Skill / 持仓报告能够稳定发现总卡入口，而不是依赖口头流程。
     "security_master_scorecard",
     "security_scorecard_refit",
+    // 2026-04-12 CST: Expose the direction-first training orchestration tool on
+    // the stock catalog near the training chain, because long-run survivor
+    // ranking now belongs to the governed scorecard workflow.
+    // Purpose: keep the orchestration entry discoverable next to refit and training.
+    "security_direction_first_training_run",
     // 2026-04-09 CST: 这里把正式 scorecard training Tool 暴露到 stock 目录，原因是 Task 5 需要统一发现训练主链入口；
     // 目的：让 CLI、Skill 与后续回算编排都能稳定发现“训练 -> artifact -> refit”这条正式能力链。
     "security_scorecard_training",
@@ -240,6 +260,11 @@ pub const TOOL_NAMES: &[&str] = &[
     // 目的：确保未来几日赚钱效益总卡成为主链可发现的一等能力。
     "security_master_scorecard",
     "security_scorecard_refit",
+    // 2026-04-12 CST: Expose the direction-first training orchestration tool on
+    // the top-level catalog, because public tool discovery still flows through
+    // TOOL_NAMES.
+    // Purpose: keep the governed long-run training entry visible to CLI and AI handoff flows.
+    "security_direction_first_training_run",
     // 2026-04-09 CST: 这里把正式 scorecard training Tool 暴露到总目录，原因是主 dispatcher 的 tool_catalog 仍依赖全量 TOOL_NAMES；
     // 目的：确保训练入口和 snapshot/forward_outcome/refit 一样成为主链可发现能力。
     "security_scorecard_training",
@@ -291,6 +316,16 @@ pub const TOOL_NAMES: &[&str] = &[
     "logistic_regression",
     "cluster_kmeans",
     "decision_assistant",
+    // 2026-04-12 CST: Expose the foundation audit export tool on the top-level
+    // catalog because public tool discovery still flows through TOOL_NAMES.
+    // Purpose: keep the DTO-facing foundation governance outlet discoverable
+    // from the same main CLI list as the rest of the product surface.
+    "repository_metadata_audit_export_v1",
+    // 2026-04-12 CST: Expose the foundation navigation export tool on the
+    // top-level catalog because public tool discovery still flows through
+    // TOOL_NAMES. Purpose: let AI and CLI callers find the stable roaming DTO
+    // outlet without binding to internal pipeline structs.
+    "navigation_evidence_export_v1",
 ];
 
 pub fn tool_names() -> &'static [&'static str] {

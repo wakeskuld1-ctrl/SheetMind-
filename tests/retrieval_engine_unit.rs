@@ -218,11 +218,9 @@ fn retrieval_engine_with_metadata_registry_returns_error_for_unregistered_field(
 
     assert_eq!(
         error,
-        RetrievalEngineError::InvalidMetadataConstraint(
-            MetadataRegistryError::UnregisteredField {
-                field: "namespace".to_string(),
-            }
-        )
+        RetrievalEngineError::InvalidMetadataConstraint(MetadataRegistryError::UnregisteredField {
+            field: "namespace".to_string(),
+        })
     );
 }
 

@@ -67,10 +67,7 @@ fn metadata_scope_resolver_returns_error_for_unregistered_field_in_registry_mode
     let error = MetadataScopeResolver::constrain_concept_ids_with_registry(
         &ontology_store,
         concept_ids.as_slice(),
-        &MetadataScope::from_constraints(vec![MetadataConstraint::equals(
-            "namespace",
-            "finance",
-        )]),
+        &MetadataScope::from_constraints(vec![MetadataConstraint::equals("namespace", "finance")]),
         &metadata_registry,
     )
     .expect_err("unregistered field should be rejected by concept resolver");

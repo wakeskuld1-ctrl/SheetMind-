@@ -1,4 +1,7 @@
 use std::collections::BTreeMap;
+use std::fmt;
+use std::fs;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -248,10 +251,7 @@ impl MetadataSchema {
                     });
                 }
 
-                if alias_index
-                    .insert(alias.clone(), position)
-                    .is_some()
-                {
+                if alias_index.insert(alias.clone(), position).is_some() {
                     return Err(MetadataSchemaError::DuplicateFieldAlias {
                         alias: alias.clone(),
                     });
@@ -351,4 +351,92 @@ impl MetadataSchema {
     pub fn is_compatible_with(&self, schema_version: &str) -> bool {
         self.schema_version == schema_version.trim()
     }
+}
+
+// 2026-04-12 CST: Added a file-load error boundary because the new foundation
+// audit export tool needs a stable way to explain schema-path failures without
+// leaking raw serde or I/O details across layers. Purpose: keep the public
+// schema-file contract explicit and reusable beyond this single dispatcher.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MetadataSchemaLoadError {
+    ReadFailed {
+        path: String,
+        message: String,
+    },
+    JsonDeserializeFailed {
+        path: String,
+        message: String,
+    },
+    SchemaBuildFailed {
+        path: String,
+        message: String,
+    },
+}
+
+impl fmt::Display for MetadataSchemaLoadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MetadataSchemaLoadError::ReadFailed { path, message } => {
+                write!(formatter, "failed to read metadata schema file {path}: {message}")
+            }
+            MetadataSchemaLoadError::JsonDeserializeFailed { path, message } => write!(
+                formatter,
+                "failed to deserialize metadata schema file {path}: {message}"
+            ),
+            MetadataSchemaLoadError::SchemaBuildFailed { path, message } => write!(
+                formatter,
+                "failed to build metadata schema from file {path}: {message}"
+            ),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct MetadataSchemaDocument {
+    #[serde(default = "default_schema_document_version")]
+    schema_version: String,
+    #[serde(default)]
+    fields: Vec<MetadataFieldDefinition>,
+    #[serde(default)]
+    concept_policies: Vec<ConceptMetadataPolicy>,
+}
+
+impl MetadataSchemaDocument {
+    // 2026-04-12 CST: Added a document-to-domain bridge because file-backed
+    // callers should deserialize into a plain transport shape first, then build
+    // the indexed runtime schema through the existing constructor. Purpose:
+    // avoid exposing internal indexes on the persisted JSON contract.
+    fn into_schema(self) -> Result<MetadataSchema, MetadataSchemaError> {
+        MetadataSchema::new_with_version(self.schema_version, self.fields, self.concept_policies)
+    }
+}
+
+fn default_schema_document_version() -> String {
+    DEFAULT_METADATA_SCHEMA_VERSION.to_string()
+}
+
+// 2026-04-12 CST: Added a JSON-path loader because the DTO export tool now
+// needs one formal foundation entry point for schema-file ingestion. Purpose:
+// let CLI, AI, and future GUI flows load the same schema contract without
+// rebuilding ad-hoc parsing logic in each caller.
+pub fn load_metadata_schema_from_json_path(
+    path: &Path,
+) -> Result<MetadataSchema, MetadataSchemaLoadError> {
+    let raw = fs::read_to_string(path).map_err(|error| MetadataSchemaLoadError::ReadFailed {
+        path: path.display().to_string(),
+        message: error.to_string(),
+    })?;
+
+    let document: MetadataSchemaDocument =
+        serde_json::from_str(&raw).map_err(|error| MetadataSchemaLoadError::JsonDeserializeFailed {
+            path: path.display().to_string(),
+            message: error.to_string(),
+        })?;
+
+    document
+        .into_schema()
+        .map_err(|error| MetadataSchemaLoadError::SchemaBuildFailed {
+            path: path.display().to_string(),
+            message: format!("{error:?}"),
+        })
 }

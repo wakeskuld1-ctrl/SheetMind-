@@ -127,6 +127,11 @@ pub use stock::security_shadow_evaluation;
 // Purpose: avoid forcing immediate import rewrites outside the stock module boundary.
 pub use stock::security_model_promotion;
 pub use stock::security_scorecard_refit_run;
+// 2026-04-12 CST: Re-export the direction-first training orchestration capability,
+// because compatibility callers may still resolve stock training tools through
+// `crate::ops::...` while the long-run training entry settles in.
+// Purpose: keep the new governed training orchestrator reachable without import rewrites.
+pub use stock::security_direction_first_training_run;
 // 2026-04-09 CST: 这里导出正式训练入口能力，原因是外层兼容调用仍可能沿用 `crate::ops::...` 路径；
 // 目的：在不打断旧调用方式的前提下，把 Task 5 新能力纳入统一兼容出口。
 pub use stock::security_scorecard_training;

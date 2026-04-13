@@ -116,6 +116,12 @@ pub mod security_model_promotion;
 pub mod security_scorecard_model_registry;
 #[path = "security_scorecard_refit_run.rs"]
 pub mod security_scorecard_refit_run;
+// 2026-04-12 CST: Mount the direction-first training orchestration module,
+// because the seven-hour training push now needs one first-class stock-domain
+// entry for governed ranking and resumable survivor selection.
+// Purpose: keep long-run training orchestration inside the stock boundary instead of shell scripts.
+#[path = "security_direction_first_training_run.rs"]
+pub mod security_direction_first_training_run;
 // 2026-04-09 CST: 这里挂入正式训练入口模块，原因是 Task 5 需要把离线 scorecard 训练纳入证券主链边界；
 // 目的：让训练能力与 snapshot、forward_outcome、refit 处于同一 stock 域内持续演进，避免回退到脚本式管理。
 #[path = "security_scorecard_training.rs"]

@@ -95,38 +95,44 @@ pub mod trend_analysis;
 #[path = "window.rs"]
 pub mod window;
 
+#[path = "foundation/capability_router.rs"]
+pub mod capability_router;
+#[path = "foundation/evidence_assembler.rs"]
+pub mod evidence_assembler;
+// 2026-04-12 CST: Restored these exports because the knowledge roaming foundation
+// still depends on the shared bundle / ingestion / repository modules at the
+// bottom layer. Purpose: align the public foundation entrypoint with the actual
+// workspace modules so repository evidence hygiene diagnostics can compile again.
+#[path = "foundation/knowledge_bundle.rs"]
+pub mod knowledge_bundle;
+#[path = "foundation/knowledge_graph_store.rs"]
+pub mod knowledge_graph_store;
+#[path = "foundation/knowledge_ingestion.rs"]
+pub mod knowledge_ingestion;
+#[path = "foundation/knowledge_record.rs"]
+pub mod knowledge_record;
+#[path = "foundation/knowledge_repository.rs"]
+pub mod knowledge_repository;
+#[path = "foundation/metadata_constraint.rs"]
+pub mod metadata_constraint;
+#[path = "foundation/metadata_registry.rs"]
+pub mod metadata_registry;
+#[path = "foundation/metadata_scope_resolver.rs"]
+pub mod metadata_scope_resolver;
+#[path = "foundation/navigation_pipeline.rs"]
+pub mod navigation_pipeline;
 #[path = "foundation/ontology_schema.rs"]
 pub mod ontology_schema;
 #[path = "foundation/ontology_store.rs"]
 pub mod ontology_store;
-#[path = "foundation/knowledge_record.rs"]
-pub mod knowledge_record;
-#[path = "foundation/metadata_constraint.rs"]
-pub mod metadata_constraint;
-#[path = "foundation/metadata_scope_resolver.rs"]
-pub mod metadata_scope_resolver;
-#[path = "foundation/metadata_registry.rs"]
-pub mod metadata_registry;
-#[path = "foundation/knowledge_graph_store.rs"]
-pub mod knowledge_graph_store;
-#[path = "foundation/capability_router.rs"]
-pub mod capability_router;
-#[path = "foundation/roaming_engine.rs"]
-pub mod roaming_engine;
 #[path = "foundation/retrieval_engine.rs"]
 pub mod retrieval_engine;
-#[path = "foundation/evidence_assembler.rs"]
-pub mod evidence_assembler;
-#[path = "foundation/navigation_pipeline.rs"]
-pub mod navigation_pipeline;
+#[path = "foundation/roaming_engine.rs"]
+pub mod roaming_engine;
 
-// 2026-04-09: restore foundation public modules for existing tests and downstream callers.
-#[path = "foundation/knowledge_bundle.rs"]
-pub mod knowledge_bundle;
-#[path = "foundation/knowledge_ingestion.rs"]
-pub mod knowledge_ingestion;
-#[path = "foundation/knowledge_repository.rs"]
-pub mod knowledge_repository;
+// 2026-04-12 CST: 这里移除失效的 foundation 模块导出，原因是当前分支已不再包含
+// `knowledge_bundle / knowledge_ingestion / knowledge_repository` 文件，但入口仍在导出它们，导致 crate 在模块加载阶段直接编译失败。
+// 目的：先恢复当前 foundation 分支的可编译状态，再继续推进本轮 source_ref 结构诊断，不在这里重建缺失模块或跨线重构。
 #[path = "foundation/metadata_schema.rs"]
 pub mod metadata_schema;
 #[path = "foundation/metadata_validator.rs"]

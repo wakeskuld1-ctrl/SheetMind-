@@ -3297,6 +3297,29 @@
 ### 关闭项
 - `cargo test --test integration_cli_json repository_metadata_audit_export_v1 -- --nocapture`
 - `cargo test --test repository_metadata_audit_unit -- --nocapture`
+
+## 2026-04-13 AI Handoff Manual Rewrite And UTF8 Verification
+### 修改内容
+- Rewrote the main AI handoff manual into one consolidated source of truth in:
+  - `docs/AI_HANDOFF.md`
+- Verified the handoff file bytes and UTF-8 text decoding so the next AI can treat the current terminal乱码 as a display issue instead of file corruption.
+- Preserved the handoff scope around the Rust securities training mainline, current branch context, runtime data blockers already cleared, and the exact next execution sequence for the 7-hour direction-first training run.
+
+### 修改原因
+- The previous handoff file had stale context, conflict noise, and ambiguous continuity, which would make the next AI re-scan the repository or restart architecture discussions unnecessarily.
+- The user explicitly asked for a stable AI handoff manual first, and this step closes that delivery before the long-running training launch.
+
+### 方案还差什么
+- [ ] If the user wants an even shorter operator cheat sheet later, add a separate lightweight execution card instead of expanding the main handoff manual again.
+- [ ] When the formal 7-hour training request is launched, append the runtime PID, log paths, and stage summary path in a new follow-up journal entry.
+
+### 潜在问题
+- [ ] Some terminals may still display UTF-8 Chinese as乱码 if the local output encoding is not aligned, even though the file bytes are correct.
+- [ ] The handoff manual records the current best-known runtime plan, but the actual long-training process has not started yet in this slice.
+
+### 关闭项
+- `docs/AI_HANDOFF.md` main handoff rewrite completed
+- UTF-8 byte/decode verification for `docs/AI_HANDOFF.md` completed
 - `cargo test --test metadata_validator_unit -- --nocapture`
 
 ## 2026-04-12 Foundation Navigation Evidence Export Tool
@@ -3467,3 +3490,133 @@
 ### 关闭项
 - `cargo test --test integration_cli_json repository_metadata_audit_export_v1 -- --nocapture`
 - `cargo test --test repository_metadata_audit_unit -- --nocapture`
+## 2026-04-13 Direction-First 7h Long Run Launch
+### 修改内容
+- Generated the formal long-run request file in:
+  - `D:\Rust\Excel_Skill\.excel_skill_runtime\direction_first_training_run_20260413_7h_request.json`
+- Generated the operator-facing execution note in:
+  - `D:\Rust\Excel_Skill\docs\execution-notes-2026-04-13-direction-first-training.md`
+- Launched the background long-run process with:
+  - `D:\Rust\Excel_Skill\target\debug\excel_skill.exe`
+- Recorded the first live execution evidence in:
+  - `progress.md`
+  - `task_plan.md`
+  - `findings.md`
+
+### 修改原因
+- The user explicitly approved Scheme B and required the request-writing step to flow directly into the seven-hour long run without repeated confirmation loops.
+- This slice turns the previously planned direction-first orchestration into an actual live execution state with a durable request contract and launch evidence.
+
+### 方案还差什么
+- [ ] Wait for the running process to finish and collect the final stdout JSON result.
+- [ ] Record the final `stage_summary` path, survivor list, and eliminated list after completion.
+- [ ] Summarize which pool and horizon combinations actually performed best once the run closes.
+
+### 潜在问题
+- [ ] The current orchestration tool is not a wall-clock scheduler, so the real runtime may be shorter or longer than seven hours depending on candidate cost and data-path latency.
+- [ ] The tool does not stream stable progress lines to stdout while running, so process health must be judged from PID liveness and runtime artifact generation.
+- [ ] Survivor ranking is global across all candidates, not automatically balanced one-per-pool or one-per-horizon.
+
+### 关闭项
+- Formal direction-first request generated
+- Execution note generated
+- Background process launched
+- First stability check passed with live artifact landing
+## 2026-04-13 Position Plan Entry Layer Stage 1
+### 修改内容
+- Added the first-stage governed entry-layer fields to the formal `position_plan` contract:
+  - `entry_grade`
+  - `entry_reason`
+  - `entry_blockers`
+- Centralized the shared entry-layer rules in `src/ops/security_position_plan.rs` and covered:
+  - `blocked`
+  - `watch`
+  - `pilot_long`
+  - `standard_long`
+- Wired the same entry-layer output into the formal `chair_resolution` document so the final chair object now exposes the same governed entry answer.
+- Refreshed `submit_approval` after scorecard/master-scorecard generation so the persisted `position_plan`, `approval_request.position_plan_binding`, and human-readable `approval_brief.entry_summary` stay aligned on one entry result.
+- Added regression coverage in:
+  - `tests/security_decision_submit_approval_cli.rs`
+  - `tests/security_chair_resolution_cli.rs`
+  - `src/ops/security_position_plan.rs`
+
+### 修改原因
+- The user明确要求第一阶段先解决“什么时候能进”，而不是继续只给粗粒度的仓位字段。
+- Existing approval flow built `position_plan` before `scorecard`, so without a post-scorecard refresh the new entry-layer answer would drift across `position_plan`, `chair`, and `approval_brief`.
+
+### 方案还差什么
+- [ ] Stage 2 still needs the later sizing layer that answers “给多少合适” after this entry-layer is stable.
+- [ ] Real long-entry fixtures are still thin in CLI coverage, so later slices should add at least one end-to-end case that lands `pilot_long` or `standard_long` through the full approval chain.
+
+### 潜在问题
+- [ ] A broad `cargo test` still hits unrelated pre-existing compile errors in `tests/integration_tool_contract.rs`; this round only verified the targeted entry-layer tests.
+- [ ] The current ready-case approval fixture still resolves to a no-trade direction, so its new entry-layer result is intentionally `watch`, not an executable long entry.
+
+### 关闭项
+- `cargo test security_entry_assessment_marks_ --lib`
+- `cargo test security_decision_submit_approval_writes_runtime_files_for_ready_case --test security_decision_submit_approval_cli`
+- `cargo test security_decision_submit_approval_requests_more_evidence_when_training_support_is_unavailable --test security_decision_submit_approval_cli`
+- `cargo test security_decision_submit_approval_maps_blocked_status_and_auto_reject_flags --test security_decision_submit_approval_cli`
+- `cargo test security_chair_resolution_downgrades_to_abstain_when_scorecard_model_is_unavailable --test security_chair_resolution_cli`
+
+## 2026-04-13 Position Plan Sizing Layer Stage 2
+### 修改内容
+- Added the second-stage governed sizing fields to the formal `position_plan` contract:
+  - `target_gross_pct`
+  - `sizing_grade`
+  - `sizing_reason`
+  - `sizing_risk_flags`
+- Centralized the shared sizing rules in `src/ops/security_position_plan.rs` and covered:
+  - `blocked_flat`
+  - `watch_probe`
+  - `pilot_build`
+  - `standard_build`
+- Wired the same sizing result into the formal `chair_resolution` document so the final chair object now exposes the same governed target-sizing answer.
+- Refreshed `submit_approval` after scorecard/master-scorecard generation so the persisted `position_plan`, `approval_request.position_plan_binding`, and human-readable `approval_brief.entry_summary` stay aligned on one sizing result.
+- Added and passed focused regression coverage in:
+  - `src/ops/security_position_plan.rs`
+  - `tests/security_decision_submit_approval_cli.rs`
+  - `tests/security_chair_resolution_cli.rs`
+
+### 修改原因
+- The user明确要求第二阶段继续解决“给多少合适”，而不是再做一轮大重构或只停留在第一阶段入场判断。
+- Existing approval flow already had the first-stage entry refresh, so the missing gap was a shared sizing layer that could answer target/starter/max consistently across `position_plan`, `chair`, and `approval_brief`.
+
+### 方案还差什么
+- [ ] The current CLI ready fixtures still skew toward `watch` because they resolve to no-trade chair action, so a later slice should add at least one full-chain positive fixture that lands `pilot_long` or `standard_long`.
+- [ ] If later stages need finer position scaling, the next slice should extend the same shared sizing contract instead of introducing a second independent ruleset.
+
+### 潜在问题
+- [ ] A broad `cargo test` still hits unrelated pre-existing warnings and the known wider-suite blockage outside this slice; this round only verified the targeted sizing-layer tests.
+- [ ] The shared sizing helper now intentionally does not rewrite approval `plan_status`, because changing approval-state semantics inside sizing caused a ready-case regression during this slice.
+
+### 关闭项
+- `cargo test security_sizing_assessment_marks_ --lib`
+- `cargo test security_chair_resolution_downgrades_to_abstain_when_scorecard_model_is_unavailable --test security_chair_resolution_cli`
+- `cargo test security_decision_submit_approval_writes_runtime_files_for_ready_case --test security_decision_submit_approval_cli`
+- `cargo test security_decision_submit_approval_requests_more_evidence_when_training_support_is_unavailable --test security_decision_submit_approval_cli`
+- `cargo test security_decision_submit_approval_maps_blocked_status_and_auto_reject_flags --test security_decision_submit_approval_cli`
+## 2026-04-14
+### 修改内容
+- Added a dedicated upload note in:
+  - `docs/execution-notes-2026-04-14-branch-upload.md`
+- Added a clean AI handoff note for the branch push in:
+  - `docs/ai-handoff-2026-04-14-branch-upload.md`
+- Prepared the current branch for GitHub push while intentionally excluding timestamped local runtime fixture byproducts from the upload scope.
+
+### 修改原因
+- The user requested that the current branch be pushed to GitHub first so it can be merged into a fuller branch today.
+- This upload needs a clear handoff so the next AI can later replace the local branch state with the merged result instead of resuming from stale assumptions.
+
+### 方案还差什么
+- [ ] After the user finishes the merge, pull or switch to the merged branch the user designates.
+- [ ] Reconcile any differences between the uploaded branch and the merged branch before starting the next development slice.
+
+### 潜在问题
+- [ ] The repository still contains many older dirty files and generated runtime fixture directories outside the intended upload payload.
+- [ ] This upload-preparation step itself does not newly prove product-wide green status; it only packages the current branch with handoff context.
+
+### 关闭项
+- Upload note added
+- AI handoff note added
+- Branch prepared for GitHub push

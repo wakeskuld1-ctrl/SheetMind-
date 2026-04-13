@@ -33,7 +33,11 @@ impl MetadataScopeResolver {
                         metadata_scope
                             .as_slice()
                             .iter()
-                            .filter(|constraint| applicable_fields.iter().any(|field| *field == constraint.field()))
+                            .filter(|constraint| {
+                                applicable_fields
+                                    .iter()
+                                    .any(|field| *field == constraint.field())
+                            })
                             .all(|constraint| constraint.matches_metadata(&concept.metadata))
                     })
                     .unwrap_or(false)
@@ -81,11 +85,8 @@ impl MetadataScopeResolver {
         concept_id: &str,
         metadata_scope: &MetadataScope,
     ) -> bool {
-        let constrained = Self::constrain_concept_ids(
-            ontology_store,
-            &[concept_id.to_string()],
-            metadata_scope,
-        );
+        let constrained =
+            Self::constrain_concept_ids(ontology_store, &[concept_id.to_string()], metadata_scope);
         constrained.iter().any(|candidate| candidate == concept_id)
     }
 

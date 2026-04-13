@@ -31,6 +31,9 @@ use crate::ops::stock::security_decision_submit_approval::{
 use crate::ops::stock::security_decision_verify_package::{
     SecurityDecisionVerifyPackageRequest, security_decision_verify_package,
 };
+use crate::ops::stock::security_direction_first_training_run::{
+    SecurityDirectionFirstTrainingRunRequest, security_direction_first_training_run,
+};
 use crate::ops::stock::security_disclosure_history_backfill::{
     SecurityDisclosureHistoryBackfillRequest, security_disclosure_history_backfill,
 };
@@ -435,6 +438,22 @@ pub(super) fn dispatch_security_model_promotion(args: Value) -> ToolResponse {
     };
 
     match security_model_promotion(&request) {
+        Ok(result) => ToolResponse::ok(json!(result)),
+        Err(error) => ToolResponse::error(error.to_string()),
+    }
+}
+
+pub(super) fn dispatch_security_direction_first_training_run(args: Value) -> ToolResponse {
+    // 2026-04-12 CST: Add the formal direction-first training dispatcher entry,
+    // because the seven-hour accuracy push needs one public stock route for
+    // governed survivor ranking and resumable training checkpoints.
+    // Purpose: expose long-run direction-first orchestration without rebuilding the training mainline.
+    let request = match serde_json::from_value::<SecurityDirectionFirstTrainingRunRequest>(args) {
+        Ok(request) => request,
+        Err(error) => return ToolResponse::error(format!("request parsing failed: {error}")),
+    };
+
+    match security_direction_first_training_run(&request) {
         Ok(result) => ToolResponse::ok(json!(result)),
         Err(error) => ToolResponse::error(error.to_string()),
     }

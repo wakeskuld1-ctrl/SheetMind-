@@ -1,934 +1,1646 @@
-## 2026-03-27
+## 2026-04-08
 ### 修改内容
-- `tests/test_disclosure_store.py`：新增披露数据契约与 SQLite 存储的失败测试，覆盖代码标准化、去重键稳定性、事件与快照回读，目的是真正按先测后改推进 M3-1。
-- `tradingagents/dataflows/disclosure_models.py`：新增 `DisclosureAttachment`、`SourceSnapshot`、`DisclosureEvent` 以及 `normalize_disclosure_ticker`、`build_disclosure_dedupe_key`，目的是真正建立 A 股/港股公告的统一内部契约。
-- `tradingagents/dataflows/disclosure_store.py`：新增基于标准库 `sqlite3` 的 `DisclosureStore`，支持建表、幂等写入、主键读取，目的是真正把披露事件和快照元数据持久化到本地 SQLite。
-- `tradingagents/dataflows/disclosure_store.py`：追加显式关闭 SQLite 连接的修复，目的是真正解决 Windows 下临时数据库文件被锁定、测试目录无法清理的问题。
-- `task_plan.md`、`findings.md`、`progress.md`：更新为本次 M3-1 会话记录，目的是真正把目标、发现、验证和环境问题沉淀下来。
+- `tests/metadata_migration_contract_unit.rs`：新增 4 条红测，锁定字段演进契约注册、unknown replacement target、自指 replacement 和 alias 冲突这 4 条最小 migration contract 契约。
+- `src/ops/foundation/metadata_schema.rs`：为 `MetadataFieldDefinition` 新增 `deprecated / replaced_by / aliases`，并新增对应 builder 与 `UnknownReplacementTarget / SelfReplacementTarget / DuplicateFieldAlias` 构建期错误，把字段演进正式纳入 metadata schema 治理对象。
+- `src/ops/security_decision_briefing.rs`：补最小 `f64` 字面量类型标注，目的仅为解除当前工具链下的编译阻塞，保证 foundation 元数据测试能继续执行。
+- `README.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/plans/2026-04-08-foundation-metadata-migration-contract-phase3-stage4.md`、`task_plan.md`、`progress.md`、`findings.md`：同步更新 foundation 当前口径，明确 migration contract 第一阶段已完成。
 
 ### 修改原因
-- M3 已确定先做 A 股/港股免费官方披露数据层，当前仓库还没有公告/财报/公司事件的统一契约。
-- 用户明确要求抓数据不能用大模型、不能用 Token，因此需要先建立独立于 LLM 的抓取落盘基础设施。
-- 方案 2 已批准，需要在首轮同时具备统一数据模型和本地 SQLite 持久化能力。
-- 发现 `sqlite3.Connection` 的上下文管理不会自动关闭连接，必须修复，否则 Windows 环境下回放测试不稳定。
+- 用户已批准按方案A推进 `Migration Contract` 第一阶段，范围只做字段演进治理对象和构建期合法性校验，不做执行层。
+- 如果没有 `deprecated / replaced_by / aliases` 这些正式契约，后续 validator 联动、repository 审计和 migration executor 都缺少统一输入对象。
+- 测试过程中暴露 `security_decision_briefing.rs` 现存编译阻塞，如果不先做最小修复，连 foundation 元数据相关红绿回归都无法继续。
 
 ### 方案还差什么?
-- [ ] 还未实现巨潮资讯列表抓取与规范化。
-- [ ] 还未实现上交所公告抓取与沪市交叉校验。
-- [ ] 还未实现 HKEXnews 抓取与港股公告规范化。
-- [ ] 还未把披露数据层接入现有 `tradingagents.dataflows.interface` 路由。
-- [ ] 还未加入真实快照文件落盘与离线回放样本集。
+- [ ] 还没有实现 deprecated / alias 的 validator 联动。
+- [ ] 还没有实现 repository 级批量演进审计。
+- [ ] 还没有实现真正的 migration executor。
 
 ### 潜在问题
-- [ ] 当前 `dedupe_key` 只按“代码 + 标题 + 小时桶 + 文件名”保守合并，后续跨源样本增多后可能需要调优。
-- [ ] SQLite 当前采用 JSON 文本列保存附件和快照元数据，若后续查询维度变多，可能需要拆表。
-- [ ] 现有仓库部分测试在本机环境会经由 `langchain_openai -> transformers -> torch` 触发 DLL 初始化失败，本轮未修该环境问题。
+- [ ] 当前 alias 只做 contract 注册和冲突校验，还没有真正接入任何字段解析链路；如果上层误以为 alias 已经生效，会出现预期偏差。
+- [ ] 当前 `replaced_by` 只是声明式关系，没有定义多跳替换、链式替换或冲突覆盖策略。
+- [ ] Windows 下构建锁问题仍会反复出现，后续长跑回归前仍要注意清理残留 `excel_skill/cargo/rustc` 进程。
 
 ### 关闭项
-- 已通过 `python -m pytest tests/test_disclosure_store.py`。
-- 已通过 `python -m compileall tradingagents/dataflows/disclosure_models.py tradingagents/dataflows/disclosure_store.py`。
-- 已复现并修复 Windows 下 SQLite 临时文件句柄未释放问题。
-- 已执行 `python -m pytest tests/test_ticker_symbol_handling.py`，结果为环境侧 `torch c10.dll` 初始化失败，非本次披露数据改动直接导致。
+- 已通过 `cargo test --test metadata_migration_contract_unit -- --nocapture`
+- 已通过 `cargo test --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_migration_contract_unit --test metadata_validator_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
 
 ### 记忆点（可选）
-- 用户要求全过程中文响应，且中文内容需按 UTF-8 处理。
-- 编码前必须先给多个方案并等批准；本次已按批准的方案 2 实施。
-- 遇到 Bug 先写能复现的测试，再修到通过；本次 SQLite 文件锁问题已按此规则处理。
-- 每次改代码后都要补 `CHANGELOG_TASK.MD` 风格日志，不能省略。
+- 用户当前主线仍是“本体论元数据管理”，所以 versioning 之后继续沿 migration contract、validator 联动、repository 审计往前走，不要跳回业务主链。
 
-## 2026-03-27
+## 2026-04-08
 ### 修改内容
-- `tests/test_cninfo_disclosure.py`：新增巨潮证券定位、快照落盘、详情映射的失败测试，目的是真正把 M3-2 的在线抓取入口按先测后改落下来。
-- `tradingagents/dataflows/disclosure_cninfo.py`：新增 `CninfoSecurityRef`、`CninfoDisclosureClient`、快照写入、公告详情映射、在线抓取并入库流程，目的是真正打通巨潮资讯 `列表抓取 + 详情抓取 + 附件链接提取 + SQLite 落盘`。
-- `tests/test_disclosure_store.py`：追加北交所 `.BJ` 规范化失败测试，目的是真正防止巨潮板块映射扩展后 ticker 规则漏分支。
-- `tradingagents/dataflows/disclosure_models.py`：追加 `CN-BJ/BSE/.BJ` 规范化支持，目的是真正补齐 A 股公告统一代码规则。
-- `tradingagents/dataflows/data_cache/disclosure/disclosures.sqlite3`：执行了一次真实巨潮抓取并写入样本数据。
-- `tradingagents/dataflows/data_cache/disclosure_snapshots/cninfo/...`：写入 lookup/list/detail 原始 JSON 快照，目的是真正支持后续离线回放和结构漂移排查。
+- `tests/metadata_schema_versioning_unit.rs`：新增 4 条红测，锁定默认版本、显式版本、空白版本拒绝和精确版本兼容性四条最小 versioning 契约。
+- `src/ops/foundation/metadata_schema.rs`：新增 `schema_version`、`DEFAULT_METADATA_SCHEMA_VERSION`、`MetadataSchema::new_with_version(...)`、`MetadataSchema::is_compatible_with(...)` 和 `MetadataSchemaError::InvalidSchemaVersion`，把 metadata schema 推进到正式版本契约阶段。
+- `README.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/plans/2026-04-08-foundation-metadata-schema-versioning-phase3-stage3.md`、`task_plan.md`、`progress.md`、`findings.md`：同步更新 foundation 当前口径，明确 versioning 第一阶段已完成，下一优先级转向 migration contract。
 
 ### 修改原因
-- 用户已批准“方案 2 先抓”，需要在保留基础设施的同时，尽快把第一条真实 A 股抓取链路跑通。
-- 巨潮当前页面虽然是前端渲染，但其 JS 仍暴露稳定 JSON 接口，适合第一版正式接入。
-- 北交所代码在巨潮板块映射里属于真实输入面，如果不补 `.BJ`，后续 A 股抓取会留下隐藏故障点。
+- 用户已批准继续按方案 A 推进 `Schema Versioning` 第一阶段，而不是直接进入 migration 执行器或 repository 级批量治理。
+- 如果 `MetadataSchema` 仍然没有正式版本契约，后续 deprecated / replaced_by / migration 都没有稳定锚点，validator 也无法与版本演进规则衔接。
 
 ### 方案还差什么?
-- [ ] 还未实现巨潮按关键词/日期的全市场公告搜索抓取，目前先支持单 ticker 历史公告分页。
-- [ ] 还未把巨潮事件抓取接入现有 `tradingagents.dataflows.interface`。
-- [ ] 还未加入 PDF 正文抽取；当前首版先保存附件链接和详情元数据。
-- [ ] 还未实现上交所交叉校验与港股 HKEXnews 抓取。
+- [ ] 还没有实现 migration contract。
+- [ ] 还没有实现 repository 级批量版本审计。
+- [ ] 还没有实现 deprecated / replaced_by / alias 等字段演进治理对象。
 
 ### 潜在问题
-- [ ] 巨潮 `hisAnnouncement/query` 当前更适合“单证券历史分页”，如果后面要做全市场日期窗口抓取，可能还要补另一条搜索接口。
-- [ ] 当前 `ingest_stock_disclosures()` 采用串行抓详情，请求量大时可能需要限流、重试和增量断点。
-- [ ] `announcementContent` 在 PDF 公告场景通常为空，后续如果要做正文分析，需要补 PDF 文本抽取或 OCR 策略。
+- [ ] 当前 `is_compatible_with(...)` 只做精确匹配，如果后续需要主版本兼容或向后兼容，现有规则需要扩展。
+- [ ] 当前只校验空白版本，没有约束更细的版本格式；如果后续版本命名变散，可能需要增加格式校验。
+- [ ] 当前 versioning 还没有和 repository manifest、ingestion 输入头或批量审计绑定，因此版本治理仍停留在 schema 对象层。
 
 ### 关闭项
-- 已通过 `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py`。
-- 已通过 `python -m compileall tradingagents/dataflows/disclosure_models.py tradingagents/dataflows/disclosure_cninfo.py tradingagents/dataflows/disclosure_store.py`。
-- 已执行真实抓取：`600519` 在 `2026-03-01` 到 `2026-03-27` 窗口成功入库 2 条公告。
-- 已确认 SQLite 中存在 `cninfo-1225009431`、`cninfo-1224994303` 两条事件记录。
+- 已通过 `cargo test --test metadata_schema_versioning_unit -- --nocapture`
+- 已通过 `cargo test --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_validator_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
 
 ### 记忆点（可选）
-- 用户当前优先级是“先把基础打好再真实抓数”，因此先做单源可验证链路，再补双源校验。
-- 用户明确要求抓数链路不能用大模型、不能用 Token；本次巨潮抓取全程只用了普通 HTTP + JSON + SQLite。
+- 用户当前主线仍然是“本体论元数据管理”，所以 validator 之后继续沿 versioning / migration 往前走，不要中途切回业务主链或泛化到整库治理。
 
-## 2026-03-27
+## 2026-04-08
 ### 修改内容
-- `tests/test_sse_disclosure_verifier.py`：新增上交所 JSONP 解析、公告行标准化、与巨潮已入库事件比对的失败测试，目的是按先测后改把 M3-3 的沪市校验源钉住。
-- `tradingagents/dataflows/disclosure_sse_verifier.py`：新增 `SseAnnouncementVerifier`、`parse_sse_jsonp_payload`、`normalize_sse_bulletin`、`compare_sse_bulletins_with_store`，目的是真正打通“上交所官方列表 -> 规范化 -> 与巨潮事件比对”的第一条校验链路。
-- `tradingagents/dataflows/disclosure_store.py`：新增 `list_events_by_ticker_and_date_range()`，目的是真正给上交所校验提供按代码和日期窗口取巨潮事件的能力。
-- 执行了一次真实上交所校验：以 `600519` 和 `2026-03-01` 到 `2026-03-27` 时间窗比对上交所官方公告与巨潮已入库公告。
+- `docs/plans/2026-04-08-odds-position-system-design.md`：新增“基于现有 `signal_outcome_research` 的赔率系统与仓位管理设计”，明确研究层复用边界、briefing 顶层新字段、committee 同源摘要与最小改动面。
+- `src/ops/signal_outcome_research.rs`：扩展 `SignalOutcomeResearchSummaryResult`，新增 `loss/flat rate`、`avg win/loss return`、`payoff_ratio_10d`、`expectancy_10d` 等赔率层数值，并补 `average_option / ratio_option` 辅助函数。
+- `src/ops/security_decision_briefing.rs`：新增 `OddsBrief`、`PositionPlan`、`committee_payload.odds_digest / position_digest`，并把 `historical_digest -> odds_brief -> position_plan` 收口成同一条装配链。
+- `tests/security_analysis_resonance_cli.rs`：新增 `security_decision_briefing_exposes_odds_and_position_layers_after_analog_study` 红绿回归，并把 `committee_payload` 结构断言扩展到 `odds_digest / position_digest`。
+- `tests/integration_tool_contract.rs`：更新 `security_decision_briefing` 对外合同样例，补 `odds_brief / position_plan / odds_digest / position_digest`，并添加 `#![recursion_limit = "256"]` 解决大体量 `json!` 合同样例的宏展开层级问题。
+- `tests/security_committee_vote_cli.rs`：更新 `CommitteePayload` 正样本夹具，使 vote 测试继续消费完整的新事实包。
+- `docs/DOCUMENTATION_INDEX.md`、`docs/AI_HANDOFF.md`：登记新设计文档，并把赔率层/仓位层已接入主链的事实写进 AI 交接手册。
 
 ### 修改原因
-- 用户已批准“方案 1”，本轮目标是先把上交所作为校验源接进来，而不是立即做双源正式入库。
-- 上交所最新公告页背后已有稳定官方接口，适合先做低风险、可核对的交叉校验。
-- 巨潮已经有真实入库结果，现在最有价值的是验证沪市公告是否存在漏抓或标题偏差。
+- 用户已明确批准“方案 B：研究层 + 决策层分层版”，要求基于既有 `signal_outcome_research` 继续实现赔率系统与仓位管理，不允许重复开发平行复盘模块。
+- 如果只停留在 `historical_digest`，平台仍然只有历史研究事实，没有正式的赔率层与仓位层，闭环主线无法向投中环节推进。
 
 ### 方案还差什么?
-- [ ] 还未把上交所原始响应做快照落盘。
-- [ ] 还未把上交所校验结果固化成可复跑的报告文件或命令入口。
-- [ ] 还未实现上交所结果升级为正式 `DisclosureEvent` 并入 SQLite。
-- [ ] 还未实现港股 HKEXnews 抓取与校验。
+- [ ] 还没有把 `odds_digest / position_digest` 真正接入 `security_committee_vote` 的席位规则，只是先完成同源承载。
+- [ ] 还没有实现投后复盘层，把本次赔率与仓位建议和未来真实结果自动对账。
+- [ ] 还没有补 ETF / 海外资产的专用赔率模板，当前仍以个股银行 study_key 为主。
 
 ### 潜在问题
-- [ ] 上交所接口当前返回 JSONP，若官方改成 JSON 或调整回调包装，解析器需要同步更新。
-- [ ] 当前匹配规则按“代码 + 日期 + 标题”保守对齐，若后续出现同日同题多版本公告，可能需要加入 URL 或类型辅助匹配。
-- [ ] 目前只覆盖沪市 `stockType=1` 主板口径，若后续校验科创板或其他板块，需要补参数映射和样本测试。
+- [ ] `payoff_ratio_10d` 在样本没有负收益时会合法返回 `None`，调用方不能把它误当成“字段缺失”。
+- [ ] `position_plan` 当前是规则分档版，不是 Kelly、风险预算或组合级相关性管理，不能误读成完整仓位引擎。
+- [ ] Windows 下长跑 `cargo test` 仍可能受到目标文件占用影响；这轮已改为串行定点回归，整文件长跑时仍需注意 `os error 5 / LNK1104`。
 
 ### 关闭项
-- 已通过 `python -m pytest tests/test_sse_disclosure_verifier.py`。
-- 已通过 `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py`。
-- 已通过 `python -m compileall tradingagents/dataflows/disclosure_sse_verifier.py tradingagents/dataflows/disclosure_store.py`。
-- 已执行真实校验：`600519` 在 `2026-03-01` 到 `2026-03-27` 窗口内，上交所 2 条公告与巨潮 2 条入库事件全部匹配，`SSE_ONLY=0`，`CNINFO_ONLY=0`。
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test security_committee_vote_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_available_historical_digest_after_analog_study -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_odds_and_position_layers_after_analog_study -- --nocapture --test-threads=1`
+- 已通过 `cargo fmt --all`
 
 ### 记忆点（可选）
-- 用户当前接受“先做上交所校验源，不做正式双源入库”的推进方式，因此这轮以验证价值优先，不扩范围。
+- 用户已明确纠正：赔率系统和仓位管理必须建立在现有 `signal_outcome_research` 之上，不能因为要做闭环就新开第二套“历史复盘/赔率模块”。
 
-## 2026-03-27
+## 2026-04-08
 ### 修改内容
-- `tests/test_disclosure_runner.py`：新增 M3-4 统一入口失败测试，覆盖运行时路径固定、`run_summary.json` 落盘、CLI `run` 子命令输出摘要，目的是先把未来免环境打包需要的入口行为钉死。
-- `tradingagents/disclosure_runner.py`：补齐统一编排入口，集中负责运行时目录构建、CNInfo 入库调用、SSE 校验调用、摘要对象组装与 `run_summary.json` 输出，目的是把抓取细节和未来交付入口隔离开。
-- `cli/disclosure.py`：追加根回调并保留 `run` 子命令形态，目的是修复 Typer 在单命令场景下把 `run` 吞成默认命令、导致统一入口调用不稳定的问题。
-- `task_plan.md`、`progress.md`、`findings.md`：追加 M3-4 完成记录与 CLI 折叠问题结论，目的是把这次统一入口收敛的事实沉淀下来。
+- `tests/metadata_validator_unit.rs`：新增 5 条红测，锁定 required 字段缺失、concept policy 缺失、disallowed field、allowed values/value type 错误，以及 multi-concept compatibility 的最小执行契约。
+- `src/ops/foundation/metadata_validator.rs`：新增 `MetadataValidator` 与 `MetadataValidationIssue`，把 metadata schema registry 的治理定义真正执行到 `KnowledgeNode.metadata` 节点级校验上，并统一输出结构化 issue。
+- `src/ops/foundation.rs`：导出 `metadata_validator` 模块，使 validator 成为 foundation 正式模块边界的一部分。
+- `README.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/plans/2026-04-08-foundation-metadata-validator-phase3-stage2.md`、`task_plan.md`、`progress.md`、`findings.md`：同步更新 foundation 当前口径，明确 metadata validator 已完成，下一优先级转为 schema versioning / migration。
 
 ### 修改原因
-- 用户已批准按方案 1 推进 M3-4，本轮目标是先把“统一入口、固定输出、便于后续免环境打包”的编排层做稳，而不是直接扩到打包器。
-- 现有失败测试已经复现 CLI 问题：调用 `disclosure run ...` 时被 Typer 判定为多余参数；如果不先修这个入口问题，后续打包后的普通用户调用方式会不稳定。
-- 需要把 SQLite 路径、快照路径、摘要报告路径收敛到单一入口，避免后面增加桌面版、便携版或 exe 包装时修改抓取器内部实现。
+- 用户已批准继续按方案 B 推进“本体论元数据管理”的下一阶段，范围收口为节点级 metadata validator，而不是继续只停留在 schema registry 定义层。
+- 如果只有 `MetadataSchema + ConceptMetadataPolicy` 而没有执行层 validator，元数据管理仍然缺少最关键的治理闭环，后续 versioning 也缺少稳定落点。
 
 ### 方案还差什么?
-- [ ] 还未增加真正面向普通用户的一键启动包装层，目前仍然是 Python CLI 入口先收敛。
-- [ ] 还未把 SSE 原始响应快照和校验报告拆成独立文件产物，当前先固化统一摘要报告。
-- [ ] 还未开始港股 HKEXnews 免费官方披露接入。
+- [ ] 还没有实现 schema versioning / migration。
+- [ ] 还没有实现 repository 级批量 metadata 校验。
+- [ ] 还没有支持 deprecated / replaced_by / field alias / concept inheritance 等演进治理对象。
 
 ### 潜在问题
-- [ ] 当前统一入口在校验阶段默认按 `CN-SH` 规范化 ticker，更适合上交所样本；后续扩到深市或港股时，需要补市场参数或自动判别逻辑。
-- [ ] `run_summary.json` 当前只输出聚合计数；如果后续需要审计级问题定位，可能还要补充 `sse_only` / `cninfo_only` 明细文件。
-- [ ] 统一入口已为未来免环境打包做了边界收敛，但真正“无需 Python 环境”的交付仍需要后续选定 PyInstaller/Nuitka 等方案并做一次打包验证。
+- [ ] 当前 `MetadataValidator` 只做节点级校验，不会一次性扫描整个 repository；如果上层误以为已经具备批量治理能力，会出现使用边界偏差。
+- [ ] 当前 `KnowledgeNode.metadata` 仍是字符串 map，`Integer / Float / Boolean` 校验依赖字符串解析；如果后续引入更复杂类型，现有约束需要升级。
+- [ ] 当前多 concept 语义是“字段逐 concept 兼容、required 取并集”；如果后续扩展 concept inheritance 或覆盖规则，这一语义可能需要重新定义。
 
 ### 关闭项
-- 已通过 `python -m pytest tests/test_disclosure_runner.py`。
-- 已通过 `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py tests/test_disclosure_runner.py`。
-- 已复现并修复 `cli.disclosure` 在单命令 Typer 应用下把 `run` 视为多余参数的问题。
+- 已通过 `cargo test --test metadata_validator_unit -- --nocapture`
+- 已通过 `cargo test --test metadata_schema_registry_unit --test metadata_validator_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
 
 ### 记忆点（可选）
-- 用户要求“先给方案、批准后再改代码”，本轮继续按已批准的方案 1 执行，不擅自扩范围。
-- 用户希望最终交付降低门槛，不要求普通用户安装完整 Python 环境；因此实现上要优先收敛统一入口和固定产物路径。
+- 用户已明确：当前整体计划聚焦“本体论元数据管理”，优先级应沿着 `registry -> validator -> versioning` 推进，不要回到只围绕标准包/仓储层打转。
 
-## 2026-04-09
+## 2026-04-08
 ### 修改内容
-- `src/ops/foundation/ontology_schema.rs`：为 `OntologyConcept` 增加 `tags` 与 `with_tag()`，并把 lookup 索引升级为“一个 lookup key 对应多个 concept 候选”，目的是让 foundation 层开始支持同词多概念而不是强制全局唯一。
-- `src/ops/foundation/ontology_store.rs`：新增 `find_concept_ids()`，目的是让 router 可以通过 store 读取 schema 的多候选结果，而不复制底层索引逻辑。
-- `src/ops/foundation/capability_router.rs`：为 `NavigationRequest` 增加 `required_concept_tags` 与 `with_required_concept_tags()`，并在 phrase-first 路由流程中加入候选标签过滤，目的是给 foundation 路由补齐最小 scope/metadata 约束能力。
-- `tests/ontology_schema_unit.rs`、`tests/capability_router_unit.rs`：先补“重复 lookup key 多候选”和“按标签消歧路由”的红测，再补最小实现转绿，目的是按 TDD 锁住这轮 foundation 路由升级。
+- 在 `tests/metadata_schema_registry_unit.rs` 中新增 3 条红测，分别锁定 metadata 字段定义注册、concept 允许字段/required 字段绑定，以及 concept policy 引用未知字段时的失败边界。
+- 在 `src/ops/foundation/metadata_schema.rs` 中新增 `MetadataValueType`、`MetadataFieldDefinition`、`ConceptMetadataPolicy`、`MetadataSchema` 与 `MetadataSchemaError`，把 metadata 管理从“map 存值”推进到“字段注册 + concept 绑定”的正式对象层。
+- 在 `src/ops/foundation.rs` 中导出 `metadata_schema` 模块，使 metadata schema registry 成为 foundation 正式模块边界的一部分。
+- 同步更新 `README.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/plans/2026-04-08-foundation-metadata-schema-registry-phase3-stage1.md`、`task_plan.md`、`progress.md`、`findings.md`，把 foundation 当前状态更新为“开始进入元数据管理层”。
 
 ### 修改原因
-- 用户确认继续按方案A推进 foundation 路由主线，本轮重点是补“约束下的路由”，而不是继续扩业务域或 UI。
-- 现有 schema 把 lookup key 视为全局唯一，无法表达“同一个短语在不同语义域下对应不同概念”的基础事实。
-- 需要让 route 在不引入复杂 DSL 的前提下，先具备一个最小、稳定、可回归的 scope 约束入口。
+- 用户明确表示现在说的是“整体计划里的本体论元数据管理”，而不是只补底座能力，因此需要从标准包/仓储/过滤阶段继续推进到 registry 管理层。
+- 如果没有字段注册和 concept 绑定，后续 validator、versioning、migration 和治理动作都没有统一输入对象，整体元数据管理系统就无法成立。
 
 ### 方案还差什么?
-- [ ] 还未把标签约束继续扩到 roaming plan 或 navigation pipeline；当前只先落在 router 输入层。
-- [ ] 还未补更丰富的 metadata 约束，例如 source/time/type 等；本轮只做 concept tag 这一种最小约束。
-- [ ] 还未补 pipeline 级别的“同词不同域”集成测试；当前先把 schema/store/router 三层打稳。
+- [ ] 还没有实现 metadata validator。
+- [ ] 还没有实现 schema versioning / migration。
+- [ ] 还没有支持 deprecated / replaced_by、field alias、concept inheritance。
 
 ### 潜在问题
-- [ ] 当前同一 lookup key 的多个概念候选默认按 schema 声明顺序返回；如果未来需要更复杂的优先级，可能还要补显式排序规则。
-- [ ] 当前标签过滤只支持“任一标签命中即可”，还不支持 must-match-all 或更复杂布尔逻辑。
-- [ ] 这轮仍然是轻量标签约束，不包含真正的上下文推理或语义消歧，复杂问题仍可能需要后续 roaming/retrieval 配合。
-
-### 关闭项?
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`。
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_store_unit -- --nocapture`。
-- 已按 TDD 先新增“多候选 lookup”和“按标签消歧”测试，再补实现转绿。
-
-### 记忆点（可选）
-- 用户当前认可的推进方式是“foundation 主线逐层增强”，因此遇到同词消歧问题时，应优先在通用路由约束层补能力，而不是先在某个业务适配层做特判。
-
-## 2026-04-09
-### 修改内容
-- `src/ops/foundation/capability_router.rs`：为 `CapabilityRoute` 增加 `matched_terms`，并把内部匹配流程改为同时保留“命中概念 id + 命中短语”，目的是让 foundation 路由结果具备最小可解释性，后续 trace/调试不必反推命中原因。
-- `src/ops/foundation/ontology_schema.rs`：把 lookup 归一化从“仅 trim + lowercase”升级为“标点/连字符/下划线折叠为空格后统一归一化”，目的是让 `gross-margin`、`gross_margin`、`gross margin` 这类文本格式差异不再阻断同一概念定位。
-- `tests/capability_router_unit.rs`：先补红测，再验证 `matched_terms` 回执和标点归一化行为，目的是按 TDD 把 foundation 路由这轮最小增量锁进可回归测试。
-
-### 修改原因
-- 用户确认继续按方案A推进 foundation 路由主线，而不是继续扩业务域能力。
-- 当前 capability router 只能返回 concept id，缺少最小解释信息，后续做导航 trace 或交接时仍然容易反复追问“到底命中了哪段文本”。
-- 当前 ontology lookup 规则对格式差异不够稳健，通用知识源里的连字符、下划线、空格变体会导致本应等价的短语匹配失败。
-
-### 方案还差什么?
-- [ ] 还未把 `matched_terms` 进一步上提到更完整的 navigation pipeline trace；当前只先补到 router 结果层。
-- [ ] 还未引入 metadata filter、capability constraints 或更强 query normalization；这轮仅收口基础短语路由与 lookup 归一化。
-- [ ] 还未补更高层的 pipeline 集成回归；当前先保证 router 与 schema 两层行为稳定。
-
-### 潜在问题
-- [ ] 当前归一化会把大部分非字母数字字符都折叠为空格；若未来需要保留某些特殊符号的区分语义，可能需要引入更细粒度规则。
-- [ ] `matched_terms` 当前记录的是路由时命中的归一化短语，而不是原始问题片段；如果后续要用于面向终端用户展示，可能还需要补原文 span 信息。
-- [ ] 这轮仍是规则型 route，不包含同义词扩展、上下文消歧和 metadata 约束，复杂问题仍可能命中不足。
-
-### 关闭项?
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`。
-- 已按 TDD 先新增 `router_normalizes_phrase_punctuation_variants` 红测，再补实现转绿。
-
-### 记忆点（可选）
-- 用户当前主线是“继续做通用标准能力的 foundation 路由”，不是业务域流程推进；后续若继续往下做，应优先补 route / roam / retrieve / evidence 这条通用内核。
-
-## 2026-04-09
-### 修改内容
-- `AI_START_HERE.md`：补充“`security_*` / `stock_*` / 审批链 / scorecard / training 仅属于业务适配层，不代表当前项目主线”的硬边界说明，目的是让新 AI 在最短入口就先按通用能力主线理解仓库。
-- `docs/ai-memory/project-baseline.md`：新增 mainline directory rule，并把 `security/*`、`stock/*`、approval / committee / scorecard 明确归类为 adapter-side work，目的是把“通用标准能力主线”写成可复用的项目备忘。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`：新增 mainline directory guardrails，并强化 `security_*` 不属于 foundation mainline 的交接规则，目的是减少未来 AI 再次把业务域进展误读为项目主线的时间成本。
-
-### 修改原因
-- 用户明确要求“不做业务化能力，只做通用化的标准能力”，并要求把这条边界写进交接手册和项目备忘，避免后续会话重复花时间重新校准主线。
-- 当前仓库与 `codex/foundation-navigation-kernel` 分支里同时存在 foundation 与 security 相关内容，如果没有硬性文字约束，新的 AI 很容易把并行证券轨道误判成主线方向。
-- 需要把“foundation-first，业务域仅为 adapter-side track”的口径同时固化到入口文档、项目备忘和 handoff 手册三处，形成一致入口。
-
-### 方案还差什么?
-- [ ] 还未把同样的目录边界规则进一步下沉到专门的 architecture 文档；当前先在入口、备忘、交接手册三处收口。
-- [ ] 还未对 `security_*` 目录做真实迁移或重命名；本轮只固化文档边界，不改目录结构。
-- [ ] 还未把这组文档改动提交或推送到远端分支。
-
-### 潜在问题
-- [ ] 即使文档边界已经写清，只要仓库目录仍混放大量 `security_*` 文件，新 AI 仍可能先被文件名吸引而误判主线，需要后续配合目录治理进一步收敛。
-- [ ] 当前 `AI_HANDOFF_MANUAL.md` 仍保留 security parallel track 状态说明；若未来该轨道继续扩张但不同步更新分类说明，仍可能带来“主线/并行线”混读风险。
-- [ ] 本轮为文档治理修改，无法直接阻止错误开发，只能降低后续交接和理解成本。
-
-### 关闭项?
-- 已完成入口文档、项目备忘、交接手册三处口径统一。
-- 已通过 `git diff -- AI_START_HERE.md docs/ai-memory/project-baseline.md docs/ai-handoff/AI_HANDOFF_MANUAL.md` 人工核对改动内容与边界表述一致。
-- [ ] 未执行自动化测试：本轮仅修改文档与交接约束，未变更运行时代码。
-
-### 记忆点（可选）
-- 用户再次纠正“不要做业务化能力，只做通用化标准能力”；以后看到 `security_*` 活跃改动时，必须默认判定为业务适配层或并行领域轨道，而不是项目主线。
-
-## 2026-03-27
-### 修改内容
-- `tests/test_disclosure_runner.py`：追加 M3-5 市场路由失败测试，覆盖 `600519 -> SSE`、`000001 -> SZSE`、`430047 -> BSE` 的路由判定，以及非沪市样本在 `verify_sse=True` 时不得误调用上交所校验器，目的是先把 runner 的市场分流行为钉死。
-- `tradingagents/disclosure_runner.py`：新增 `DisclosureMarketRoute`、`resolve_disclosure_market_route()`、`_build_market_route()`，并让 `DisclosureRunSummary` 输出 `market_key`、`exchange`、`verification_source`，目的是移除统一入口对 `CN-SH` 的硬编码假设。
-- `tradingagents/disclosure_runner.py`：调整 `run_disclosure_pipeline()`，仅在路由到 `SSE` 时才启用 `SseAnnouncementVerifier`，其余市场先保持“可抓取、可落盘、校验跳过”的稳定行为，避免深市/北交所样本误走上交所校验逻辑。
-- `task_plan.md`、`progress.md`、`findings.md`：追加 M3-5 完成记录与新发现，目的是让后续 AI 能直接看出“市场感知路由已完成，但非沪市校验器尚未接入”。
-
-### 修改原因
-- 用户批准按方案 2 推进，当前目标是先修正架构层面的市场路由问题，而不是继续扩新数据源。
-- 现有 runner 在校验阶段把所有 ticker 都按 `CN-SH` 规范化，这会让深市和北交所代码得到错误的规范化结果，并存在误用 SSE 校验器的风险。
-- 在深市/北交所官方校验链路尚未实现前，最稳妥的策略是先把“识别对、只在支持的市场启用校验器”落实到统一入口。
-
-### 方案还差什么?
-- [ ] 还未实现深交所官方披露校验器，因此 `CN-SZ` 路由当前只做抓取与落盘，不做官方交叉校验。
-- [ ] 还未实现北交所或港股官方披露校验器，因此 `CN-BJ`、`HK` 仍处于“路由已识别、校验未启用”的阶段。
-- [ ] 还未把市场路由信息在 CLI 文本输出中显式打印，当前先写入 `run_summary.json`。
-
-### 潜在问题
-- [ ] 当前路由判定优先依赖代码后缀和常见前缀规则，若后续接入更复杂证券类型，可能需要引入源级元数据确认。
-- [ ] `verification_source=None` 目前代表“当前无可用官方校验器”，后续若增加多市场校验器，需要补更细的状态字段，避免和“用户主动关闭校验”混淆。
-- [ ] 这次修复只解决了 runner 的市场分流问题，并没有新增深市/北交所真实校验覆盖率。
+- [ ] 当前 `MetadataValueType` 只是注册层类型枚举，还没有真正驱动节点 metadata 值校验。
+- [ ] 当前 concept policy 只定义了 allowed/required 字段，还没有定义字段默认值、枚举覆盖或 concept 层级继承。
+- [ ] 当前 registry 已经建立，但还没有和 `KnowledgeRepository` / `knowledge_ingestion` 形成执行层联动，因此仍需下一阶段 validator 收口。
 
 ### 关闭项
-- 已通过 `python -m pytest tests/test_disclosure_runner.py`。
-- 已通过 `python -m pytest tests/test_disclosure_store.py tests/test_cninfo_disclosure.py tests/test_sse_disclosure_verifier.py tests/test_disclosure_runner.py`。
-- 已复现并修复“统一 runner 在校验阶段硬编码 `CN-SH` 导致非沪市样本路由错误”的问题。
+- 已通过 `cargo test --test metadata_schema_registry_unit -- --nocapture`
 
 ### 记忆点（可选）
-- 用户当前接受“先把架构边界修正，再决定是否扩新源或新校验器”的推进方式，因此这轮只做市场感知路由，不额外扩范围。
-- 用户希望后续能继续推送给其他 AI 接续，所以记录文件和 `CHANGELOG_TASK.MD` 必须持续保持可交接状态。
+- 用户明确纠正后续方向是“整体本体论元数据管理”，所以这条线接下来应该优先做 registry、validator、versioning，而不是继续只在标准包/仓储层打转。
 
-## 2026-03-27
+## 2026-04-08
 ### 修改内容
-- `docs/plans/2026-03-27-m3-next-steps.md`：新增独立 roadmap 文档，整理当前 M3 已完成边界、M3-6 之后的优先级、M4 打包方向、测试建议、风险与交接说明，目的是让其他 AI 不需要重新梳理上下文就能继续推进。
-- `task_plan.md`：补充 roadmap 文档引用，目的是让主任务计划和独立规划文档形成双向入口。
-- `progress.md`：记录“已新增独立 roadmap 供后续接续”的事实，目的是把今天的收口动作显式沉淀下来。
-- `findings.md`：补充“披露数据线已进入多阶段子系统，需要独立规划文档”的结论，目的是说明为什么现在值得单独维护 roadmap。
+- 在 `tests/knowledge_repository_unit.rs` 中新增 `knowledge_repository_persists_standard_layout_directory` 与 `knowledge_repository_loads_repository_from_standard_layout_directory` 两条红测，先钉住标准布局目录与 manifest 契约。
+- 在 `src/ops/foundation/knowledge_repository.rs` 中新增 `save_to_layout_dir()`、`load_from_layout_dir()` 与 `KnowledgeRepositoryLayoutManifest`，把 repository 的最小标准布局固定为 `bundle.json + repository.manifest.json`。
+- 在 `src/ops/foundation/knowledge_repository.rs` 中把 `save_to_path()` 切到“同目录 staging 写入 -> 再替换正式文件”的路径，用最小替换式写入降低半成品文件风险。
+- 同步更新 `README.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/plans/2026-04-08-foundation-repository-layout-phase2-stage4.md`、`task_plan.md`、`progress.md`、`findings.md`，把 foundation 当前状态更新为“标准包 + 标准仓储 + 导入 + 过滤扩展 + 标准布局目录”。
 
 ### 修改原因
-- 用户明确表示今天先不继续开发，而是要把后续计划和规划一起整理好，并为后续推送和 AI 接续做准备。
-- 目前披露数据线已经从单一功能演进成带有多阶段路线图的独立子系统，仅靠开发日志已不足以高效承接后续工作。
-- 需要把“下一步该做什么、为什么这样排、哪些东西还没做”从会话语境中抽离成稳定文档。
+- 用户已批准方案 B，当前阶段需要把 repository 从“单文件可存”推进到“有正式布局标准可存可读”。
+- 只有标准包、导入和过滤还不够，foundation 还需要一套最小文件布局契约，否则后续持久化继续扩展时会反复分叉。
 
 ### 方案还差什么?
-- [ ] 还未把 roadmap 内容同步到仓库 README 或专门的 disclosure 文档索引页。
-- [ ] 还未完成远端 GitHub 推送；这取决于当前机器账号是否具备仓库写权限。
-- [ ] 还未决定下一轮是先做 M3-6 明细校验报告，还是直接开 SZSE 官方校验器。
+- [ ] 还没有支持目录拆分仓储，例如 `nodes.jsonl / edges.jsonl / concepts.json`。
+- [ ] 还没有支持索引文件与版本迁移。
+- [ ] 还没有对 manifest 版本不匹配、布局缺文件等情况补更细校验。
 
 ### 潜在问题
-- [ ] roadmap 是基于 2026-03-27 当天状态整理的，如果后续分支继续开发但不更新该文档，交接信息会过时。
-- [ ] 当前远端写权限此前已验证存在 `403` 风险，本次推送可能仍然失败。
+- [ ] 当前 staging 写入虽然已经比直接覆盖更稳，但在 Windows 上仍不是更完整语义下的强原子替换。
+- [ ] 当前 manifest 只记录最小计数与入口文件名，如果后续布局继续变复杂，现有元数据可能不够。
+- [ ] 当前 repository 仍然没有 edge 指向不存在节点这类更细一致性校验，布局标准化并不会自动解决这类数据问题。
 
 ### 关闭项
-- [ ] 未执行测试：本轮为文档与交接收口修改，未改动运行时代码或测试逻辑。
-- 已补齐独立 roadmap：`docs/plans/2026-03-27-m3-next-steps.md`。
+- 已通过 `cargo test --test knowledge_repository_unit -- --nocapture`
+- 已通过 `cargo test --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
 
 ### 记忆点（可选）
-- 用户今天的目标是“先收口、补后续计划、再尝试推 GitHub”，不是继续扩功能。
-- 当用户强调“方便其他 AI 接续”时，优先提供独立 roadmap，而不只是在日志文件里零散追加说明。
-## 2026-04-09
+- 用户已明确批准方案 B，所以这轮只做标准布局目录、manifest 和替换式写入，不要顺手扩成目录拆分仓储或更大持久化系统。
+
+## 2026-04-08
 ### 修改内容
-- `src/ops/foundation/navigation_pipeline.rs`：新增 foundation 通用导航主线的最小 `NavigationPipeline` 实现，串联 `route -> roam -> retrieve -> assemble`，并统一暴露 `NavigationPipelineError`，目的是补齐“问题到证据”的正式内核入口。
-- `src/ops/foundation/navigation_pipeline.rs`：新增基于 `RoamingPlan` 模板种子的路由收敛逻辑，目的是真正让 pipeline 只围绕当前计划允许的主种子概念导航，避免修饰性概念把集成主链带偏。
-- `src/ops/foundation.rs`：挂接 `navigation_pipeline` 模块导出，目的是让 integration test 和后续上层调用都通过 foundation 正式入口接入，而不是继续依赖缺失模块。
+- 在 `tests/knowledge_repository_unit.rs` 中新增 `knowledge_repository_requires_all_exact_matches` 与 `knowledge_repository_limits_matches_to_concept_scope` 两条红测，分别锁定多字段 AND 与 concept scope 两个最小过滤扩展行为。
+- 在 `src/ops/foundation/knowledge_repository.rs` 中扩展 `MetadataFilter`，新增 `with_concept_id()`，并把 `filtered_node_ids()` 从“只看 metadata exact-match”扩展为“metadata 多字段 AND + concept scope”的组合过滤。
+- 同步更新 `README.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/plans/2026-04-08-foundation-metadata-filter-phase2-stage3.md`、`task_plan.md`、`progress.md`、`findings.md`，把 foundation 当前过滤能力更新为“多字段 AND + concept scope”。
 
 ### 修改原因
-- 已存在的 `tests/navigation_pipeline_integration.rs` 先于源码定义了 `NavigationPipeline` 契约，导致当前 foundation 主线在集成层直接编译失败，必须先补最小实现。
-- 用户已多次明确当前只推进 foundation 通用标准能力，不做业务化能力；因此这轮应优先补齐 foundation 编排入口，而不是转去扩展业务链路。
-- 集成测试对 `show sales trend` 的期望是只围绕 `revenue` 作为导航主种子运行，说明 pipeline 层需要在 router 多概念识别之后再做一次计划约束收敛。
+- 用户已批准方案 B，要求继续扩展 foundation 的通用过滤能力，但仍然不做 DSL、不做业务化规则。
+- 单字段 exact-match 已经不够支撑当前标准能力阶段，至少需要支持“多个条件同时满足”和“按概念域先收窄”这两个最小能力。
 
 ### 方案还差什么?
-- [ ] 还未把 `required_concept_tags` 正式打通到 pipeline 级集成测试；当前只先补齐最小编排入口。
-- [ ] 还未增加 `RoamFailed` / `RetrievalFailed` 的专门集成测试；当前先覆盖了 happy path 与 route error。
-- [ ] 还未把 `matched_terms`、模板种子约束等信息上提为更完整的 trace / telemetry 输出。
+- [ ] 还没有支持 OR / NOT。
+- [ ] 还没有支持范围过滤、模糊匹配或正则匹配。
+- [ ] 还没有对 concept scope 提供批量接口或更细布尔语义定义。
 
 ### 潜在问题
-- [ ] 当前 pipeline 的“模板种子收敛”依赖 `RoamingPlan::seed_concept_ids` 作为允许的主种子集合；如果后续该字段被重新定义为“默认种子”而非“计划边界”，需要同步调整这段约束逻辑。
-- [ ] 当前 `NavigationPipelineError` 只保留最小错误语义，没有透传内部细节；如果后续需要更强诊断能力，可能要补 `source error` 或阶段上下文。
-- [ ] 当前只验证了内存态 foundation 样本；若后续图谱规模增大或概念冲突变多，需要补更多多概念、多标签、多跳场景测试。
-
-### 关闭项?
-- 已先复现并确认红测：`cargo test --test navigation_pipeline_integration -- --nocapture`，失败原因为 `foundation::navigation_pipeline` 模块缺失。
-- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`。
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_store_unit -- --nocapture`。
-
-### 记忆点（可选）
-- 用户当前主线是补 foundation 通用导航内核，任何“集成失败”都优先判断是不是 foundation 主线入口缺失，而不是先跳去业务域修补。
-## 2026-04-09
-### 修改内容
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_prefers_tag_constrained_domain_evidence`，构造 `margin` 在 `finance` / `ui` 双域重名的纯内存集成样本，并通过 `with_required_concept_tags(vec!["finance"])` 验证 pipeline 最终命中正确 concept、node 与 citation。
-
-### 修改原因
-- 前一轮虽然已经把 `required_concept_tags` 接入了 `NavigationRequest` 与 `CapabilityRouter`，但还缺少 pipeline 级证据证明，无法确认标签约束真的穿过 foundation 主链。
-- 用户当前推进的是 foundation 通用标准能力，因此需要把“同词不同域”的约束验证上提到集成层，而不是停留在 router 局部单测。
-- 按 TDD 流程，这轮先补红测；实际执行时该测试一次通过，反向证明现有 pipeline 已经具备标签约束闭环能力，因此无需再改生产代码。
-
-### 方案还差什么?
-- [ ] 还未补 `required_concept_tags` 与模板种子收敛同时发生冲突时的集成测试，例如“模板只允许某主种子，但标签约束筛出另一组候选”的边界场景。
-- [ ] 还未补 `RoamFailed` / `RetrievalFailed` 在带标签约束条件下的失败用例。
-- [ ] 还未把标签命中的解释信息上提到更显式的 trace / telemetry 结构中。
-
-### 潜在问题
-- [ ] 当前 pipeline 级标签验证依赖纯内存 fixture；如果后续 graph fixture 增加更多共享 alias 节点，可能需要补多跳和多命中排序场景。
-- [ ] 当前只验证单标签 `finance`；多标签 OR 语义是否满足未来预期，还没有集成级覆盖。
-- [ ] 由于这轮红测直接通过，说明现有行为已满足当前契约；如果后续有人调整模板种子收敛逻辑，可能会无意破坏这个闭环，需要持续保留该测试。
-
-### 关闭项?
-- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`。
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_store_unit -- --nocapture`。
-- 已按 TDD 先补 pipeline 级测试，再确认现有实现无需修复。
-
-### 记忆点（可选）
-- `required_concept_tags` 现在不只是 router 层能力，已经被 pipeline 集成测试证明能稳定影响 foundation 主链最终证据命中；后续不要重复把它当作“尚未闭环”的未完成项。
-## 2026-04-09
-### 修改内容
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_prefers_request_tags_over_conflicting_template_seeds`，构造“模板只给 `layout_margin`，但请求显式要求 `finance` 标签”的冲突样本，验证 pipeline 最终仍保留 `gross_margin` 路由并命中 finance 侧 evidence。
-
-### 修改原因
-- foundation pipeline 现在同时存在 request 级 `required_concept_tags` 与 plan 模板种子收敛两层约束，如果不明确二者冲突时的优先级，后续重构很容易把显式请求 scope 吞掉。
-- 用户当前推进的是通用标准能力边界收敛，因此需要把“标签优先于冲突模板默认种子”的语义显式固定在集成测试里，而不是留给实现细节隐式决定。
-- 按 TDD 流程先补边界测试；该测试一次通过，说明当前实现已经满足“请求标签优先，模板仅在不冲突时收敛”的预期契约。
-
-### 方案还差什么?
-- [ ] 还未补“多标签组合 + 冲突模板种子”的集成测试，例如 `finance + reporting` 组合场景。
-- [ ] 还未补带冲突模板种子的 `RoamFailed` / `RetrievalFailed` 边界测试。
-- [ ] 还未把这条优先级规则整理进更正式的 foundation 设计文档；当前先用测试和任务日志钉死行为。
-
-### 潜在问题
-- [ ] 当前优先级规则主要依赖 `constrain_route_to_template_seeds()` 中“若收敛后为空则回退原 route”的语义；后续若有人重写这段逻辑，可能无意改变契约。
-- [ ] 当前只验证单个冲突 alias `margin`；更复杂的多词短语冲突还没有集成级覆盖。
-- [ ] 本轮没有新增生产代码，因此若未来出现行为变化，首先应怀疑模板种子收敛逻辑而不是标签过滤逻辑本身。
-
-### 关闭项?
-- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`。
-- 已按 TDD 先补冲突边界测试，再确认现有实现无需修复。
-
-### 记忆点（可选）
-- foundation pipeline 当前已被测试明确约束为：`required_concept_tags` 属于更强的请求级 scope，模板种子只在不冲突时做收敛，不能覆盖显式标签约束。
-## 2026-04-09
-### 修改内容
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_surfaces_roaming_error_for_missing_seed_concepts` 与 `navigation_pipeline_surfaces_retrieval_error_when_scope_has_no_matching_evidence`，分别钉死 pipeline 在漫游种子失效和证据检索落空时的统一错误边界。
-- `tests/navigation_pipeline_integration.rs`：修正 retrieval miss 样本正文，去掉与查询词 `margin` / `trend` 的意外交集，目的是真正只验证 retrieval 阶段空命中，而不是被样本噪音误伤。
-- `src/ops/foundation/navigation_pipeline.rs`：调整 `constrain_route_to_template_seeds()`，在“无显式 `required_concept_tags`”时允许模板默认种子成为主收敛来源；若存在显式标签约束且模板收敛为空，则继续保留请求路由结果。目的是同时满足“标签优先”与“模板默认种子在无显式 scope 时有效”两条通用契约。
-
-### 修改原因
-- 新增的失败边界红测暴露出两点：`RetrievalFailed` 样本不够纯，`RoamFailed` 在当前实现下几乎不可达，因为模板默认种子在无显式标签时没有真正参与优先收敛。
-- foundation 主线需要稳定表达 `route / roam / retrieve` 三阶段失败边界，否则上层无法基于阶段语义做可解释反馈。
-- 用户当前推进的是通用标准能力，所以这轮应补的是“失败边界契约”而不是更复杂的业务策略。
-
-### 方案还差什么?
-- [ ] 还未补多标签组合条件下的 `RoamFailed` / `RetrievalFailed` 集成测试。
-- [ ] 还未补“模板默认种子有效但图谱多跳后为空”的更复杂漫游失败场景。
-- [ ] 还未把新的模板收敛优先级写入正式 foundation 设计文档；当前先由测试和日志约束行为。
-
-### 潜在问题
-- [ ] 当前模板默认种子在无显式标签约束时会覆盖路由结果；如果后续希望模板只作为建议而非强约束，需要重新审视这条规则。
-- [ ] `RoamFailed` 当前回传的是实际参与漫游的模板种子列表，而不是原始 route concept ids；上层若想同时看到两者，需要后续补更细的诊断字段。
-- [ ] 这轮仍主要覆盖单跳、内存态 fixture；真实大图谱上的性能和排序行为还没有被验证。
-
-### 关闭项?
-- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`。
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_store_unit -- --nocapture`。
-- 已按 TDD 先补失败边界红测，再做最小生产修复直到转绿。
-
-### 记忆点（可选）
-- foundation pipeline 当前规则已被测试固定为：
-- 有显式 `required_concept_tags` 时，请求级标签约束优先于模板默认种子。
-- 无显式标签约束时，模板默认种子可以作为主收敛来源，并可能触发真实的 `RoamFailed` 边界。
-## 2026-04-09
-### 修改内容
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_prefers_intersection_when_template_and_route_partially_overlap`，构造 `route = revenue + gross_margin`、模板默认种子 = `gross_margin + ghost_seed` 的部分重叠样本，验证 pipeline 最终只保留交集 `gross_margin`。
-
-### 修改原因
-- foundation pipeline 前面已经分别钉死了“显式标签优先”和“无显式标签时模板默认种子可生效”，但还缺少“模板与 route 部分重叠”这一中间分支的集成级证明。
-- 用户选择了方案C，因此需要把三层优先级完整闭环：标签优先；部分重叠取交集；完全不重叠时模板默认种子生效。
-- 按 TDD 先补边界测试；测试直接通过，说明现有实现已经满足方案C，无需再调整生产代码。
-
-### 方案还差什么?
-- [ ] 还未补“多标签 + 部分重叠模板”组合场景的集成测试。
-- [ ] 还未补部分重叠场景下多跳 roaming path 是否仍然只围绕交集 seeds 扩展的验证。
-- [ ] 还未把这组优先级规则沉淀到更正式的 foundation 设计文档；当前先由测试和日志固定。
-
-### 潜在问题
-- [ ] 当前“部分重叠取交集”只验证了单一交集 seed；多个交集 seed 的排序和保留顺序还未显式覆盖。
-- [ ] 当前样本是纯内存小图；真实图谱里如果节点分数相近，仍可能需要更细的排序测试。
-- [ ] 由于这轮未改生产代码，后续若行为变化，优先检查 `constrain_route_to_template_seeds()` 是否被重构破坏。
-
-### 关闭项?
-- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`。
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_store_unit -- --nocapture`。
-- 已按 TDD 先补“部分重叠取交集”集成测试，再确认现有实现无需修复。
-
-### 记忆点（可选）
-- foundation pipeline 当前规则已被测试完整固定为：显式标签优先；无显式标签且模板与 route 部分重叠时取交集；无交集时模板默认种子生效。
-## 2026-04-09
-### 修改内容
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_keeps_multiple_intersection_seeds_in_route_order`，验证当模板默认种子与 route 存在多个交集时，最终保留的 concept ids 按 route 命中顺序输出。
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_roams_only_from_kept_intersection_seeds`，验证多交集场景下的 roaming path 只围绕最终保留的交集 seeds 扩展，不会把模板中未保留的 `ghost_seed` 带入主链。
-
-### 修改原因
-- foundation pipeline 之前已经钉死了“单交集取交集”，但还缺少多个交集 seeds 时的顺序与 path 约束，否则后续排序或 roaming 重构容易引入不稳定行为。
-- 用户明确要求继续收紧“多个交集 seed 的顺序与保留规则”，因此这轮要把主线最关键的剩余通用规则补成集成测试，而不是继续扩更大范围。
-- 按 TDD 先补红测；两条测试直接通过，说明当前实现已经稳定满足“多个交集按 route 顺序保留，roaming 只围绕保留 seeds 扩展”的契约。
-
-### 方案还差什么?
-- [ ] 还未补“多个交集 seed + 多标签约束”复合场景测试。
-- [ ] 还未补多个交集 seed 同时存在多跳 relation 时的 path 深度与顺序测试。
-- [ ] 还未把这组规则整理成正式 foundation 设计文档或 handoff 规则摘要。
-
-### 潜在问题
-- [ ] 当前多个交集顺序是通过 route 顺序间接保证的；如果未来 router 的 phrase-first / token fallback 顺序被改，pipeline 输出顺序也会随之变化。
-- [ ] 当前 roaming path 测试只覆盖两条一步关系；更复杂图谱中的广度优先顺序还没有专门测试。
-- [ ] 这轮没有改生产代码，若后续行为漂移，优先检查 route 顺序和 `constrain_route_to_template_seeds()` 的组合行为。
-
-### 关闭项?
-- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`。
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`。
-- 已通过 `cargo test --test ontology_store_unit -- --nocapture`。
-- 已按 TDD 先补“多交集顺序”和“多交集 roaming path”测试，再确认现有实现无需修复。
-
-### 记忆点（可选）
-- foundation pipeline 当前已被测试固定为：多个交集 seeds 按 route 命中顺序保留；roaming 只围绕最终保留的 seeds 扩展，模板中未保留的默认种子不能混入主链。
-## 2026-04-09
-### 修改内容
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_keeps_tag_filtered_intersection_seeds_in_route_order`，补齐“多个交集 seed + 单标签约束”的复合集成测试，目的是确认 `required_concept_tags = ["finance"]` 与模板交集规则叠加后，主链仍只保留 `gross_margin -> revenue` 这组有效 seeds。
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_keeps_multi_tag_intersection_seeds_and_evidence`，补齐“多个交集 seed + 多标签约束”的复合集成测试，目的是确认多标签输入下 `route -> roam -> retrieve -> assemble` 仍输出稳定的 concept、path、hits 与 citations。
-- `tests/navigation_pipeline_integration.rs`：新增 `sample_tag_filtered_multi_overlap_navigation_pipeline` 与 `sample_multi_tag_filtered_overlap_navigation_pipeline` 两个纯内存 fixture，目的是把“同词异域候选 + 模板默认 seeds + 标签约束 + 多交集顺序”收敛到可重复回归的 foundation 样本里。
-- `tests/navigation_pipeline_integration.rs`：修正 `navigation_pipeline_keeps_multi_tag_intersection_seeds_and_evidence` 的命中顺序断言，目的是对齐当前 retrieval 在同分时按 `node_id` 升序排序的通用契约，而不是误把 route 顺序当成 hits 顺序。
-
-### 修改原因
-- 当前 foundation 主线虽然已经分别覆盖了“多交集 seed 保留规则”和“标签约束路由规则”，但还缺少二者叠加后的集成级闭环，继续推进前必须把复合边界钉死。
-- 用户已明确当前只做通用化标准能力，不做业务化能力，因此这一轮应继续补 foundation 主线的通用边界，而不是扩展任何 `security_* / stock_* / scorecard / training` 链路。
-- 按 TDD 流程，这轮先补红测；实际执行时第二条新测试首次失败，暴露的是断言对 hits 排序契约理解偏差，而不是生产逻辑错误，因此只做测试预期修正，不改生产代码。
-
-### 方案还差什么?
-- [ ] 还未补“多个交集 seed + 多标签约束 + 冲突模板 seeds”三者同时出现时的集成测试。
-- [ ] 还未补带标签约束条件下的 `RoamFailed` / `RetrievalFailed` 复合失败用例。
-- [ ] 还未把这组复合边界规则同步沉淀到更正式的 foundation 设计文档，只先补到了测试与任务日志。
-
-### 潜在问题
-- [ ] 当前多标签过滤语义仍是“命中任一 required tag 即保留”；如果后续预期改成 AND 语义，现有测试和实现都需要一起调整。
-- [ ] 当前 `hits` 顺序受 retrieval 评分与 `node_id` 次排序共同影响，不能直接等同于 route 顺序；后续新增断言时容易再次误判。
-- [ ] 本轮仍是纯内存 fixture，尚未覆盖更大图谱、更多共享 alias 或多跳 path 下的复合排序抖动。
+- [ ] 当前 concept scope 采用“任一 concept_id 命中即可”的语义；如果后续节点挂多个 concept，且调用方预期是更严格的 AND 语义，可能会出现预期偏差。
+- [ ] 当前 `filtered_node_ids()` 内部仍使用线性 `contains()` 判断 concept scope；节点量和 scope 同时变大时，过滤成本会继续上升。
+- [ ] 当前过滤器能力已经扩展，但 repository 写入仍不是原子写，后续若继续推进持久化标准，这个风险还需要单独收口。
 
 ### 关闭项
-- 已先补复合集成测试并确认红测：`cargo test --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`
-- 已通过 `cargo test --test ontology_store_unit -- --nocapture`
+- 已通过 `cargo test --test knowledge_repository_unit -- --nocapture`
 
 ### 记忆点（可选）
-- `route` 顺序与 `hits` 顺序不是同一层契约；当前 retrieval 在同分场景下按 `node_id` 升序稳定排序，后续写集成断言不能再把二者混用。
-- 用户当前主线仍然是 foundation 通用导航内核的边界收敛，继续推进时优先补复合边界与文档沉淀，不要偏回业务链路。
+- 用户已明确批准方案 B，所以这轮只做多字段 AND 与可选 concept scope，不要顺手扩成 OR/NOT、范围过滤或完整 DSL。
 
-## 2026-04-09
+## 2026-04-08
 ### 修改内容
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_surfaces_router_error_when_required_tags_filter_all_candidates`，补齐“显式标签把原本可匹配候选全部过滤掉”时的复合失败边界，目的是确认 `required_concept_tags` 在失败路径里同样会触发统一 `RouteFailed` 契约。
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_surfaces_retrieval_error_when_tagged_route_overrides_conflicting_template`，补齐“显式标签压住冲突模板后仍因无证据而失败”时的复合失败边界，目的是确认失败阶段会稳定落在 `RetrievalFailed`，而不是被模板冲突误导。
-- `tests/navigation_pipeline_integration.rs`：新增 `sample_conflicting_seed_retrieval_miss_navigation_pipeline` 纯内存 fixture，目的是把“标签优先于冲突模板”的规则继续压测到失败路径，而不只停留在 happy path。
+- 在 `tests/knowledge_ingestion_unit.rs` 中新增 3 条红测，分别锁定 `KnowledgeBundle` JSON 导入、tagged-record JSONL 导入和 JSONL 行号错误边界，保证 `knowledge_ingestion` 先由失败测试定义契约。
+- 在 `src/ops/foundation/knowledge_ingestion.rs` 中新增 `KnowledgeIngestionError`、`load_bundle_from_json_path()`、`load_repository_from_json_path()`、`load_bundle_from_jsonl_path()`、`load_repository_from_jsonl_path()`，并采用 `bundle_header + concept/relation/node/edge` 的单文件 tagged-record JSONL 格式实现最小标准导入能力。
+- 在 `src/ops/foundation.rs` 中导出 `knowledge_ingestion` 模块，使 foundation 标准导入能力成为正式模块边界的一部分。
+- 同步更新 `README.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/plans/2026-04-08-foundation-knowledge-ingestion-phase2-stage2.md`、`task_plan.md`、`progress.md`、`findings.md`，把 foundation 当前状态更新为“标准包 + 标准仓储 + metadata 过滤 + 标准 JSON/JSONL 导入”。
 
 ### 修改原因
-- 当前 foundation 主线已经覆盖了标签约束与模板冲突的成功路径，但还缺少对应的失败路径护栏，继续推进前需要先把失败语义收紧。
-- 我先核查了可达性，确认“显式标签约束 + 冲突模板”在当前契约下不会触发 `RoamFailed`：因为模板一旦与显式 tag 冲突，pipeline 会保留 route，而 route 中的 concept 必然来自 ontology store，漫游种子不会凭空失效。
-- 按 TDD 流程，这轮先补两条失败测试；实际执行时两条测试都直接通过，说明当前生产实现已满足这组契约，因此本轮没有新增生产代码改动。
+- 用户已明确批准方案 B，当前阶段需要在不做业务化映射的前提下，先补齐 foundation 的标准导入能力。
+- 只有标准包和标准仓储还不够，foundation 还需要一条“外部文件如何进入标准包/仓储”的最小链路，否则这些标准结构仍然主要依赖手工构造样本。
 
 ### 方案还差什么?
-- [ ] 还未补“多标签约束 + 冲突模板 seeds + 失败边界”三者同时出现时的集成测试。
-- [ ] 还未把“显式标签约束 + 冲突模板”下 `RoamFailed` 不可达这一架构事实整理进更正式的 foundation 设计文档。
-- [ ] 还未补更大图谱、多跳 relation 下的标签失败场景测试。
+- [ ] 还没有支持目录型导入或多文件布局导入，当前 JSONL 仍是单文件 tagged-record 格式。
+- [ ] 还没有支持业务原始文件（CSV/Excel/证券数据）直接转标准包。
+- [ ] 还没有扩展 `MetadataFilter` 到多字段 AND、concept scope 或更复杂过滤语义。
 
 ### 潜在问题
-- [ ] 当前“显式标签约束 + 冲突模板”不会触发 `RoamFailed` 是依赖现有 pipeline 契约成立的；如果未来有人改动 `constrain_route_to_template_seeds()` 的优先级，这个判断需要重新验证。
-- [ ] 当前标签失败边界仍主要依赖纯内存 fixture，尚未覆盖更复杂的共享 alias 与多跳 path 情况。
-- [ ] 这轮没有生产代码改动，如果后续出现失败语义漂移，应优先检查测试覆盖是否遗漏组合场景，而不是默认实现本身有新逻辑。
+- [ ] 当前 JSONL 只要求存在一个 `bundle_header`，但还没有对“重复 concept id / relation 重复 / edge 指向不存在节点”等边界做更细导入级校验，主要仍依赖后续 schema/repository 构建阶段兜底。
+- [ ] `KnowledgeRepository::save_to_path()` 依然不是原子写；即使导入能力已经补齐，落盘阶段仍有半成品文件风险。
+- [ ] tagged-record JSONL 现在适合手工维护和小规模样本，但如果后续文件变大，单文件顺序维护成本会升高。
 
 ### 关闭项
-- 已通过 `cargo test --test navigation_pipeline_integration navigation_pipeline_surfaces_router_error_when_required_tags_filter_all_candidates -- --nocapture`
-- 已通过 `cargo test --test navigation_pipeline_integration navigation_pipeline_surfaces_retrieval_error_when_tagged_route_overrides_conflicting_template -- --nocapture`
-- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test capability_router_unit -- --nocapture`
-- 已通过 `cargo test --test ontology_schema_unit -- --nocapture`
-- 已通过 `cargo test --test ontology_store_unit -- --nocapture`
+- 已通过 `cargo test --test knowledge_ingestion_unit -- --nocapture`
+- 已通过 `cargo test --test knowledge_bundle_unit --test knowledge_repository_unit --test knowledge_ingestion_unit -- --nocapture`
 
 ### 记忆点（可选）
-- “显式标签约束 + 冲突模板”在当前通用导航契约下是可以产生 `RouteFailed` 和 `RetrievalFailed` 的，但不会自然产生 `RoamFailed`；后续不要再把这个不可达分支当成待补红测。
-- foundation 主线下一步更适合继续补“多标签 + 冲突模板 + 失败边界”的三重组合，而不是回头去扩业务链路。
-## 2026-04-09
+- 用户已批准方案 B，所以当前阶段只做标准 bundle JSON 与 tagged-record JSONL 两类通用导入，不要顺手扩成目录扫描、业务 CSV 映射或证券分析适配。
+
+## 2026-04-08
 ### 修改内容
-- `src/ops/foundation/metadata_constraint.rs`：新增 `MetadataConstraint::{Equals, In, HasAny, Range}` 与 `matches/matches_all`，并修正 `Range` 边界比较为 `&str` 对齐，目的是真正形成 foundation 通用 metadata 约束模型，而不是散落在 retrieval 里的临时字段判断。
-- `src/ops/foundation/knowledge_record.rs`：为 `KnowledgeNode` 增加 `metadata` 容器、`MetadataFieldValue::{Text, TextList}` 以及 `with_metadata_text/with_metadata_values` 等写入与匹配辅助，目的是给 MetadataConstraint 提供标准节点级承载。
-- `src/ops/foundation/capability_router.rs`：为 `NavigationRequest` 增加 `metadata_constraints` 与 `with_metadata_constraints(...)`，目的是让 metadata 约束以正式请求输入进入 foundation 主线。
-- `src/ops/foundation/retrieval_engine.rs`：将 `retrieve(...)` 扩为接收 `metadata_constraints`，并在打分前执行 metadata 过滤，目的是把本轮方案B第一阶段明确收敛到 `NavigationRequest -> Retrieval`。
-- `src/ops/foundation/navigation_pipeline.rs`：把 `request.metadata_constraints` 透传到 retrieval，目的是打通 metadata 约束在通用导航主线中的正式链路。
-- `src/ops/foundation.rs`：导出 `metadata_constraint` 模块，目的是让该能力成为 foundation 一等公开模块。
-- `tests/knowledge_record_unit.rs`、`tests/retrieval_engine_unit.rs`、`tests/navigation_pipeline_integration.rs`：先补 metadata 红测，再微调夹具文本与排序断言，目的是避免新增 metadata 专用样本误伤旧的 scoped retrieval / pipeline 契约。
+- 在 `src/ops/foundation/knowledge_bundle.rs` 中新增 `KnowledgeBundle` 标准知识包结构，并补 `to_ontology_store() / to_graph_store()` 重建入口，用来把 Phase 1 的纯内存导航内核收口为可持久化、可导入导出的通用标准载体。
+- 在 `src/ops/foundation/knowledge_repository.rs` 中新增 `KnowledgeRepository` 与 `MetadataFilter`，补最小仓储校验、JSON 落盘/读回和 `node.metadata` exact-match 过滤，用来形成 foundation 的标准仓储边界。
+- 在 `src/ops/foundation/knowledge_record.rs`、`src/ops/foundation/ontology_schema.rs`、`src/ops/foundation.rs` 中同步补 `metadata`、`serde` 派生与模块导出，使标准包与仓储闭环可以直接复用现有 ontology/graph 查询层。
+- 在 `tests/knowledge_bundle_unit.rs` 与 `tests/knowledge_repository_unit.rs` 中先写失败测试，再补最小实现转绿，锁定标准包、标准仓储和 metadata 精确过滤契约。
+- 同步更新 `README.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/plans/2026-04-08-foundation-standard-capabilities-phase2.md`、`task_plan.md`、`progress.md`、`findings.md`，把 foundation 当前口径收口为“通用标准能力”，不再误写成业务化完整知识库。
 
 ### 修改原因
-- 用户已明确本轮只推进 foundation 通用标准能力，并批准“方案B：先把 MetadataConstraint 做成一等模型，第一轮只正式接入 NavigationRequest -> Retrieval，不改 RoamingPlan 语义”。
-- 红测已经先定义了三类边界：节点级 metadata 承载、retrieval 的 metadata 成功/失败过滤、pipeline 中 metadata 约束透传；必须补齐最小生产实现才能闭环。
-- 原有 retrieval / pipeline 夹具在加入 metadata 样本后出现了“附加节点意外命中旧 query”的噪音；若不收敛夹具，会把测试失败误解成主链行为回归。
+- 用户已明确纠正：foundation 线当前不做业务化能力，只做通用化标准能力；如果继续沿着证券分析主链写交接文档和计划，会持续误导后续实现方向。
+- Phase 1 已经形成最小导航闭环，但此前还缺少标准知识包、标准仓储和 metadata 过滤契约，导致 foundation 仍停留在“能跑”而不是“可标准化复用”的状态。
 
 ### 方案还差什么?
-- [ ] 还未把 `MetadataConstraint` 正式接入 roaming 收敛、scope trace 或 roaming path 解释信息；本轮明确不做。
-- [ ] 还未补 `In/HasAny` 在 pipeline 集成层的专项用例；当前只验证了 `Equals` 与 `Range` 的最小闭环。
-- [ ] 还未把 metadata 约束的边界规则沉淀进更正式的 foundation 设计文档；目前先落在测试与任务日志中。
+- [ ] 还没有补 `knowledge_ingestion`，当前仍缺标准 JSON/JSONL -> `KnowledgeBundle / KnowledgeRepository` 的导入流水线。
+- [ ] 还没有补持久化目录布局、版本迁移与索引规范，当前只具备单文件 JSON 仓储能力。
+- [ ] 还没有扩展 `MetadataFilter` 到多字段 AND、concept scope 或更复杂过滤语义。
 
 ### 潜在问题
-- [ ] 当前 `Range` 仍是字符串区间语义，只适用于 ISO 日期或其他可按字典序比较的字段；若后续接入非规范日期/数值字符串，可能出现比较歧义。
-- [ ] 当前 metadata 只在 retrieval 前过滤节点，不参与 route / roam 收敛；若上游误以为 metadata 会影响 seed 选择，可能产生预期偏差。
-- [ ] `cargo test` 过程中仍存在既有 `dead_code` warnings；本轮未处理这些告警，它们不影响当前 metadata 能力闭环，但会继续出现在回归输出中。
+- [ ] `KnowledgeRepository::save_to_path()` 当前是直接全量写文件，不是原子写；若写入中断，目标文件可能留下半成品内容。
+- [ ] `MetadataFilter` 目前只支持 exact-match，若上层误以为它支持模糊查询、范围过滤或业务 DSL，会出现检索预期落差。
+- [ ] 当前 foundation 虽已具备标准包和标准仓储，但仍没有知识内容导入流水线；如果外部继续把它描述成“完整知识库”，会误导后续协作边界。
 
 ### 关闭项
-- 已先复现并确认红测失败：`cargo test --test knowledge_record_unit -- --nocapture`、`cargo test --test retrieval_engine_unit -- --nocapture`、`cargo test --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test knowledge_record_unit -- --nocapture`
+- 已通过 `cargo test --test knowledge_bundle_unit --test knowledge_repository_unit -- --nocapture`
+- 已通过 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration --test knowledge_bundle_unit --test knowledge_repository_unit -- --nocapture`
+
+### 记忆点（可选）
+- 用户已明确纠正：foundation 线当前只做通用化标准能力，不做业务化能力；后续若未再次获批，不要把它主动接到证券分析主链，也不要把“标准能力建设”误写成“完整知识库产品化”。
+
+## 2026-04-01
+### 修改内容
+- 在 `tests/integration_tool_contract.rs` 中新增 `technical_consultation_basic_contract_exposes_bullish_continuation_conclusion / technical_consultation_basic_contract_exposes_range_wait_conclusion` 两条外层合同回归，并补充同文件内的最小 CSV 夹具、导入助手与样本生成函数，所有新增代码旁都补了中文时间注释，说明修改原因与目的。
+- 同步更新 `task_plan.md`、`progress.md`、`findings.md`，把这轮“方案 A-5 外层合同收口”的测试范围、结论和后续待办写入续接记录。
+
+### 修改原因
+- `consultation_conclusion` 虽然已经在 CLI 专项回归中补齐，但 `integration_tool_contract.rs` 之前还没有任何一条测试证明工具层对外确实会返回完整字段。
+- 这意味着后续如果发生工具层字段裁剪或结构漂移，现有回归无法第一时间发现，因此需要把外层合同也正式锁住。
+
+### 方案还差什么?
+- [ ] 还没有把 `consultation_conclusion` 的字段语义补进 README 或对外 JSON 示例。
+- [ ] 还没有补 `confirmed_resistance_retest_hold / confirmed_support_retest_reject` 的外层 continuation 子分支合同。
+
+### 潜在问题
+- [ ] 当前外层合同只锁了 `bullish_continuation` 和 `range_wait` 两端样本，continuation 的细分回踩/反抽分支仍可能在未来文案调整时漂移。
+- [ ] 本轮没有执行整仓级 `cargo test -- --nocapture --test-threads=1`，当前验证仍是主线定向回归。
+
+### 关闭项
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 当内部 CLI 切片已经锁住字段后，仍要在外层合同文件再锁一层真实工具返回；否则“内部正确、外层丢字段”这类问题没有防线。
+## 2026-04-01
+### 修改内容
+- 在 `tests/technical_consultation_basic_cli.rs` 中补 `technical_consultation_basic_marks_choppy_history_as_weak_trend / technical_consultation_basic_marks_confirmed_resistance_breakout_signal / technical_consultation_basic_marks_confirmed_support_breakdown_signal` 的 `consultation_conclusion.rationale / risk_flags` 红测断言，并在断言旁补充中文时间注释，说明修改原因与目的。
+- 在 `src/ops/technical_consultation_basic.rs` 中补 `build_consultation_rationale()` 对 `bullish_continuation / bearish_continuation / range_wait` 的专属解释，以及 `build_consultation_risk_flags()` 对这 3 类场景的专属风险提示，并在代码旁补充中文时间注释，说明修改原因与目的。
+- 同步更新 `task_plan.md`、`progress.md`、`findings.md`，把本轮“方案 A-4 延续态与等待态证据矩阵”的失败来源、修正方式、验证结果与后续待办写入续接记录。
+
+### 修改原因
+- 新补的红测真实复现出：`bullish_continuation / bearish_continuation / range_wait` 虽然已有 `bias / headline`，但 `rationale` 缺少“延续为何成立 / 当前为何该等”的专属解释，`risk_flags` 也缺少对应的结构化风险提示。
+- 这说明缺口在 `consultation_conclusion` 的证据层，而不是在 breakout 主分类或置信度主逻辑；因此应采用最小实现补齐解释层与风控层。
+
+### 方案还差什么?
+- [ ] 还没有补跑 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`，外层工具合同仍值得再锁一层。
+- [ ] 还没有把 `consultation_conclusion` 的字段语义补进文档或示例 JSON，后续调用方仍主要依赖测试样例理解合同。
+
+### 潜在问题
+- [ ] Windows 环境下 `target\\debug\\deps` 的 `rlib` 较大时，仍可能再次触发页面文件不足导致的 `mmap` 失败；本轮是通过清理单个 `libexcel_skill-*.rlib/.rmeta` 后重编绕开。
+- [ ] 当前风险提示使用固定中文短句，后续如果要接更细粒度的策略分流，可能还需要继续细分成 breakout 后回踩、跌破后反抽、区间等待失效等更细语义。
+
+### 关闭项
+- 已通过 `cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 当 `consultation_conclusion` 已经上升为正式证券分析合同后，`headline` 不能是唯一解释层；`rationale / risk_flags` 也必须显式写出“当前延续剧本的确认点”或“当前为什么只能等待”。
+## 2026-04-01
+### 修改内容
+- 在 `src/ops/technical_consultation_basic.rs` 中修正 `classify_consultation_confidence()`，为 `confirmed_* / failed_*` 这类已完成关键位结构补上最低 `medium` 置信度地板，并在代码旁补充中文时间注释，说明修改原因与目的。
+- 同步更新 `task_plan.md`、`progress.md`、`findings.md`，把本轮“方案 A 组合结论收口”的问题来源、决策方式、验证结果与后续待办写入续接记录。
+### 修改原因
+- 既有失败回归 `technical_consultation_basic_marks_confirmed_resistance_breakout_signal` 已经真实复现：`confirmed_resistance_breakout` 场景下，新加的 `consultation_conclusion.confidence` 被错误压成 `low`。
+- 这说明 `breakout_signal` 的价格结构确认语义不能被 `volume_confirmation = weakening` 直接覆盖，否则上层合同会出现“结构已确认，但组合结论像未确认”的冲突。
+### 方案还差什么
+- [ ] 还没有补齐空头 confirmed、trap risk、range/watch 各类 `consultation_conclusion.confidence` 的专项矩阵测试。
+- [ ] 还没有把 `consultation_conclusion` 加进 README 或对外 JSON 示例，后续其他调用方仍需要从测试里找合同样例。
+### 潜在问题
+- [ ] 当前采用的是“completed structure 最低 `medium`”收口，如果后续再加入更强的负向辅助指标，可能需要重新评估是否要细分出更低级别或风险覆盖规则。
+- [ ] 本轮没有执行整仓级 `cargo test -- --nocapture --test-threads=1`，若后续合并更多并行改动，仍建议补一次全量回归。
+### 关闭项
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_confirmed_resistance_breakout_signal -- --exact --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+- 已通过：`cargo fmt --all`
+### 记忆点（可选）
+- 已确认结构完成的证券分析样本，允许因量能偏弱从 `high` 降到 `medium`，但不应直接降成 `low`；否则会破坏 `breakout_signal` 与 `consultation_conclusion` 的合同一致性。
+
+## 2026-04-01
+### 修改内容
+- 在 `tests/technical_consultation_basic_cli.rs` 中调整 `build_bullish_range_watch_rows()` 的最近 20 根尾部夹具，把“缓慢抬升”改成“先冲高、后高位箱体”，并在代码旁补充中文时间注释，说明修改原因与目的。
+- 同步更新 `task_plan.md`、`progress.md`、`findings.md`，把本轮“偏多区间观察态闭环”的失败原因、样本修正方式、验证结果与后续待办写入续接记录。
+### 修改原因
+- 新增回归 `technical_consultation_basic_marks_bullish_range_watch_conclusion` 先真实复现：原样本被误判为 `resistance_retest_watch`，没有落到目标的 `range_bound -> bullish_range_watch` 路径。
+- 这说明问题出在夹具尾部形态与“多根回踩观察态”规则重叠，而不是 `consultation_conclusion` 的主分类逻辑回退。
+### 方案还差什么
+- [ ] 还没有补齐 `bullish_range_watch / bearish_range_watch` 的 `rationale / risk_flags` 专项断言矩阵。
+- [ ] 还没有补跑 `integration_tool_contract`，外层合同链路的回归还可以再加一层保险。
+### 潜在问题
+- [ ] 其他区间观察态夹具如果继续采用单调抬升或单调下压的尾部写法，后续仍可能误触发 `retest_watch` 多根锚点。
+- [ ] 当前验证集中在证券分析切片，没有覆盖整仓级 `cargo test -- --nocapture --test-threads=1`。
+### 关闭项
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_bullish_range_watch_conclusion -- --exact --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+- 已通过：`cargo fmt --all`
+### 记忆点（可选）
+- 区间观察态样本的尾部如果仍保持单边推进，容易与多根 `retest_watch` 锚点扫描重叠；要优先用“先冲高/探低，再箱体整理”的夹具形态表达等待态。
+
+## 2026-04-01
+### 修改内容
+- 在 `tests/technical_consultation_basic_cli.rs` 中继续补 4 组 `consultation_conclusion.rationale / risk_flags` 断言，覆盖 `bullish_range_watch`、`bearish_range_watch`、`bullish_confirmation_watch`、`bearish_confirmation_watch`。
+- 在 `src/ops/technical_consultation_basic.rs` 中最小增量补 `build_consultation_rationale()` 与 `build_consultation_risk_flags()`：为双边区间等待态追加方向化理由，为双边观察态追加“尚待确认”风险标记，并在代码旁补充中文时间注释，说明修改原因与目的。
+- 同步更新 `task_plan.md`、`progress.md`、`findings.md`，把本轮“组合结论证据矩阵”失败原因、修正方式、验证结果与后续待办写入续接记录。
+### 修改原因
+- 新增断言先真实复现：`range_watch` 只有通用区间理由，`confirmation_watch` 缺少“尚待确认”类风险标记，说明 `consultation_conclusion` 的证据层仍不够完整。
+- 这说明当前缺口不在 bias/confidence 主分类，而在上层证券分析合同对“当前在等什么确认、最该防什么风险”的直接表达不足。
+### 方案还差什么
+- [ ] 还没有把 `bull_trap_risk / bear_trap_risk / bullish_continuation / bearish_continuation / range_wait` 也补成同等级的 `rationale / risk_flags` 精确断言矩阵。
+- [ ] 还没有补跑 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`。
+### 潜在问题
+- [ ] 当前新增的“尚待确认”风险标记仍是固定短语，后续如果要对接更细的策略层，可能需要继续细分成 breakout_watch / retest_watch / range_watch 不同粒度。
+- [ ] 当前验证仍聚焦在证券分析切片，没有覆盖整仓级 `cargo test -- --nocapture --test-threads=1`。
+### 关闭项
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_bearish_range_watch_conclusion -- --exact --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_bullish_range_watch_conclusion -- --exact --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_resistance_retest_watch_signal -- --exact --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_support_retest_watch_signal -- --exact --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+- 已通过：`cargo fmt --all`
+### 记忆点（可选）
+- 当 `consultation_conclusion` 已经上提成正式证券分析合同后，`headline` 不能是唯一的“解释层”；`rationale / risk_flags` 也必须明确写出“当前在等什么确认”。
+
+## 2026-04-01
+### 修改内容
+- 在 `tests/technical_consultation_basic_cli.rs` 中继续补 2 组陷阱态 `consultation_conclusion.rationale / risk_flags` 断言，覆盖 `bull_trap_risk` 与 `bear_trap_risk`。
+- 在 `src/ops/technical_consultation_basic.rs` 中最小增量补 `build_consultation_rationale()` 与 `build_consultation_risk_flags()`：为双边 trap risk 追加“原延续判断失效”的专属解释与风险标记，并在代码旁补充中文时间注释，说明修改原因与目的。
+- 同步更新 `task_plan.md`、`progress.md`、`findings.md`，把本轮“陷阱态证据矩阵”失败原因、修正方式、验证结果与后续待办写入续接记录。
+### 修改原因
+- 新增断言先真实复现：trap risk 当前只会说明“假突破/假跌破已经形成”，不会明确告诉上层“原有突破/跌破延续判断已经失效”。
+- 这说明当前缺口不在 trap 分类本身，而在证券分析合同对“原剧本已经失效”这层可执行语义的表达不足。
+### 方案还差什么
+- [ ] 还没有把 `bullish_continuation / bearish_continuation / range_wait` 也补成同等级的 `rationale / risk_flags` 精确断言矩阵。
+- [ ] 还没有补跑 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`。
+### 潜在问题
+- [ ] 当前新增的 trap risk 风险标记仍聚焦“延续判断失效”，后续如果接策略控制层，可能还需要继续细分成修复扩散、反向加速等更细语义。
+- [ ] 当前验证仍聚焦在证券分析切片，没有覆盖整仓级 `cargo test -- --nocapture --test-threads=1`。
+### 关闭项
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_failed_resistance_breakout_signal -- --exact --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli technical_consultation_basic_marks_failed_support_breakdown_signal -- --exact --nocapture --test-threads=1`
+- 已通过：`cargo test --test technical_consultation_basic_cli -- --nocapture --test-threads=1`
+- 已通过：`cargo fmt --all`
+### 记忆点（可选）
+- 陷阱态如果只写“假突破/假跌破已形成”，对上层还不够；还必须显式告诉调用方“原延续剧本已经失效”，这样后续策略层才不需要再自行推断。
+## 2026-04-01
+### 修改内容
+- 在 `tests/integration_tool_contract.rs` 中新增 `build_confirmed_breakdown_rows()` 与 `technical_consultation_basic_contract_exposes_bearish_continuation_conclusion`，把外层工具合同从“多头延续 + 等待态”补成“多头延续 + 空头延续 + 等待态”三类主分支，并在代码旁补中文时间注释说明修改原因与目的。
+- 同步更新 `task_plan.md`、`progress.md`、`findings.md`，把“方案 A-6 外层合同空头对称样本”的补齐情况、验证结果和后续待办写入续接记录。
+
+### 修改原因
+- 当前生产实现已经支持 `bearish_continuation`，但外层合同文件还缺对应的正式对称样本；这会让空头路径继续主要依赖 CLI 专项回归。
+- 这一步的目标是补齐外层合同矩阵，而不是继续改动已稳定的生产逻辑。
+
+### 方案还差什么?
+- [ ] 还没有执行整仓级 `cargo test -- --nocapture --test-threads=1`。
+- [ ] 还没有补最小使用说明或对外 JSON 示例。
+
+### 潜在问题
+- [ ] 当前验证仍以证券分析主线切片为主，无法完全替代整仓级联动回归。
+- [ ] 如果后续继续调整 `headline / rationale / risk_flags` 文案，没有公开文档时仍容易让外部调用方跟不上合同语义变化。
+
+### 关闭项
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 合同样本矩阵不要只锁“最顺手的一边”；多头和空头都要有外层对称样本，否则后续续接容易误判为空头路径尚未正式可用。
+## 2026-04-01
+### 修改内容
+- `src/ops/security_analysis_contextual.rs`：新增上层综合证券分析 Tool，复用 3 次 `technical_consultation_basic` 输出个股、大盘、板块分析，并聚合 `contextual_conclusion`；代码旁已补中文时间注释，说明修改原因和目的。
+- `src/ops/stock.rs`、`src/ops/mod.rs`：暴露 `security_analysis_contextual` 模块，保持 stock 域边界清晰。
+- `src/tools/dispatcher/stock_ops.rs`、`src/tools/dispatcher.rs`、`src/tools/catalog.rs`：接入新 Tool 的 dispatcher 与 catalog，使 CLI 可以发现和调用该能力。
+- `tests/security_analysis_contextual_cli.rs`：新增 3 条综合 Tool 合同回归，覆盖 tool catalog 可发现、三层同向时 `tailwind`、个股等待态时保持 `mixed`。
+- `task_plan.md`、`progress.md`、`findings.md`：补充本轮 A-7 续做记录，沉淀当前完成点、风险与后续计划。
+
+### 修改原因
+- 用户已明确要求不要改 `technical_consultation_basic` 边界，而是在上层新增一个 Tool，把个股技术面、大盘环境、板块环境合成统一证券分析入口。
+- 当前真实可用能力缺口不在指标计算，而在“环境联动的正式合同”，因此优先补上层聚合而不是继续堆底层信号。
+
+### 方案还差什么？
+- [ ] 还没有补 `headwind` 的正式红测样本。
+- [ ] 还没有补对外 README / JSON 示例，真实调用仍主要参考测试文件。
+- [ ] 还没有接入信息面、资金面、基本面维度。
+
+### 潜在问题
+- [ ] 如果 `market_symbol / sector_symbol` 选取不合理，上层综合结论会被代理符号误导。
+- [ ] 当前聚合规则仍是 MVP，复杂分歧场景先归并成 `mixed/headwind`，后续可能还要细分。
+
+### 关闭项
+- 已通过 `cargo test --test security_analysis_contextual_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 用户明确纠正过：综合证券分析要在 `technical_consultation_basic` 上层新增 Tool，不要把大盘、板块语义继续塞回底层技术面模块。
+## 2026-04-01
+### 修改内容
+- `tests/security_analysis_contextual_cli.rs`：新增 `headwind`、profile 入口、缺代理配置错误路径 3 组综合 Tool 回归测试，并在代码旁补中文时间注释说明修改原因与目的。
+- `src/ops/security_analysis_contextual.rs`：重写综合证券分析模块，请求支持 `market_symbol / sector_symbol` 与 `market_profile / sector_profile` 二选一；新增缺参与不支持 profile 的业务层错误；细化 `headwind` 结论。
+- `docs/acceptance/2026-04-01-security-analysis-contextual-v1.md`：新增综合证券分析 V1 文档，补最小调用示例、profile 清单、alignment 语义与当前边界。
+- `task_plan.md`、`progress.md`、`findings.md`：补齐本轮方案 B 的续做记录，沉淀完成点、限制与后续计划。
+
+### 修改原因
+- 用户已要求“先全部做完再测”，因此需要把综合 Tool 从 MVP 补到可交付 V1，而不是停在顺风/等待态的最小实现。
+- 当前真实使用门槛主要卡在代理 symbol 必须手填、逆风路径缺合同、调用文档不足，因此优先收这三块。
+
+### 方案还差什么？
+- [ ] 还没有补更多行业 profile，也没有覆盖港股代理 profile。
+- [ ] 还没有把综合证券分析说明同步到 README 首页。
+- [ ] 还没有接入信息面、资金面、基本面维度。
+
+### 潜在问题
+- [ ] 当前 profile 只有 `a_share_core / a_share_bank`，真实使用时如果行业不匹配，仍需手工传代理 symbol。
+- [ ] 如果后续继续扩综合结论，需继续补正式红测，避免 `headwind / mixed` 规则漂移。
+
+### 关闭项
+- 已通过 `cargo test --test security_analysis_contextual_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 用户已经多次明确：综合证券分析要在上层聚合推进，不要为了“更全面”就回头污染 `technical_consultation_basic` 的职责边界。
+## 2026-04-01
+### 修改内容
+- `tests/security_analysis_fullstack_cli.rs`：新增 `tool_catalog` 可发现性、信息面成功聚合、信息源失败降级 3 条 fullstack 总 Tool 回归测试；测试继续沿用 `CSV -> import_stock_price_history -> SQLite -> Tool` 主链，并新增按路径返回不同响应的本地 HTTP 假服务。代码旁已补中文时间注释，说明修改原因与目的。
+- `src/ops/security_analysis_fullstack.rs`：新增 `security_analysis_fullstack` 上层总 Tool，聚合 `security_analysis_contextual`、财报快照、公告摘要、行业上下文与综合 `integrated_conclusion`；新增财报/公告 unavailable 降级对象；代码旁已补中文时间注释，说明修改原因与目的。
+- `src/ops/stock.rs`、`src/ops/mod.rs`：暴露 `security_analysis_fullstack` 模块，保持 stock 域边界清晰。
+- `src/tools/dispatcher/stock_ops.rs`、`src/tools/dispatcher.rs`、`src/tools/catalog.rs`：接入 `security_analysis_fullstack` 的 dispatcher 与 catalog，确保 CLI / Skill / tool_catalog 可发现并可调用。
+- `docs/acceptance/2026-04-01-security-analysis-fullstack-v1.md`：新增 fullstack V1 验收文档，补调用样例、信息源边界、降级规则与验收命令。
+- `task_plan.md`、`progress.md`、`findings.md`：同步补本轮 fullstack 信息面总入口的续做记录，沉淀完成点、限制与后续计划。
+
+### 修改原因
+- 用户已明确要求把大盘、行业、财报、公告并进产品主链，而不是继续依赖手工外查或把信息面语义塞回底层技术面 Tool。
+- 当前最稳的演进方式是新增独立上层总 Tool，把技术主链与信息面聚合在一起，同时允许第三方免费源失败时优雅降级，避免产品整体不可用。
+
+### 方案还差什么?
+- [ ] 还没有把财报与公告抓取沉淀到本地 SQLite，当前仍是在线聚合。
+- [ ] 还没有接入新闻面、资金面与一致预期。
+- [ ] 还没有扩更多行业 profile 与自动行业映射。
+
+### 潜在问题
+- [ ] 免费信息源可能发生限流、结构漂移或短时不可达；当前虽然已做 unavailable 降级，但重复查询稳定性仍受第三方源影响。
+- [ ] 财报字段当前依赖东财返回键名兼容映射，若线上字段体系变动，需要补充别名或改解析规则。
+- [ ] 行业层当前主要还是 sector proxy 技术环境，不应被误解成已经具备完整行业景气数据库。
+
+### 关闭项
+- 已通过 `cargo test --test security_analysis_fullstack_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 用户再次纠正后需要记住：证券分析产品的目标是“优先走我们自己的 Tool 主链给全面分析”，不是临时给一段泛化股评；信息面要继续在上层新 Tool 聚合，不要回灌到底层技术面 Tool。
+## 2026-04-01
+### 修改内容
+- 在 `docs/交接摘要_给后续AI.md` 文件头追加 2026-04-01 证券分析主线补充，集中说明 `technical_consultation_basic / security_analysis_contextual / security_analysis_fullstack` 的当前职责、日期锚定规则和接手入口。
+- 新增 `docs/交接摘要_证券分析_给后续AI.md`，把证券分析产品主链、数据源约束、降级语义、验证口径、常见误区和续做建议单独沉淀成专用 AI 交接文档。
+- 在 `docs_tradingagents_agent_prompt_data_notes.md` 文件头补仓库边界提醒，明确 Python `tradingagents/` 与本地 SheetMind 证券分析主链不是同一条产品链路。
+- 在 `README.md` 文件头补证券分析入口索引，方便 GitHub 访客和后续 AI 快速定位证券分析 Skill、验收文档与交接文档。
+
+### 修改原因
+- 用户这轮要求不仅要推 GitHub，还要“完善 AI 交接手册”，而现有总交接文档仍以 2026-03-31 的 Excel / GUI 主线为主，缺少 2026-04-01 之后证券分析主线的集中说明。
+- 仓库同时存在 Python TradingAgents 和本地 SheetMind 证券分析链，若不显式写边界，后续 AI 很容易串台。
+
+### 方案还差什么?
+- [ ] 还没有把证券分析 `analysis_date` 规则下沉到 Rust Tool 返回合同里，当前仍主要依赖 Skill 和文档约束。
+- [ ] 还没有补 README 内部更深入的证券分析调用示例，目前先提供的是入口索引级说明。
+
+### 潜在问题
+- [ ] `docs/交接摘要_给后续AI.md` 和 `README.md` 存在历史编码噪声，当前采用文件头增量追加的方式规避风险；后续如要全面整理编码，建议单独开任务，不要顺手清洗。
+- [ ] 当前文档已能指导接手，但如果后续证券分析主链继续快速扩展，仍需要定期同步手册，避免再次滞后。
+
+### 关闭项
+- 已新增 `docs/交接摘要_证券分析_给后续AI.md`
+- 已更新 `docs/交接摘要_给后续AI.md`
+- 已更新 `docs_tradingagents_agent_prompt_data_notes.md`
+- 已更新 `README.md`
+- [ ] 未执行自动化测试：本轮新增为文档与 Skill 交接增强，没有改动 Rust 运行逻辑
+
+### 记忆点（可选）
+- 当仓库里同时存在多条产品线时，AI 交接手册必须先写清楚“哪条是当前用户要继续推进的主链”，否则后续很容易把无关架构拉进来。
+
+## 2026-04-01
+### 修改内容
+- 在 `skills/security-analysis-v1/SKILL.md` 中新增证券分析专用 Skill，固化“证券分析默认锚定当前日期、若当前日期无有效收盘则退前一个交易日、输出必须显式写明实际分析日期”的硬规则，并同步写入“优先走 `technical_consultation_basic / security_analysis_contextual / security_analysis_fullstack` 主链”的约束。
+
+### 修改原因
+- 用户明确纠正：这条规则不能只靠口头记忆，必须写进项目 Skill，供后续 AI 和协作者继续沿同一证券分析口径工作。
+- 之前证券分析回答存在混入非锚定日期数据的风险，需要把“先锁日期、再下结论”升级为项目级规范。
+
+### 方案还差什么?
+- [ ] 还没有把 `security-analysis-v1` 接入仓库内更显眼的导航位置，例如 README 或证券分析使用文档。
+- [ ] 还没有给证券分析主链补自动化测试，去验证输出层确实会显式带出“实际分析日期”。
+
+### 潜在问题
+- [ ] 当前只是新增 Skill 规范文件，还没有在 Rust Tool 返回合同里强制产出 `analysis_date` 字段；如果后续调用方忽略 Skill 约束，仍可能在应用层漏写日期。
+- [ ] 证券分析 Skill 是新目录，若仓库中存在额外的 Skill 索引清单而未同步，后续协作者可能不容易第一时间发现它。
+
+### 关闭项
+- 已新增 `skills/security-analysis-v1/SKILL.md`
+- 已用公开免费行情接口核验 `159866` 在 `2026-04-01` 的收盘数据，可据此按新规则重算用户问题
+- [ ] 未执行自动化测试：本次改动为 Skill 文档新增，尚未补程序侧自动化校验
+
+### 记忆点（可选）
+- 证券分析不能混日期；默认只看当前日期，拿不到当前日期有效收盘时才退前一个交易日，而且输出必须明确写出实际分析日期。
+
+## 2026-04-02
+### 修改内容
+- `E:\TradingAgents\TradingAgents\src\runtime\signal_outcome_store.rs`：补充 `security_signal_tags` 与 `security_signal_analog_studies` 的正式读写能力，新增 `summary_payload` 持久化字段与轻量 schema 迁移助手。修改原因：要把“银行板块共振 + 核心技术相似”的历史研究沉成正式资产，而不是临时现算。目的：让后续 briefing、committee 与外层 Agent 读取同一份历史摘要。
+- `E:\TradingAgents\TradingAgents\src\ops\signal_outcome_research.rs`：新增 `study_security_signal_analogs`、`signal_outcome_research_summary`、快照标签生成、相似度计算与摘要格式化逻辑，并在 `record_security_signal_snapshot` 中把标签一并落库。修改原因：用户明确要求银行体系历史研究要把 MACD、RSRS 与共振一起做。目的：形成可解释、可复用、可落库的历史相似研究主链。
+- `E:\TradingAgents\TradingAgents\src\ops\security_decision_briefing.rs`：把历史研究摘要正式接回 `committee_payload.historical_digest`，不再固定输出 `unavailable`。修改原因：用户要求咨询口径与投决口径看到的信息必须一致。目的：让 briefing 直接携带历史相似样本数、10 日胜率、预期收益区间与回撤区间。
+- `E:\TradingAgents\TradingAgents\src\tools\dispatcher\stock_ops.rs`、`E:\TradingAgents\TradingAgents\src\tools\dispatcher.rs`：补齐 `study_security_signal_analogs` 与 `signal_outcome_research_summary` 的 dispatcher 分发入口。修改原因：用户强调所有动作都要走 Tool/Skill 主链。目的：让历史研究能力成为正式可发现 Tool。
+- `E:\TradingAgents\TradingAgents\tests\security_analysis_resonance_cli.rs`：先补两条红测，再落实现。新增“银行体系历史相似研究产出摘要”与“briefing 接入 historical_digest”两条回归测试，并构建银行板块/宏观代理/多股票快照夹具。修改原因：发现 BUG 或新增能力时必须先用测试锁边界。目的：确保研究层与 briefing 层的行为稳定可回归。
+
+### 修改原因
+- 用户明确纠正过：这类历史研究不该只看中信银行单只股票，而应覆盖银行体系，并把银行板块共振与 MACD、RSRS 等核心技术状态一起纳入。
+- 用户明确纠正过：结论可信度说明必须用中文解释业务含义，不能只抛英文或内部指标名，因此本次采用“标签重合 + 核心数值接近”的可解释相似度路径。
+
+### 方案还差什么?
+- [ ] 目前 `study_key` 默认先固定为 `bank_resonance_core_technical_v1`，后续还需要扩展成可按行业模板自动切换的通用方案。
+- [ ] 当前历史摘要主要输出 10 日收益/回撤区间，后续如要服务更完整投决，需要继续补 20 日或更长窗口的正式摘要展示。
+- [ ] 现在银行体系历史研究夹具已打通，但本地真实 runtime 里还没有完整银行股池历史，需要后续补真实样本库再跑全量研究。
+
+### 潜在问题
+- [ ] 当前相似度算法是第一版可解释方案，核心依赖标签重合与少量指标尺度归一；如果后续字段分布发生明显漂移，可能需要重新校准各指标 scale。
+- [ ] `summary_payload` 通过 JSON 持久化，若后续摘要结构扩展较大，需要注意版本兼容与旧库迁移。
+- [ ] 这两条新测试是真实 Tool 链路夹具，执行时间较长；后续若继续扩展，建议拆出更轻量的 store/ops 单测，避免整体回归越来越慢。
+
+### 关闭项
+- 已通过 `cargo fmt`
+- 已通过 `cargo test --test security_analysis_resonance_cli study_security_signal_analogs_builds_bank_core_technical_summary`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_available_historical_digest_after_analog_study`
+
+### 记忆点（可选）
+- 用户明确要求：历史相似研究不是“中信银行个股复盘工具”，而是“银行板块状态库 + 银行个股响应库”的平台方向。
+- 用户明确要求：MACD、RSRS 这些技术状态必须和共振一起做，不接受只做板块共振、不做技术形态分层的粗粒度研究。
+### 修改内容
+- `Cargo.toml`、`Cargo.lock`：新增 `regex` 依赖。原因：A3 方案首版需要解析新浪公开 HTML 页面中的财报指标表和公告 datelist。目的：在不引入更重 HTML 解析栈的前提下，先把多源降级链闭环落地。
+- `src/ops/security_analysis_fullstack.rs`：将原先只依赖东财的财报/公告抓取重写为“三层 provider 链”。原因：用户现场已确认东财在本机网络下存在稳定 TLS 失败，单源实现会把 `fullstack` 频繁打回 `technical_only`。目的：按 `东财 -> 可插拔官方备源 -> 新浪公开页` 的顺序自动降级，并保留原有请求/响应合同。
+- `src/ops/security_analysis_fullstack.rs`：新增新浪财报页和新浪公告页的 HTML 解析、官方 JSON 备源入口、统一 URL 构造与 provider 失败聚合。原因：需要让 fullstack 在主源故障时仍返回可消费的信息面。目的：降低对单一外部源的依赖，并给后续接入真正官方站点保留插口。
+- `src/ops/security_analysis_fullstack.rs`：调整 `classify_fundamental_signal` 为“允许部分同比指标缺失时仍可给出正负判断”。原因：银行股等页面常只有净利润增速、ROE 等关键项，若坚持双字段齐备会把有效备源误判成 `unknown`。目的：让备源在关键指标足够时真正参与综合结论，而不是被无意义地退化。
+- `tests/security_analysis_fullstack_cli.rs`：先补两条红测，再补齐所有 provider 失败的回归场景。原因：本轮属于信息面降级 bugfix/能力升级，必须先用测试锁住“东财失败但新浪接住”和“三层优先级”行为。目的：防止后续 provider 链继续演化时把降级顺序和 `technical_only` 触发条件改坏。
+
+### 修改原因
+- 用户批准执行 A3 方案后，核心目标已经从“解释东财为什么失败”转成“即使东财失败也要继续完成 fullstack 信息面分析”，因此需要把单源实现改成真正的多源降级。
+- 当前仓库的证券分析必须优先走项目内 Tool/Skill 主链；既然 `security_analysis_fullstack` 是产品主入口，就应该在这里兜住外部源波动，而不是把缺口推给用户手工补资料。
+
+### 方案还差什么？
+- [ ] 还没有把“官方备源”接成真正默认可用的交易所/IR 抓取实现；当前首版先保留为可插拔 JSON 入口，方便后续按站点差异继续接。
+- [ ] 还没有补更大范围的集成回归，例如 `cargo test -- --nocapture --test-threads=1` 全量仓库测试。
+- [ ] 还没有把多源 provider 的来源说明同步到外部文档或 README。
+
+### 潜在问题
+- [ ] 新浪页面属于 HTML 抓取，若其表格标签或 datelist 结构改版，解析规则仍可能失效。
+- [ ] 官方备源当前是可配置 JSON 入口，若后续直接接交易所/IR 页面，仍需补站点级测试夹具。
+- [ ] `regex` 解析目前只覆盖首版所需字段；若后续要扩更多财报字段，可能需要升级为更稳的 DOM 解析方案。
+
+### 关闭项
+- 已通过 `cargo test --test security_analysis_fullstack_cli`
+- 已通过 `cargo fmt`
+
+### 记忆点（可选）
+- 用户再次纠正后需要固定记住：做这个仓库内定义过的证券分析任务时，必须优先走项目里的 Tool/Skill 主链，不能绕过本地工具直接凭外部网页做口头分析。
+
+## 2026-04-02
+### 修改内容
+- `tests/security_analysis_fullstack_cli.rs`：新增 `security_analysis_fullstack_recognizes_real_chinese_sina_financial_labels` 与 `security_analysis_fullstack_recognizes_mojibake_sina_financial_labels_from_live_page` 两条回归，并补充“真实中文标签夹具 / 线上乱码标签夹具”。原因：用户现场确认 `601998.SH` 的新浪财报页可以访问，但 `fundamental_context` 仍被误判为 `unavailable`。目的：先用红测锁住“页面可达但标签失真时仍要识别财报”的真实 bug，再驱动实现修复。
+- `src/ops/security_analysis_fullstack.rs`：保留原新浪财报解析不动，新增 `fetch_fundamental_from_sina_resilient`，并把财报 fallback 调用切到新分支。原因：旧函数周边存在历史乱码注释噪声，直接重写风险更高。目的：用小补丁方式新增一条“日期行识别 + typecode 锚点 + 标签归一化”的稳健解析链，降低对页面文案编码状态的依赖。
+- `src/ops/security_analysis_fullstack.rs`：新增 `ParsedHtmlRow / parse_html_rows_with_raw / normalize_sina_financial_label / is_sina_report_period_row / is_sina_financial_metric_row / looks_like_report_date` 等辅助函数。原因：线上新浪财报页在当前链路下会出现乱码标签，但 `financialratios44 / 59 / 65` 等结构锚点仍稳定。目的：让净利润同比、ROE、净利润与报告期即使在乱码页面里也能继续被识别。
+### 修改原因
+- 这轮不是数据源不可用，而是“新浪财报页能打开，但程序没把真实页面里的关键财报行识别出来”，导致 `security_analysis_fullstack` 对 `601998.SH` 继续退化成 `technical_only`。
+- 用户明确追问“这个还拿不到嘛”，说明这已经从实现能力问题变成了现场可用性问题；因此需要优先修正仓库主链，而不是继续让用户手工补财报。
+### 方案还差什么？
+- [ ] 现在只修了新浪财报 fallback，东财财报主源的 TLS 问题还没有根治；后续如果网络环境恢复，仍建议把主源握手问题单独排查。
+- [ ] 现在的稳健识别依赖 `financialratios` typecode，如果新浪未来改掉这一层链接结构，还需要继续补新夹具和解析规则。
+- [ ] 公告标题里仍有历史编码噪声，后续若要提升用户可读性，还需要再单独处理新浪公告标题解码。
+### 潜在问题
+- [ ] 银行股场景下，新浪页常缺“营收同比”这类字段，所以当前财报结论仍可能带 `财报关键同比指标不完整` 风险提示；这属于数据源原始缺口，不是本次解析失败。
+- [ ] `fetch_fundamental_from_sina` 旧函数仍保留在文件里作为历史路径，后续如果继续清理 `security_analysis_fullstack.rs`，可以考虑在单独任务里收敛掉旧实现。
+### 关闭项
+- 已通过：`cargo test --test security_analysis_fullstack_cli security_analysis_fullstack_recognizes_mojibake_sina_financial_labels_from_live_page -- --exact --nocapture`
+- 已通过：`cargo test --test security_analysis_fullstack_cli -- --nocapture --test-threads=1`
+- 已通过：`cargo fmt`
+- 已现场复跑 `601998.SH`：`fundamental_context.status=available`，`source=sina_financial_guideline`，`integrated_conclusion.stance=watchful_positive`
+### 记忆点（可选）
+- 证券分析主链里遇到“页面能打开但工具仍判空”的问题时，不能只盯中文标签文本；要优先检查真实页面里是否还有更稳定的结构锚点，例如 `typecode`、日期列形状或固定链接模式。
+
+## 2026-04-02
+### 修改内容
+- `tests/security_analysis_resonance_cli.rs`：新增共振平台首批红测，覆盖 4 个正式入口的可发现性，以及“因子注册 -> 因子序列写库 -> 事件标签写库 -> 共振分析 -> 快照落库”的完整主链。原因：用户批准按方案 3 先做平台底层，而不是继续停留在一次性分析文案。目的：用真实 `CSV -> SQLite -> Tool` 链路把平台底层合同钉住，防止后续实现只停在内部函数级别。
+- `src/runtime/security_resonance_store.rs`：新增共振平台 SQLite Store，落地 `resonance_factor_registry / resonance_factor_series / resonance_event_tags / security_resonance_snapshots` 四类表，并提供因子注册、序列写入、事件写入、候选因子读取、快照替换等能力。原因：用户明确要求“算了以后写到数据库里，后边把相关性强的拉出来评估”。目的：先把平台研究底座搭好，让后续扩因子、做评估和加 Skill 都有统一数据基础。
+- `src/ops/security_analysis_resonance.rs`：新增 `register_resonance_factor / append_resonance_factor_series / append_resonance_event_tags / security_analysis_resonance` 主模块；分析入口复用 `security_analysis_fullstack` 作为基础判断，再叠加板块代理、市场代理、注册因子与事件标签，输出 `top_positive_resonances / top_negative_resonances / event_overrides / resonance_score / action_bias / driver_summary`。原因：用户明确要求国际与行业证券分析不能只看技术面，要显式把共振带出来。目的：把“基础分析 + 共振研究”连成第一版正式产品链。
+- `src/runtime/mod.rs`、`src/ops/stock.rs`、`src/ops/mod.rs`：导出共振平台 runtime/ops 模块。原因：新平台已经进入正式 stock 主线。目的：保持 crate 边界清晰，同时兼容现有 `crate::ops::...` 调用路径。
+- `src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：把 `register_resonance_factor / append_resonance_factor_series / append_resonance_event_tags / security_analysis_resonance` 接入 tool catalog 与 stock dispatcher。原因：平台不是内部实验代码，必须成为 CLI / Skill 可发现、可调用的正式入口。目的：让后续研究与分析都能沿现有 Tool 主链推进。
+### 修改原因
+- 用户这轮明确纠正：共振体系不能先靠“默认因子文案”硬写，而应该优先做成可计算、可落库、可评估的平台；同时事件标签必须进入第一版，而不是后补。
+- 用户还明确强调：A 股和国际资产都需要关注共振，但不能机械地把一套静态模板硬套所有市场；更合理的路径是先把传统行业的共振研究底座做好，再在上层分析里显式带出真正起作用的驱动。
+### 方案还差什么？
+- [ ] 现在第一版已经把平台骨架跑通，但还没有补 `evaluate_security_resonance` 这类更偏研究型的独立评估入口，当前评估与分析聚合仍绑定在 `security_analysis_resonance` 里。
+- [ ] 还没有把“行业模板候选因子池”正式沉淀成默认注册脚本或配置，目前平台底层已经支持注册，但实际模板填充仍需后续继续建设。
+- [ ] 还没有把事件标签升级成更细的结构化分类体系，例如地缘、政策、运价、制裁等子类维度，目前首版先锁“可写入、可参与评分、可进入结果”。
+- [ ] 还没有补全量仓库回归，只跑了本次新平台专项测试和 `integration_tool_contract`。
+### 潜在问题
+- [ ] 第一版共振评分仍属于“可解释、可扩展的启发式量化”，并不是回测收敛后的最终权重；后续随着因子库增大，评分权重和领先/滞后规则仍需要继续校准。
+- [ ] 事件标签当前已入库并参与总分，但尚未形成“统计显著性”长期评估表；若后续要区分“真驱动事件”和“叙事噪声”，还需要继续补事件有效性回溯。
+- [ ] 当前板块/市场代理快照会与注册因子一起写入 `security_resonance_snapshots`，后续若因子量快速增大，可能需要进一步补索引或拆查询视图。
+- [ ] 现有 `dispatcher.rs` 仍有较多历史 `dead_code` warning，这轮没有顺手清理，避免和平台底层任务混做。
+### 关闭项
+- 已通过 `cargo test --test security_analysis_resonance_cli -- --nocapture`
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture`
+- 已通过 `cargo fmt`
+- 已把共振平台 4 个正式 Tool 接入 `tool_catalog_modules.stock`
+- 已验证共振分析会把因子注册、序列、事件标签和快照真正落到 `security_resonance.db`
+### 记忆点（可选）
+- 用户再次纠正后需要固定记住：共振体系不能先靠“默认因子文案”拍脑袋给结论，应该优先做成“候选因子可注册、可计算、可落库、可评估”的平台。
+- 用户明确要求：事件标签不是装饰信息，必须进入第一版平台，并参与共振评估而不是只留在说明文字里。
+- 用户当前策略偏好是“先把底层平台打扎实，再往上搭 Skill 和更丰富的分析层”，所以遇到类似量化/研究型需求时，应优先考虑平台化地基而不是只补一个上层结论 Tool。
+## 2026-04-02
+### 修改内容
+- `src/ops/security_analysis_resonance.rs`：恢复并重写第二阶段共振主模块，新增 `bootstrap_resonance_template_factors`、`evaluate_security_resonance`，并把模板池初始化、独立评估、隐式板块代理、事件覆盖、负向风险回填、快照落库整合到统一评估主链中。
+- `src/tools/catalog.rs`：补充 `bootstrap_resonance_template_factors`、`evaluate_security_resonance` 到 stock tool catalog 与平铺 catalog，确保 Agent/Skill 可发现。
+- `src/tools/dispatcher/stock_ops.rs`：新增两个新 Tool 的请求解析与分发实现，接入 stock dispatcher。
+- `src/tools/dispatcher.rs`：补充主 dispatcher 路由，使 CLI / Agent / Skill 可以正式调用第二阶段新入口。
+
+### 修改原因
+- 用户已批准第二阶段走方案 B：只保留通过 Agent 操作 Skill 的主链，不引入方案 C 的额外平台管理层。
+- 第二阶段要求把“传统行业候选因子池初始化”和“独立研究评估入口”落到底层，并复用到最终 fullstack 共振分析中。
+- 用户明确要求共振逻辑不能只给正向文案，必须能把背离风险、行业基本盘和事件覆盖显式带出来。
+
+### 方案还差什么?
+- [ ] 继续把更多传统行业模板扩到航运、煤炭、有色、银行之外的板块，并补真实外部因子同步链路。
+- [ ] 为独立评估入口补更多“近期背离优先级”“事件叠加权重”回归测试，减少后续参数漂移风险。
+
+### 潜在问题
+- [ ] 当前“最强背离风险回填”仍是启发式规则，若后续加入更多候选因子，需要再做参数校准与评估基线。
+- [ ] 隐式板块代理目前依赖传入 `sector_symbol` 自动补位，若未来模板要求多代理或跨市场代理，需要扩展解析策略。
+- [ ] 当前测试通过但编译仍有既有 dispatcher `dead_code` warning，本次未处理，需要后续统一清理。
+
+### 关闭项
+- 已通过 `cargo test --test security_analysis_resonance_cli -- --nocapture` 验证第二阶段红测转绿。
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture` 验证工具目录与主分发契约未回归。
+- 已执行 `cargo fmt` 完成格式化。
+
+### 记忆点（可选）
+- 用户明确要求：所有操作都通过 Agent 操作 Skill 主链执行，不需要方案 C 这类额外平台管理层。
+- 用户强调：共振结果不仅要给正向驱动，也要显式暴露背离风险与行业基本盘，避免只剩单边利多叙事。
+## 2026-04-02
+### 修改内容
+- `src/ops/security_analysis_resonance.rs`：扩展 `bank` 模板候选因子池，新增 `real_estate_proxy`、`resident_consumption_proxy`、`loan_growth_proxy`、`pmi_proxy`。原因：用户明确指出银行共振不能只看板块、国债收益率和信用利差。目的：把地产、消费、贷款、PMI 纳入正式可注册、可计算、可落库、可评估的银行宏观共振底层。
+- `tests/security_analysis_resonance_cli.rs`：先补红测再实现，新增银行模板注册与银行宏观因子评估两条回归测试，并加入 `601998.SH` / `512800.SH` 的银行夹具及正负向宏观序列。原因：本轮属于行为扩展，必须先锁住“银行模板 >= 7 因子”与“评估结果不只剩 sector proxy”。目的：保证后续继续扩因子时不会退化回“只会算板块相关性”。
+
+### 修改原因
+- 用户再次纠正：银行股的“共振”必须覆盖国债收益率、信用利差、地产、居民消费、贷款、PMI，不然不能叫共振。
+- 当前平台虽然已经有共振底座，但 `bank` 模板只有 3 个因子，导致 `601998.SH` 的评估结果缺乏完整宏观基本盘表达。
+
+### 方案还差什么?
+- [ ] 当前新增的地产、消费、贷款、PMI 仍以代理序列入口为主，后续还需要接入真实宏观数据同步链路。
+- [ ] 还没有把银行事件标签细化到地产政策、信贷投放、居民消费修复等更细颗粒度分类。
+- [ ] 还没有基于真实历史样本回溯这些银行宏观因子的长期稳定性与权重校准。
+
+### 潜在问题
+- [ ] 如果后续真实宏观数据频率为月度而个股为日频，当前直接对齐收益率的逻辑可能需要补频率映射或插值规则。
+- [ ] `loan_growth_proxy`、`pmi_proxy` 目前是平台级代理入口，不代表已经完成真实金融统计口径接入，分析层仍需注明来源性质。
+- [ ] 现有仓库仍有历史 `dead_code` warning，本轮没有顺手清理，避免与银行共振扩容任务混做。
+
+### 关闭项
+- 已通过 `cargo test --test security_analysis_resonance_cli -- --nocapture`
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture`
+- 已通过 `cargo fmt`
+- 已验证银行模板注册因子数扩展到 7 个以上，且银行评估结果能带出宏观因子，不再只剩 `bank_sector_proxy`
+
+### 记忆点（可选）
+- 用户明确要求：证券分析必须优先走项目内 Tool/Skill 主链，不能脱离工具自由发挥。
+- 用户明确要求：银行共振不能只做市场相关性，必须把利率、信用、地产、消费、贷款、PMI 这些基本盘维度正式纳入。
+## 2026-04-02
+### 修改内容
+- `docs/plans/2026-04-02-security-decision-briefing-implementation.md`：新增统一证券决策底稿实施方案。原因：用户明确要求把“标准交付物”沉成 Tool，而不是停留在模板说明。目的：把咨询场景、投决会场景、后续 Agent 表决统一到同一份 briefing 底稿上，并把 Skill 作为基础门禁。
+
+### 修改原因
+- 用户明确要求：咨询和投决会看到的信息必须完全一致，不能形成两套事实口径。
+- 用户明确要求：基础面、技术面、RSRS、共振面都要纳入统一交付，不允许只做“说明文档式模板”。
+- 用户明确要求：Skill 不是可选说明，而是流程门禁，必须约束所有证券分析先走统一 briefing Tool。
+
+### 方案还差什么?
+- [ ] 还没有开始代码实现 `security_decision_briefing` Tool，本次先完成正式实施方案与任务拆解。
+- [ ] 还没有实现 `committee_payload` 与后续 `security_committee_vote` 的真实代码合同。
+- [ ] 还没有把新的 briefing Skill 门禁写入仓库技能目录。
+
+### 潜在问题
+- [ ] 如果后续直接跳过 briefing Tool 继续扩上层分析 Skill，会再次回到双口径问题，因此实现阶段必须优先做 Tool 合同。
+- [ ] 现有技能链里已经存在 `security-analysis-v1`，后续新增 Skill 时需要避免职责重叠和路由冲突。
+
+### 关闭项
+- 已新增实施方案：`docs/plans/2026-04-02-security-decision-briefing-implementation.md`
+- [ ] 未执行自动化测试：本次新增的是实施方案文档，尚未进入代码实现阶段
+
+### 记忆点（可选）
+- 用户明确要求：标准交付物不应只是模板，而要沉成统一 Tool，并服务咨询与投决会两个场景。
+- 用户明确要求：Skill 要作为基础门禁，强制所有证券分析先走统一 briefing Tool，再允许 Agent 做判断或表决。
+## 2026-04-02
+### 修改内容
+- `docs/plans/2026-04-02-signal-outcome-research-platform-implementation.md`：新增“信号结果研究平台”实施方案。原因：用户批准走方案C，不只做轻量 forward returns，而是把快照落库、未来收益回填、历史相似信号统计、briefing 接入和 committee 研究输入一次规划完整。目的：把证券分析从“解释当前指标”升级成“当前指标 + 历史验证 + 投决输入”的研究平台。
+
+### 修改原因
+- 用户明确要求：类似指标历史上应该出现过，系统不仅要看当前，还要抓未来一段时间内的涨跌表现。
+- 用户明确要求：这块不应只做成辅助说明，而应作为平台能力，最终服务咨询、标准交付物和投决会。
+
+### 方案还差什么?
+- [ ] 还没有进入代码实现阶段，本次先完成方案C的正式任务拆解。
+- [ ] 还没有定义 `signal_outcome_store`、`record_security_signal_snapshot`、`backfill_security_signal_outcomes` 等真实代码合同。
+- [ ] 还没有把 research layer 接入 briefing 和 committee payload。
+
+### 潜在问题
+- [ ] 如果第一版相似信号算法做得过重，容易拖慢交付；方案里已限定先用“标签重合 + 结构分组”。
+- [ ] forward returns 与 analog summary 属于历史统计结果，后续必须明确样本量和局限，不然容易被误用成确定性预测。
+
+### 关闭项
+- 已新增实施方案：`docs/plans/2026-04-02-signal-outcome-research-platform-implementation.md`
+- [ ] 未执行自动化测试：本次新增的是实施方案文档，尚未进入代码实现阶段
+
+### 记忆点（可选）
+- 用户明确要求：证券指标平台不仅要解释“现在”，还要验证“历史上类似状态后面通常怎么走”。
+- 用户明确要求：这类历史研究能力也要纳入统一 Tool/Skill 主链，而不是零散外挂分析。
+## 2026-04-02
+### 修改内容
+- `tests/integration_tool_contract.rs`：新增 signal outcome research 合同红测，并修正 `security_decision_briefing` 合同测试的序列化写法。原因：方案 C 第一批要先锁 Tool 可发现性和 research contract 边界。目的：先把研究平台合同钉住，避免后续字段与入口漂移。
+- `src/runtime/signal_outcome_store.rs`：新增信号研究 SQLite schema，并补充 snapshot 写入/读取、最新 snapshot 查询和 forward returns 批量写入。原因：用户要求把当前指标和后续结果做成可沉淀的研究资产。目的：为 Task 2/3 提供统一的研究底层。
+- `src/ops/signal_outcome_research.rs`：新增 `record_security_signal_snapshot` 和 `backfill_security_signal_outcomes`，前者复用 `security_analysis_resonance` 生成完整技术面 + 共振快照并落库，后者回填 `1/3/5/10/20` 日 `forward return / max drawdown / max runup`。原因：方案 C 第一批要先做“快照 + future outcomes”的最小闭环。目的：把技术面、RSRS、共振层和动作偏向通过正式 Tool 主链沉淀为研究结果。
+- `src/runtime/stock_history_store.rs`：新增 `load_rows_after`，专门用于读取 snapshot 日之后的未来窗口数据。原因：forward returns 回填必须拉取“快照日之后”的日线时序。目的：保持历史数据读取仍在 runtime store 层统一收口。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：把 `signal_outcome_research` 模块、`record_security_signal_snapshot` 和 `backfill_security_signal_outcomes` 接入 stock 主链。原因：用户明确要求所有研究与咨询都必须经过 Tool/Skill 主链执行。目的：把研究平台第一批能力变成可调用、可回归的正式 Tool。
+- `tests/security_analysis_resonance_cli.rs`：新增 `record_security_signal_snapshot_persists_full_indicator_state` 和 `backfill_security_signal_outcomes_records_forward_metrics` 两条红绿回归，真实验证 `CSV -> SQLite -> resonance/fullstack -> signal_outcome_store` 主链。原因：用户要求高阶指标、RSRS、共振与动作偏向必须真正落库，并能延伸未来收益研究。目的：确保 Task 2/3 不是假 JSON 或内存结果，而是完整平台链路。
+
+### 修改原因
+- 用户明确要求：证券分析不只给当下结论，还要回答“历史上类似信号后面通常怎么走”，因此必须先把 snapshot 和 future outcomes 平台化。
+- 用户多次纠正：RSRS、共振层、动作偏向不能在统一底稿里丢失，而且要等数据真正写入数据库后再谈后续 research 层扩展。
+
+### 方案还差什么？
+- [ ] 还没有实现 `study_security_signal_analogs` 和 `signal_outcome_research_summary`，目前只完成了 Task 1-3 的 `snapshot + forward returns` 闭环。
+- [ ] 还没有把 research layer 接入 `security_decision_briefing` 和 committee payload，目前咨询层还没有消费本次新增的历史结果层。
+- [ ] 还没有给 snapshot 生成 research tags，第一版相似信号检索还没有开始实现。
+
+### 潜在问题
+- [ ] `backfill_security_signal_outcomes` 第一版是固定 `1/3/5/10/20` 日窗口和 close-based 最大回撤/上冲，后续若要做更细粒度风险，还需要引入 high/low 口径校准。
+- [ ] `indicator_digest` 第一版是 key=value 的可读字符串，利于审计和简单检索，但还不是最终的相似度检索结构。
+- [ ] 仓库现有 `dispatcher.rs` 仍有较多历史 `dead_code` warning，本次未与研究平台任务混做清理。
+
+### 关闭项
+- 已通过 `cargo fmt`
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli record_security_signal_snapshot_persists_full_indicator_state -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli backfill_security_signal_outcomes_records_forward_metrics -- --nocapture`
+
+### 记忆点（可选）
+- 用户明确要求：这类量化研究底层要先做成平台，后面再搭 briefing / committee / Skill，不要先做一份上层说明模板。
+- 用户明确要求：不要脱离项目内 Tool/Skill 主链自由发挥，本轮实现必须继续沿现有 dispatcher 和 runtime 主链扩展。
+## 2026-04-02
+### 修改内容
+- `src/ops/security_decision_briefing.rs`：新增统一 `security_decision_briefing` 交付层，复用 `security_analysis_resonance` 输出基础面、技术面、共振面、执行阈值与 `committee_payload`。原因：把咨询场景与投决会场景收敛到同一份事实合同。目的：避免上层 Agent/Skill 再各自拼装不同口径的证券结论。
+- `src/tools/contracts.rs`、`tests/integration_tool_contract.rs`：补 `security_decision_briefing` 顶层字段合同与 `ToolResponse.ok_serialized` 支撑。原因：先锁对外 JSON 合同，防止 dispatcher/catalog 接入后字段漂移。目的：让 CLI / Agent / Skill 都拿到同一份稳定响应结构。
+- `src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：把 `security_decision_briefing` 接入 catalog 与 stock dispatcher。原因：该能力已经不是内部函数，必须成为正式 Tool。目的：保证后续 Skill 门禁和上层工作流能直接发现并调用。
+- `tests/security_analysis_resonance_cli.rs`：补 briefing assembler、执行阈值、committee payload 回归测试，并继续沿用真实 `CSV -> SQLite -> Tool` 链路验收。原因：本轮属于行为新增，必须先用红绿测试锁住输出。目的：防止后续继续扩展 briefing 时破坏现有合同。
+- `skills/security-analysis-v1/SKILL.md`、`skills/security-decision-briefing-v1/SKILL.md`：重写旧 Skill 门禁并新增 briefing 专属 Skill。原因：用户明确要求 Skill 不是说明文档，而是统一入口约束。目的：强制证券分析先过 briefing Tool，再进入后续判断或表决。
+- `src/runtime/signal_outcome_store.rs`：为 `SecuritySignalForwardReturnRow` 补 `Serialize`。原因：全量回归时 `BackfillSecuritySignalOutcomesResult` 需要序列化 forward returns。目的：消除 signal outcome 研究层对 briefing 回归的编译阻塞。
+
+### 修改原因
+- 用户明确要求按顺序落地 `security_decision_briefing`：先红测合同，再做 assembler，再补执行层，再接 catalog/dispatcher，最后上 Skill 门禁，不能跳步骤。
+- 用户明确要求咨询输出与投决会输出必须完全同口径，不能再出现“分析一份、表决另一份”的双事实链路。
+- 用户明确要求任务完成后补任务日志，沉淀修改内容、风险、验证和记忆点，便于后续续做与回归。
+
+### 方案还差什么?
+- [ ] 还没有为 `security_decision_briefing` 补单独的 CLI smoke 场景测试；当前已通过 catalog/dispatcher 合同回归覆盖正式入口，但还可以再补一条端到端直接调用样例。
+- [ ] `fundamental_brief / technical_brief / resonance_brief` 目前仍以 `serde_json::Value` 方式锁合同，后续如需更强静态约束，还可以继续下沉为强类型结构。
+
+### 潜在问题
+- [ ] `execution_plan` 当前依赖 `resistance_level_20`、`volume_ratio_20`、`ema_10`、`boll_middle`、`sma_50`、`atr_14` 等指标；若后续换市场或样本不足导致底层指标缺失，阈值解释可能需要补降级策略。
+- [ ] `committee_payload.evidence_version` 当前采用 `security-decision-briefing:{symbol}:{analysis_date}:v1` 拼接规则；后续如果 briefing 合同继续扩展，记得同步升级版本而不是静默改字段。
+- [ ] 仓库当前仍存在较多历史 `dead_code` warning，本轮没有顺手清理；它们不影响 briefing 功能，但会继续增加编译噪音。
+
+### 关闭项
+- 已通过 `cargo test --test integration_tool_contract security_decision_briefing_contract_exposes_required_top_level_fields -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_full_indicator_and_resonance_layers -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_execution_thresholds -- --nocapture`
+- 已通过 `cargo test --test integration_tool_contract security_decision_briefing_is_cataloged -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_committee_payload -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli -- --nocapture`
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture`
+
+### 记忆点（可选）
+- 用户明确要求：这条线要严格按既定顺序落地，先锁合同与红测，再做 assembler、执行层、catalog/dispatcher、Skill 门禁，不能为了省事跳步骤。
+- 用户明确要求：任务做完后要立即补 `task-journal`，把修改内容、风险、未完项和验证结果沉淀到 `CHANGELOG_TASK.MD`。
+## 2026-04-02
+### 修改内容
+- `src/ops/sync_template_resonance_factors.rs`：新增模板级共振因子同步主链，补 `SyncTemplateResonanceFactorsRequest/Result`、银行模板代理配方、代理序列变换与落库逻辑。原因：用户要求先把银行宏观共振平台底座做扎实，再谈中信银行最终结论。目的：把“模板因子补数”从临时分析动作沉成正式 Tool。
+- `src/runtime/stock_history_store.rs`：新增 `load_rows_in_range`。原因：模板因子同步需要在同一时间窗口对齐多个代理 symbol。目的：继续把日期过滤与升序读取收口在 runtime store，而不是散落到上层逻辑。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`、`src/tools/catalog.rs`：把 `sync_template_resonance_factors` 接入 stock 主链、dispatcher 与工具目录。原因：用户明确要求所有操作通过 Agent + Skill + Tool 主链执行。目的：让银行宏观共振补数成为正式可发现、可调用能力。
+- `tests/security_analysis_resonance_cli.rs`：先补红测再实现绿测，新增目录可发现性与银行模板宏观代理写库回归测试。原因：本轮属于新行为扩展，必须先用测试锁住能力边界。目的：确保模板级补数不是一次性脚本，而是可回归平台能力。
+- `runtime/security_resonance.db`：已通过新 Tool 写入银行模板 7 个宏观/代理因子序列。原因：需要让中信银行后续统一 briefing 真正使用这些因子。目的：让共振层从“只有模板定义”升级到“有真实序列可评估”。
+
+### 修改原因
+- 用户明确要求银行共振必须把国债、信用利差、地产、消费、贷款、PMI 正式纳入，而不是口头说会考虑。
+- 用户明确要求分析必须优先走项目内 Tool/Skill 主链，不能脱离工具自由分析。
+- 用户明确要求平台化思路先做底层，再在其上重跑中信银行结论。
+
+### 方案还差什么?
+- [ ] `loan_growth_proxy` 与 `pmi_proxy` 当前仍是平台级代理因子，后续还需要接官方宏观原始统计口径。
+- [ ] 还没有把这套模板级补数扩展到石油、航运、煤炭等其他传统行业模板。
+- [ ] 还没有把宏观因子同步结果进一步接入投决会专用汇总或 committee 表决层。
+
+### 潜在问题
+- [ ] 当前部分代理因子本质上是“市场代理”而非“官方宏观原始序列”，如果用户后续要求更严谨宏观解释，需要显式注明代理性质。
+- [ ] `credit_risk_spread` 采用 `511260.SH / 511190.SH` 的相对强弱口径，若后续用户要改成更贴近信用利差原始定义，需要同步调整历史可比性。
+- [ ] 仓库当前仍有较多历史 `dead_code` warning，本轮未顺手清理，避免和本任务混做。
+
+### 关闭项
+- 已通过 `cargo fmt`
+- 已通过 `cargo test --test security_analysis_resonance_cli tool_catalog_includes_sync_template_resonance_factors`
+- 已通过 `cargo test --test security_analysis_resonance_cli sync_template_resonance_factors_bank_writes_macro_proxy_series`
+- 已通过真实命令 `cargo run --quiet --bin excel_skill` + `sync_template_resonance_factors` 成功补库 2082 个点
+- 已通过真实命令重跑 `601998.SH` 的 `security_decision_briefing`，确认 `action_bias` 从 `add_on_strength` 收敛为 `hold_and_confirm`
+
+### 记忆点（可选）
+- 用户明确纠正过：不是“默认带共振”就行，而是要把共振真正算出来、写进数据库，再由后续分析和投决统一消费。
+- 用户明确纠正过：银行股共振不能只看市场相关性，必须把利率、信用、地产、消费、贷款、PMI 这些基本盘维度正式纳入。
+
+## 2026-04-02
+### 修改内容
+- `tests/integration_tool_contract.rs`：新增 `explicit_tool_catalog_request_returns_registered_tool_names` 红绿回归。原因：`security_committee_vote` 目录用例暴露出显式 `tool_catalog` 请求没有走正式路由。目的：锁住“空输入兜底”和“显式目录请求”返回同一份工具目录合同。
+- `src/tools/dispatcher.rs`：补充 `tool_catalog` 正式分发分支，并在代码旁追加时间注释说明修改原因与目的。原因：此前新工具已注册进 catalog 常量，但 dispatcher 没有实际承接显式目录请求。目的：让 CLI、测试和 GUI 都能通过统一分发链发现 `security_committee_vote` 等 stock Tool。
+- `src/license/service.rs`：把 `tool_catalog` 纳入公开白名单，并在代码旁追加时间注释说明修改原因与目的。原因：若授权门禁开启，显式目录请求仍可能被当成普通业务 Tool 拦截。目的：保证目录发现入口在授权前后都保持一致可访问。
+
+### 修改原因
+- 用户已批准按方案 C 处理：既修真实根因，又把目录契约通过测试稳定下来，而不是只改测试绕过问题。
+- 根因已通过红测确认：显式请求 `{"tool":"tool_catalog","args":{}}` 时，返回数据里没有可解析的 `tool_catalog` 数组，说明问题在正式路由而不是注册常量。
+
+### 方案还差什么?
+- [ ] 还没有继续处理 `skills/security-committee-v1/SKILL.md` 与相关 Skill 门禁更新。
+- [ ] 还没有对 `security_committee_vote` 之后的更大范围集成链做全量回归，只完成了本次目录路由相关回归。
+
+### 潜在问题
+- [ ] 若后续有人再次只维护 `main.rs` 的空输入目录兜底，而忘记同步 `dispatcher` 的显式目录分支，目录契约仍可能再次分叉。
+- [ ] 当前仓库仍存在较多历史 `dead_code` warning，本次未混做清理；后续如果继续扩展 dispatcher，编译噪音仍会影响定位新问题。
+
+### 关闭项
+- 已通过 `cargo test --test integration_tool_contract explicit_tool_catalog_request_returns_registered_tool_names -- --nocapture`
+- 已通过 `cargo test --test security_committee_vote_cli security_committee_vote_is_cataloged -- --nocapture`
+- 已通过 `cargo test --test security_committee_vote_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户要求：发现 BUG 时先写能稳定复现问题的测试，再修复到通过为止；这次已按“先补红测，再补路由，再回归验证”执行。
+
+## 2026-04-02
+### 修改内容
+- `src/ops/signal_outcome_research.rs`：为 `SecuritySignalAnalogMatch` 补充 `Deserialize` 派生，并在代码旁追加 2026-04-02 CST 的原因/目的注释。原因：`signal_outcome_research_summary` 需要把数据库里的 analog summary JSON 重新反序列化回 briefing 主链。目的：让历史研究摘要能稳定回读，而不是只能写入不能消费。
+- `src/ops/security_committee_vote.rs`：为 `CommitteeMemberVote` 与 `SecurityCommitteeVoteResult` 补充 `Deserialize` 派生，并在代码旁追加 2026-04-02 CST 的原因/目的注释。原因：新增端到端 CLI 回归时，需要把 `security_committee_vote` 的结构化输出反序列化成强类型结果。目的：让投决会正式输出成为可往返、可校验、可供 GUI/自动化复用的正式合同。
+- `tests/security_analysis_resonance_cli.rs`：先补红测再转绿，新增 `security_committee_vote_consumes_briefing_payload_with_historical_digest` 端到端回归。原因：用户要求投决会链路不能只在局部通过，而要确认 `security_decision_briefing -> committee_payload -> security_committee_vote` 真正打通。目的：锁住 briefing、历史研究摘要与投票结果沿同一条 CLI 主链流转的正式行为。
+- `skills/security-analysis-v1/SKILL.md`：重写证券分析总 Skill 门禁，明确默认统一入口是 `security_decision_briefing`，投决会语义必须升级为 `security_decision_briefing -> security_committee_vote`。原因：旧文案仍停留在较宽泛的分析分流，没有把 briefing/vote 主链收口成强约束。目的：统一咨询口径与表决口径，禁止上层 Agent 绕过正式事实包。
+- `skills/security-decision-briefing-v1/SKILL.md`：更新 briefing Skill，去掉“vote 尚未正式实现”的过时表述，补齐基于 `committee_payload` 调用 `security_committee_vote` 的正式门禁。原因：投决会 Tool 已正式落地，旧 Skill 已与真实实现脱节。目的：让上层使用方明确 briefing 是唯一事实入口，vote 是唯一正式表决入口。
+- `skills/security-committee-v1/SKILL.md`：新增投决会专用 Skill，显式要求“先 briefing，后 vote；vote 只吃 committee_payload；禁止第二套事实包”。原因：用户要求把 Skill 门禁和整条链后续一起收尾，而不仅是让 Tool 能跑。目的：把投决会流程从实现能力升级为可执行、可复用、可审计的项目约束。
+
+### 修改原因
+- 用户明确要求继续把 Skill 门禁和整条链的后续收尾，不能停留在 `security_committee_vote` 可发现、可调用的局部完成状态。
+- 用户明确要求发现 BUG 时先补能稳定复现问题的测试，再修复到通过为止；这次已按“先用端到端回归锁链路，再补反序列化合同，再回归验证”执行。
+- 用户明确要求咨询链与投决会链使用同一份事实底稿，不能继续出现 briefing 一份、vote 又手工拼一份的双事实链路。
+
+### 方案还差什么?
+- [ ] Skill 门禁目前是文档级约束，后续如果要进一步防止误用，还可以考虑在上层调度器或 Agent 编排层加入更强的自动门禁校验。
+- [ ] 当前端到端回归主要覆盖 `standard` 模式，后续还可以继续补 `strict` 与 `advisory` 模式下的正式链路测试。
+- [ ] 还没有补“授权开启时显式 `tool_catalog` 仍可访问”与“空输入目录和显式 `tool_catalog` 完全一致”的更大范围目录契约回归。
+
+### 潜在问题
+- [ ] 仓库当前仍存在较多历史 `dead_code` warning，本轮没有混做清理；后续排查新问题时编译噪音仍然存在。
+- [ ] `skills/security-analysis-v1/SKILL.md`、`skills/security-decision-briefing-v1/SKILL.md`、`skills/security-committee-v1/SKILL.md` 目前只是在流程层强约束，如果未来有人绕过 Skill 直接拼底层 Tool，仍需要依赖测试和代码 review 兜底。
+- [ ] 端到端测试依赖真实的研究夹具链路，执行时间较长；后续如果继续扩大量化研究回归，建议分层增加更轻量的 store/ops 单测，避免总体回归进一步变慢。
+
+### 关闭项
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_available_historical_digest_after_analog_study -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_committee_vote_consumes_briefing_payload_with_historical_digest -- --nocapture`
+- 已通过 `cargo test --test security_committee_vote_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次明确要求：这条线不能只做到 Tool 层可用，还要把 Skill 门禁和整条正式链路一起收尾，避免实现有了但流程约束没落地。
+- 用户再次明确要求：投决会必须只消费 `security_decision_briefing` 产出的同一份 `committee_payload`，不能手工再拼第二套事实包。
+
+## 2026-04-02
+### 修改内容
+- `tests/security_analysis_resonance_cli.rs`：新增 `security_decision_briefing_includes_default_committee_recommendations_for_all_modes` 红绿回归，并在测试里把 `standard / strict / advisory` 三种内嵌建议与正式 `security_committee_vote` 结果逐一比对。原因：用户明确要求普通股票分析报告默认就要带投决会建议，而不是让用户先知道要不要开投决会。目的：锁住“报告默认带投决建议”且“建议必须复用正式 vote Tool”的行为边界。
+- `src/ops/security_decision_briefing.rs`：为 `SecurityDecisionBriefingResult` 新增 `committee_recommendations` 顶层字段，并补充 `CommitteeRecommendations / CommitteeRecommendationEntry` 结构。原因：需要让 briefing 直接承载默认投决建议，而不是只返回原始 `committee_payload`。目的：让上层报告在一个入口里同时看到分析事实与可执行建议。
+- `src/ops/security_decision_briefing.rs`：新增 `build_committee_recommendations` 与 `build_committee_recommendation_entry`，内部统一复用 `security_committee_vote` 生成 `standard / strict / advisory` 三套结果。原因：用户强调不能再出现报告一套、投决会一套的双口径。目的：确保 briefing 默认建议与独立 vote Tool 永远同源、同规则、同结果。
+- `src/ops/security_decision_briefing.rs`：为 briefing 错误类型补充 `CommitteeVote` 分支，并在新增代码旁追加 2026-04-02 CST 的原因/目的注释。原因：默认内嵌投决建议后，briefing 需要显式承接 vote 生成失败。目的：保证链路错误来源可追踪、可测试、可向上层清晰暴露。
+
+### 修改原因
+- 用户明确要求：用户并不知道什么时候该“上投决会”，所以系统应该默认在股票分析报告里给出投决会建议，而不是把流程知识转嫁给用户。
+- 用户明确细化了三种模式语义：`standard` 是个股分析报告默认投决会建议，`strict` 面向涉及金额与买卖动作的严格交易建议，`advisory` 面向已有持仓判断；因此需要把三种模式一并准备进 briefing。
+- 用户再次强调：投决会建议不能手写摘要，必须沿正式 Tool 主链复用，避免同一份报告和独立投决会跑出两套不同结论。
+
+### 方案还差什么?
+- [ ] 目前默认内嵌建议已经准备好三种模式，但还没有根据用户自然语言意图自动挑选“当前最该引用哪一种”；上层 Agent/报告模板后续还可以继续补一层推荐逻辑。
+- [ ] 还没有在 `integration_tool_contract` 里单独锁定 `committee_recommendations` 的完整字段合同；当前主要由专项 CLI 回归覆盖。
+- [ ] 还没有继续扩到更多报告模板，例如把 `strict` 和 `advisory` 的摘要段落直接写进最终中文报告排版中。
+
+### 潜在问题
+- [ ] `security_decision_briefing` 现在默认会额外跑三次 `security_committee_vote`，虽然都是内存内逻辑，但后续如果 vote 规则继续变重，需要关注 briefing 总耗时。
+- [ ] 当前 `default_mode` 固定为 `standard`，这是按“普通个股分析报告”默认场景设定的；若未来存在不同报告类型，可能需要再引入更显式的报告意图字段。
+- [ ] 仓库当前仍有较多历史 `dead_code` warning，本轮没有混做清理，编译噪音仍会继续存在。
+
+### 关闭项
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_includes_default_committee_recommendations_for_all_modes -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_committee_vote_consumes_briefing_payload_with_historical_digest -- --nocapture`
+- 已通过 `cargo test --test integration_tool_contract security_decision_briefing_contract_exposes_required_top_level_fields -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次明确要求：不要假设用户知道“什么时候该开投决会”，应由系统默认把投决建议准备进股票分析报告。
+- 用户再次明确要求：`standard / strict / advisory` 不是技术实现细节，而是三种不同业务语义，后续任何报告或 Skill 编排都要按这个口径使用。
+## 2026-04-02
+### 修改内容
+- `README.md`：整页重写项目入口说明，并在文档内补 2026-04-02 CST 的修改原因/目的注释。原因：旧 README 仍以历史 SheetMind/Excel 叙事为主，无法准确反映当前证券分析与投决会主链。目的：让开发者、AI 和后续维护者都从同一份权威入口理解当前项目。
+- `docs/AI_HANDOFF.md`：新增统一 AI 交接手册，并在文档内补 2026-04-02 CST 的修改原因/目的注释。原因：仓库原有两份交接摘要已经碎片化，且混有旧主线残留。目的：把当前正式主链、禁止回退事项、接手顺序、风险和文档同步规则收拢成单一权威手册。
+- `docs/DOCUMENTATION_INDEX.md`、`docs/DOC_UPDATE_POLICY.md`：新增文档索引与文档更新规则，并在文档内补 2026-04-02 CST 的修改原因/目的注释。原因：用户明确要求 README、日志和 AI 交接手册需要随时更新。目的：把“要不要补文档”升级为正式维护规则，并为 docs 目录提供统一导航入口。
+- `docs/交接摘要_给后续AI.md`、`docs/交接摘要_证券分析_给后续AI.md`：改成跳转页，并在文档内补 2026-04-02 CST 的修改原因/目的注释。原因：继续并行维护旧摘要会让交接入口继续分叉。目的：保留历史文件名兼容性，同时把后续维护统一收口到 README 与 `docs/AI_HANDOFF.md`。
+
+### 修改原因
+- 用户明确要求把 README、日志、AI 交接手册补齐，并且这些文档需要随时更新，不能继续只靠零散口头说明。
+- 当前证券分析、briefing、投决会、Skill 门禁已经形成新的正式主链，原有文档入口和旧摘要不再足够准确。
+- 如果不把“权威入口”和“同步更新规则”明确写下来，后续 AI 或开发者很容易继续从过期摘要接手，导致主线理解再次偏移。
+
+### 方案还差什么?
+- [ ] 还没有把 `docs/acceptance/`、`docs/plans/` 里的历史文档逐份补“当前是否仍有效”的状态标记；本次先完成权威入口收口，避免把任务面继续拉大。
+- [ ] 还没有把“提交前文档检查”做成自动脚本或 CI 规则；当前仍依赖人工按 `DOC_UPDATE_POLICY` 执行。
+
+### 潜在问题
+- [ ] 旧文档虽然已经改成跳转页，但如果后续有人继续直接编辑历史计划或摘要而不更新权威入口，信息仍可能再次分叉。
+- [ ] 本次主要是文档体系重整，没有执行自动化测试；如果后续 README 中新增的命令示例发生漂移，需要通过功能回归一并校正。
+
+### 关闭项
+- [ ] 未执行自动化验证：本次仅涉及 README 与 docs 文档重整，没有改动生产代码或测试代码。
+
+### 记忆点（可选）
+- 用户再次明确要求：README、任务日志、AI 交接手册不是可选补充材料，而是需要随功能同步维护的正式资产。
+## 2026-04-08
+### 修改内容
+- `src/ops/technical_consultation_basic.rs`：给 `TechnicalConsultationBasicResult` 新增顶层 `analysis_date` 与 `evidence_version` 字段，并在结果构造处按 `technical-consultation-basic:<symbol>:<analysis_date>:v1` 生成统一证据版本。目的：在保留 `as_of_date` 兼容的同时，把统一合同前移到技术基础层。
+- `src/ops/security_analysis_contextual.rs`：给 `SecurityAnalysisContextualResult` 新增顶层 `analysis_date` 与 `evidence_version` 字段，并复用 `stock_analysis.analysis_date` 生成 `security-analysis-contextual:<symbol>:<analysis_date>:v1`。目的：让环境层直接对外暴露统一日期和证据版本。
+- `src/ops/security_analysis_fullstack.rs`：给 `SecurityAnalysisFullstackResult` 新增顶层 `analysis_date` 与 `evidence_version` 字段，并复用 `technical_context.analysis_date` 生成 `security-analysis-fullstack:<symbol>:<analysis_date>:v1`。目的：让 fullstack 聚合层成为 briefing 之下的统一事实入口。
+- `src/ops/security_analysis_resonance.rs`：给 `SecurityAnalysisResonanceResult` 新增顶层 `analysis_date` 与 `evidence_version` 字段，并复用 `base_analysis.analysis_date` 生成 `security-analysis-resonance:<symbol>:<analysis_date>:v1`。目的：让 resonance 顶层也能被后续链路直接消费，不再依赖嵌套字段回钻。
+- `tests/integration_tool_contract.rs`、`tests/security_analysis_contextual_cli.rs`、`tests/security_analysis_fullstack_cli.rs`、`tests/security_analysis_resonance_cli.rs`：本轮继续沿用并验证已补好的红测，确保四层统一合同字段按方案 C 生效。
+
+### 修改原因
+- 用户已明确批准方案 C：本轮只做“Skill 门禁最小加固 + 证券分析主链全链统一合同最小补齐”，不扩业务判断逻辑，不做大重构。
+- 当前链路中 `security_decision_briefing` 和 `security_committee_vote` 已有统一顶层 `analysis_date / evidence_version`，但更下层的 `technical/contextual/fullstack/resonance` 仍未统一，导致上层消费必须回钻嵌套结构。
+- 用户明确要求发现问题先用测试锁定，再做最小修复；这轮已按“先红测，再补字段，再回归”的方式执行。
+
+### 方案还差什么?
+- [ ] `security_decision_briefing` 与 `security_committee_vote` 之间仍有一组历史测试失败，当前定位到 `committee_payload.key_risks` 为空时会触发 `IncompleteCommitteePayload("key_risks 不能为空")`；这不属于本轮统一合同字段本身，但需要后续单独收口。
+- [ ] Skill 门禁当前仍主要依赖 Skill 文档与链路约束，尚未加入更强的自动化门禁执行器。
+- [ ] 统一合同这轮只覆盖了 `analysis_date / evidence_version`，后续若要扩公共字段，需要先补更明确的跨层规格。
+
+### 潜在问题
+- [ ] `cargo test --test security_analysis_resonance_cli -- --nocapture --test-threads=1` 当前会暴露 4 个旧失败用例，根因不是本轮新增字段缺失，而是 briefing 到 committee 的事实包完整性要求未满足，并且首个 panic 会导致测试里的环境锁进入 `PoisonError` 连锁失败。
+- [ ] 仓库仍存在较多历史 `dead_code` warnings，本轮未处理；后续排查新问题时编译输出噪音仍然较大。
+- [ ] Windows 下测试超时后会残留 `cargo`/测试二进制占用，可能触发 `LNK1104` 或 `os error 5`，后续长跑测试前要先确认没有残留进程。
+
+### 关闭项
+- 已通过 `cargo test --test integration_tool_contract technical_consultation_basic_contract_exposes_bullish_continuation_conclusion -- --exact --nocapture`
+- 已通过 `cargo test --test security_analysis_contextual_cli security_analysis_contextual_uses_proxy_profiles_when_symbols_are_omitted -- --exact --nocapture`
+- 已通过 `cargo test --test security_analysis_fullstack_cli security_analysis_fullstack_aggregates_technical_fundamental_and_disclosures -- --exact --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_analysis_resonance_exposes_unified_analysis_date_and_evidence_version -- --exact --nocapture`
+- 已通过 `cargo test --test integration_tool_contract -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test security_analysis_contextual_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test security_analysis_fullstack_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo fmt --all`
+- 已定位但未关闭 `cargo test --test security_analysis_resonance_cli -- --nocapture --test-threads=1` 的历史失败：`security_decision_briefing_exposes_committee_payload` 首先因 `key_risks 不能为空` 失败，其后 3 个用例因测试环境锁 `PoisonError` 连锁失败。
+
+### 记忆点（可选）
+- 用户已明确要求：这条线先做最小、可验证的统一合同，不要借机扩业务判断或大改 Skill 架构。
+- 用户再次强调：每次代码任务结束后都要补 `CHANGELOG_TASK.MD`，并把已验证命令、未完成项、潜在风险和记忆点写清楚。
+
+### 修改内容（补充）
+- `src/ops/security_decision_briefing.rs`：在 `build_committee_payload()` 前新增 `build_committee_key_risks()` 最小兜底逻辑，当上游 `integrated_conclusion.risk_flags` 为空时，优先退化到首个负向共振风险，再退化到基于 `stop_loss_price / invalidation_price` 的失效风险。目的：只修通 `briefing -> committee` 这一小段最小闭环，不扩散修改到更大的风险抽取逻辑。
+
+### 关闭项（补充）
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_committee_payload -- --exact --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_execution_thresholds -- --exact --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_full_indicator_and_resonance_layers -- --exact --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_vote_ready_committee_payload -- --exact --nocapture`
+
+### 潜在问题（补充）
+- [ ] `cargo test --test security_analysis_resonance_cli -- --nocapture --test-threads=1` 在当前 Windows 环境下仍会受到 `cargo`/构建目录锁噪音干扰，导致整组回归输出不稳定；但本轮直接相关的 4 个失败用例已经逐个转绿。
+
+### 记忆点（补充）
+- 用户明确要求：先把“最小补齐”做完，再单独说明如果要做完整版本还差什么，因此这轮对 `committee_payload.key_risks` 只做最小兜底，不顺手扩展更完整的风险抽取体系。
+## 2026-04-08
+### 修改内容
+- `src/ops/foundation.rs`：新增 `ontology_schema`、`ontology_store`、`knowledge_record`、`knowledge_graph_store`、`capability_router`、`roaming_engine`、`retrieval_engine`、`evidence_assembler`、`navigation_pipeline` 模块导出。目的：把 foundation 知识导航内核正式收口到统一入口。
+- `src/ops/foundation/roaming_engine.rs`、`src/ops/foundation/retrieval_engine.rs`、`src/ops/foundation/evidence_assembler.rs`、`src/ops/foundation/navigation_pipeline.rs`：补齐方案 C 第一阶段缺失的四段最小实现。目的：形成独立的 `question -> NavigationEvidence` 最小闭环。
+- `tests/roaming_engine_unit.rs`、`tests/retrieval_engine_unit.rs`、`tests/evidence_assembler_unit.rs`、`tests/navigation_pipeline_integration.rs`：按 TDD 新增红绿测试，锁定漫游约束、候选域内检索、证据装配与统一入口闭环。目的：先用测试钉住 phase 1 契约，再补最小实现。
+- `README.md`、`docs/AI_HANDOFF.md`、`progress.md`、`findings.md`：同步记录 foundation 第一阶段已完成边界、未完成项、回归范围与环境风险。目的：避免后续协作把独立 navigation kernel 误读为完整知识库系统。
+
+### 修改原因
+- 用户已批准“方案 C 第一阶段”，要求先在当前仓库内补齐独立 foundation 知识导航内核，暂不接入现有证券分析主链。
+- 当前仓库虽然已有 ontology、store、router 等前置组件，但 `roam -> retrieve -> assemble -> pipeline` 闭环尚未完成，无法支撑独立的知识导航链路验证。
+- 用户明确要求按 TDD 推进，并在任务结束后补 `CHANGELOG_TASK.MD` 风格日志，因此本轮必须先补失败测试、再补最小实现、最后同步文档。
+
+### 方案还差什么?
+- [ ] 还没有实现知识入库流水线、metadata filter、向量检索与持久化知识库。
+- [ ] 还没有把 foundation navigation kernel 适配接入 `security_analysis_* / security_decision_briefing / security_committee_vote` 主链。
+- [ ] 还没有对 foundation 第一阶段补充 README 级使用示例或上层调用样例代码。
+
+### 潜在问题
+- [ ] 当前 `retrieval_engine` 仅采用关键词交集评分；当知识节点规模扩大或文本同质化增强时，命中排序可能不足以支撑复杂检索场景。
+- [ ] Windows 环境下若残留 `excel_skill.exe` 或 `cargo` 进程，`cargo test` 仍可能触发 `os error 5` 文件占用失败。
+- [ ] `task-journal` 技能自带 `new_entry.ps1` 在当前 PowerShell 编码环境下解析失败；后续若继续依赖该脚本，需先修复脚本编码或执行环境。
+
+### 关闭项
+- 已通过 `cargo test --test roaming_engine_unit -- --nocapture`
 - 已通过 `cargo test --test retrieval_engine_unit -- --nocapture`
+- 已通过 `cargo test --test evidence_assembler_unit -- --nocapture`
 - 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test capability_router_unit --test ontology_schema_unit --test ontology_store_unit -- --nocapture`
+- 已通过 `cargo test --test ontology_schema_unit --test ontology_store_unit --test knowledge_record_unit --test knowledge_graph_store_unit --test capability_router_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`
 
 ### 记忆点（可选）
-- foundation 当前主线是“通用 metadata 约束先收敛到 request -> retrieval”，不要再次默认把 metadata 自动扩进 roaming 语义。
-- 当测试夹具因新增通用能力样本而变丰富时，优先先判断是不是夹具噪音污染了旧 query，再决定是否修改生产逻辑，不要把样本副作用误判成主链回归。
-## 2026-04-09
+- 用户要求：进入代码修改前必须先给多个方案并等待批准；本轮是在既有批准的“方案 C 第一阶段”前提下继续执行，后续同类任务不能跳过这一步。
+- 用户要求：每次代码任务完成后都要补 `CHANGELOG_TASK.MD`，即使技能脚本失效也要按同格式手工补齐，不能省略。
+## 2026-04-08
 ### 修改内容
-- `src/ops/foundation/metadata_constraint.rs`：新增 `MetadataScope` 标准模型，提供 `new/from_constraints/as_slice/matches`，目的是把 metadata 从 retrieval 的额外参数提升为 foundation 主线共享 scope 合同。
-- `src/ops/foundation/capability_router.rs`：将 `NavigationRequest` 的 metadata 输入承载从裸 `Vec<MetadataConstraint>` 收敛为 `MetadataScope`，同时保留 `with_metadata_constraints(...)` 入口，目的是不破坏现有调用方式但完成标准模型升级。
-- `src/ops/foundation/roaming_engine.rs`：为 `RoamingPlan` 与 `CandidateScope` 增加 `metadata_scope`，新增 `with_metadata_scope(...)`，并在 `roam(...)` 输出中保留该 scope，目的是让 metadata 正式经过 `RoamingPlan -> CandidateScope` 这一段主线合同。
-- `src/ops/foundation/retrieval_engine.rs`：移除 `retrieve(...)` 的独立 metadata 参数，改为只消费 `scope.metadata_scope`，目的是让 retrieval 不再绕开统一 scope 合同。
-- `src/ops/foundation/navigation_pipeline.rs`：在运行时构造 roaming plan 时注入 `request.metadata_scope`，并让 retrieval 直接消费 scope，目的是打通 `NavigationRequest -> RoamingPlan -> CandidateScope -> Retrieval` 的通用 metadata 主线。
-- `tests/roaming_engine_unit.rs`：新增 `roaming_engine_preserves_metadata_scope_in_candidate_scope` 红绿测试，目的是钉死 roaming 至少要保留 metadata scope。
-- `tests/retrieval_engine_unit.rs`：将 metadata 相关断言改为“由 `CandidateScope` 携带 metadata scope”后再执行 retrieval，目的是钉死 retrieval 的新合同。
-- `tests/evidence_assembler_unit.rs`：对齐 `CandidateScope` 与 `CapabilityRoute` 的最新结构，目的是避免 assembler 继续依赖过时样本。
+- `src/ops/security_committee_vote.rs`：把 `committee_vote` 的关键风险消费入口统一收口到 `effective_key_risks(payload)`，并在事件席位、风控席位、标准条件、payload 校验里接入 `risk_breakdown -> key_risks` 兼容逻辑。目的：让标准收口版下的结构化风险合同可以直接驱动投决规则，同时保持旧摘要字段兼容。
+- `tests/security_committee_vote_cli.rs`：给手工构造的 `CommitteePayload` 测试夹具补齐 `risk_breakdown`，并写入与 `key_risks` 对齐的四类风险样例。目的：修复新合同引入后测试夹具缺字段导致的编译失败，并锁住 CLI 投决输入合同。
+- `src/ops/security_decision_briefing.rs`、`tests/security_analysis_resonance_cli.rs`、`tests/integration_tool_contract.rs`：沿用本轮已完成的标准收口版改动，确认 `committee_payload.risk_breakdown` 作为正式合同字段对外暴露，`key_risks` 退化为兼容摘要。目的：把 briefing 与 committee 的风险合同边界正式固定下来。
 
 ### 修改原因
-- 用户已批准方案B第二阶段，要求继续推进通用化标准能力，而不是业务化字段特判；这一步最关键的是先把 metadata 正式提升为 route 之后主线共享的 scope 合同。
-- roaming 当前只依赖 ontology store，看不到 graph node metadata；因此本轮合理边界不是“直接做节点级 metadata 漫游过滤”，而是先把 metadata 作为 `plan/scope` 的一部分稳定流过主线。
-- 红测已经暴露出旧合同的问题：`RetrievalEngine` 仍依赖独立 metadata 参数，`RoamingPlan/CandidateScope` 还无法表达 metadata scope，这会阻塞后续真正的元数据收敛与解释能力。
+- 用户已批准“标准收口版”，本轮目标不是继续做最小兜底，而是把 `committee_payload` 的风险合同从扁平 `key_risks` 升级为结构化 `risk_breakdown`，同时保证旧调用方不被打断。
+- 之前 `security_decision_briefing_exposes_committee_payload` 与 `security_decision_briefing_exposes_vote_ready_committee_payload` 的失败，不是子进程机制本身有问题，而是 `committee_vote` 仍有部分逻辑直接读取旧 `payload.key_risks`，导致新合同路径未完全贯通。
+- 用户要求每次代码任务结束后补 `CHANGELOG_TASK.MD`，并把修改原因、验证结果、剩余问题和记忆点写清楚；本次按该要求手工补齐日志。
 
 ### 方案还差什么?
-- [ ] 还未让 metadata 真正参与 roaming 扩展收敛；当前只是先成为 roaming plan 与 candidate scope 的正式组成部分。
-- [ ] 还未补 `MetadataConstraint::In` / `HasAny` 在 pipeline 集成层的专项测试与样本。
-- [ ] 还未把 metadata scope 的解释信息输出到 trace / diagnostics；当前只有合同打通，没有显式解释面。
+- [ ] 目前只完成了 `briefing + committee_payload + committee_vote` 这一段的标准收口，尚未继续向更上游 `integrated_conclusion` 做彻底重构。
+- [ ] 还没有为 `risk_breakdown` 增加更细的契约校验，例如四类风险项的 `severity/category/rationale` 是否满足统一枚举与非空门禁。
+- [ ] 还没有跑全量 `cargo test`；本轮只回归了与标准收口版直接相关的 4 组测试，避免在现有 Windows 锁文件环境下扩大噪声面。
 
 ### 潜在问题
-- [ ] 当前 `MetadataScope` 只是统一主线合同，不等于 roaming 已能理解节点级 metadata；若上游把这两件事混为一谈，容易出现能力预期偏差。
-- [ ] 当前 `Range` 仍是字符串区间语义，只适合 ISO 日期或其他字典序稳定字段；若后续塞入非规范日期/数值文本，会出现比较歧义。
-- [ ] 本轮仍有仓库既有 `dead_code` warnings，未处理这些告警；它们不影响当前闭环，但会继续出现在测试输出中。
+- [ ] `effective_key_risks(payload)` 当前采用“优先旧 `key_risks`，否则退化读取 `risk_breakdown` 每类首条 headline”的兼容策略；如果后续外部调用方同时传入两套不一致数据，仍可能产生摘要与结构化事实不一致的问题。
+- [ ] 当前测试夹具里的 `risk_breakdown` 仍是最小样例，尚未覆盖“某一类风险为空、另一类风险有多条”的排序与摘要派生边界。
+- [ ] Windows 环境下仍存在 `cargo`/构建目录锁等待；如果后续要跑全量回归，仍需注意 `LNK1104`、`os error 5` 或 package cache 锁等待噪声。
 
 ### 关闭项
-- 已先复现并确认红测失败：`cargo test --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit -- --nocapture`
-- 已通过 `cargo test --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit -- --nocapture`
-- 已通过 `cargo test --test knowledge_record_unit --test capability_router_unit --test ontology_schema_unit --test ontology_store_unit --test navigation_pipeline_integration -- --nocapture`
+- 已通过 `cargo test --test security_committee_vote_cli -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_committee_payload -- --exact --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_vote_ready_committee_payload -- --exact --nocapture`
+- 已通过 `cargo test --test integration_tool_contract security_decision_briefing_contract_exposes_required_top_level_fields -- --exact --nocapture`
+- 已通过 `cargo fmt --all`
 
 ### 记忆点（可选）
-- “metadata 进入 roaming 主线合同”不等于“roaming 已具备节点级 metadata 过滤能力”；后续不要再把这两个阶段混写成一件事。
-- 用户当前持续强调的是通用标准能力，所以优先顺序应是先把 contract 做正，再逐步补 filtering / trace / metadata 管理，而不是回头做业务化分支。
-## 2026-04-09
+- 用户再次强调：这种持续主线里的代码收口要先给方案、等批准，再执行修改；即使已有前序上下文，也不能跳过“先描述方案”的环节。
+- 用户再次强调：任务完成后必须调用 task-journal 思路补 `CHANGELOG_TASK.MD`，不能因为技能脚本或编码环境不稳定就省略任务日志。
+## 2026-04-08
 ### 修改内容
-- `src/ops/foundation/ontology_schema.rs`：为 `OntologyConcept` 新增通用 `metadata` 容器，以及 `with_metadata_text(...)`、`with_metadata_values(...)` 写入口，目的是让 concept 与 node 共享同一套 metadata value 模型，正式承接 concept-level metadata 收敛。
-- `src/ops/foundation/metadata_constraint.rs`：补充 `MetadataScope::matches_metadata(...)`、`MetadataConstraint::field()`、`MetadataConstraint::matches_metadata(...)` 与 `matches_all_metadata(...)`，目的是把 metadata 匹配能力从仅绑定 `KnowledgeNode` 升级为可复用于 concept / node 的 foundation 通用合同。
-- `src/ops/foundation/metadata_scope_resolver.rs`：新增通用 `MetadataScopeResolver`，提供 `constrain_concept_ids(...)` 与 concept 侧字段适用性判定，目的是把 concept-level metadata 收敛沉到独立标准能力层，而不是散落在 pipeline 或 roaming 分支中。
-- `src/ops/foundation/ontology_store.rs`：新增 `concepts()` 只读访问入口，目的是让 resolver 在不越过 store 边界的前提下判断某个 metadata 字段是否真实存在于 concept 层。
-- `src/ops/foundation/navigation_pipeline.rs`：在 template seed 收敛之后新增 metadata-aware route 收敛，并在 concept 被全部过滤时稳定返回 `RouteFailed`，目的是让 metadata 真正影响 `route -> roam` 主线，而不只停留在 retrieval。
-- `src/ops/foundation/roaming_engine.rs`：在 seed 入队和 neighbor 扩展时复用 `MetadataScopeResolver` 过滤 concept ids，并补 `ontology_store()` 只读访问器，目的是让 roaming 对 concept metadata 收敛保持与 pipeline 一致的标准语义。
-- `src/ops/foundation.rs`：导出 `metadata_scope_resolver` 模块，目的是把 metadata-aware concept 收敛正式挂入 foundation 公共模块边界。
-- `tests/metadata_scope_resolver_unit.rs`、`tests/navigation_pipeline_integration.rs`：先用红测钉住 `In` / `HasAny` 的 concept-level metadata 收敛，再实现生产代码，目的是继续按 TDD 完成这轮通用能力闭环。
+- `src/ops/security_decision_briefing.rs`：补齐 `CommitteeSubjectProfile` 最小分流规则，在 `build_summary()`、`build_committee_payload()`、`build_committee_recommendations()`、`build_fundamental_risk_items()`、`build_historical_digest()` 中接入 ETF 口径分支。目的：先把 ETF 正式纳入 briefing / committee 主链的最小可落地合同。
+- `src/ops/security_committee_vote.rs`：给 `build_fundamental_opinion()` 增加 ETF 专用投票分支，并新增 `is_etf_subject()`。目的：避免 ETF 因“没有个股财报”被基本面席位直接 `defer`。
+- `tests/security_committee_vote_cli.rs`：补齐 `subject_profile` 测试夹具，新增 ETF 夹具与 `security_committee_vote_etf_fundamental_reviewer_uses_fund_review_semantics` 回归测试。目的：锁住 ETF 基本面席位的新语义。
+- `src/ops/security_decision_briefing.rs`：新增 `infer_subject_profile()` 单元测试。目的：锁住 A 股 ETF / 个股最小识别规则。
+- `runtime/stock_history.db`：通过 `excel_skill.exe` + `EXCEL_SKILL_STOCK_DB` 显式指定仓库数据库，将 `159866.SZ` 同步到 `2026-04-07`，补入 `2026-04-03`、`2026-04-07` 两条数据。目的：让本地正式仓库库与最新分析日期对齐。
 
 ### 修改原因
-- 用户已批准继续走方案B，且明确只做 foundation 通用标准能力，不做业务化链路，因此本轮必须把 metadata 从“主线合同化”继续推进到“真实参与 concept-level 收敛”。
-- 上一轮虽然已经完成 `NavigationRequest -> RoamingPlan -> CandidateScope -> Retrieval` 的 metadata 合同接线，但 roaming 之前的 concept 收敛仍未真正消费 concept metadata，导致 `MetadataScope` 还没有形成完整的通用闭环。
-- 同一份 `MetadataScope` 现在同时约束 concept 与 node；如果不显式区分“哪些字段在 concept 层存在”，像只存在于 node 的 `source` 一类条件会把 route 错误过滤空，所以需要单独补 resolver 适用性判断。
+- 用户已批准“方案 3”，要求先把 ETF / 海外标的纳入正式分析主链的最小版本，再同步 `159866.SZ` 到 `2026-04-07` 后重跑分析。
+- 当前主链的真实断点不在技术分析本身，而在 briefing / committee 仍默认按“个股财报语义”解释 ETF，导致 ETF 无法严肃进入投决口径。
+- 本轮还实际发现 CLI 默认运行时库路径会落到 `E:\\TradingAgents\\.excel_skill_runtime\\stock_history.db`，如果不显式指定 `EXCEL_SKILL_STOCK_DB`，抓到的数据不会进入仓库主库。
 
-### 方案还差什么？
-- [ ] 还未补 concept metadata 全部过滤空时的专项集成红测；当前已通过实现把该边界稳定映射为 `RouteFailed`，但还缺单独钉死该语义的测试名例。
-- [ ] 还未补更复杂多跳图下的 metadata-aware roaming 扩展测试；当前覆盖了 seed 收敛与一跳 path 主线，但还没有覆盖更深层 BFS 场景。
-- [ ] 还未把 metadata 字段治理、字段注册、字段解释等“本体论元数据管理”继续往上推进；本轮只完成 foundation 通用收敛内核，不做更上层管理面。
+### 方案还差什么?
+- [ ] 当前只完成了 ETF 在 briefing / committee 合同层的最小分流，还没有补 ETF 专用 resonance 模板与更完整的 ETF / 海外标的研究模板池。
+- [ ] `security_decision_briefing` 里的旧历史场景文案仍有一段不可达旧代码残留，本轮先用 `#[allow(unreachable_code)]` 压住告警，后续应做一次编码清理后彻底删掉旧块。
+- [ ] 还没有把 ETF 主链做成完整的端到端 acceptance case，目前验证重点仍是 `committee_vote` 语义和 `technical_consultation_basic` 最新数据回归。
 
 ### 潜在问题
-- [ ] 当前 concept-level metadata 收敛只会消费“在 concept 层真实存在的字段”；如果后续有人误以为任意 metadata 字段都会同时作用于 route / roam，就会产生能力预期偏差。
-- [ ] `MetadataScopeResolver` 目前按 store 中 concept metadata 字段是否存在来判断约束是否适用于 concept；如果未来需要更细粒度的“按命中候选集而不是全 store”判定，可能还要继续细化策略。
-- [ ] `cargo test` 过程仍会输出仓库现有的 `dead_code` warnings；本轮未处理这些历史告警，它们不影响当前 metadata 主线闭环，但会继续出现在回归输出里。
+- [ ] 当前 `infer_subject_profile()` 仅覆盖 A 股 ETF 的最小前缀规则：`.SZ` 的 `15/16` 与 `.SH` 的 `51/56/58`；后续若接港股、美股、海外 ETF，需要扩展正式映射规则。
+- [ ] `sync_stock_price_history` 本次只成功补到 `2026-04-03` 和 `2026-04-07` 两个交易日；若后续需要完整校验 4 月上旬连续行情，还要继续核对节假日与源站覆盖情况。
+- [ ] 当前仓库仍存在大量历史 `dead_code` warnings，虽然与本轮功能无直接冲突，但会抬高后续排障噪声。
 
 ### 关闭项
-- 已先复现红测失败：`cargo test --test metadata_scope_resolver_unit --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test metadata_scope_resolver_unit --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test knowledge_record_unit --test capability_router_unit --test ontology_schema_unit --test ontology_store_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_committee_vote_cli -- --nocapture`
+- 已通过 `cargo test infer_subject_profile --lib -- --nocapture`
+- 已通过 `excel_skill.exe` + `sync_stock_price_history` 将 `159866.SZ` 同步到仓库数据库 `E:\\TradingAgents\\TradingAgents\\runtime\\stock_history.db`
+- 已通过 `excel_skill.exe` + `technical_consultation_basic` 使用 `2026-04-07` 数据重跑 `159866.SZ`
 
 ### 记忆点（可选）
-- 同一份 `MetadataScope` 现在同时服务 concept-level 收敛和 node-level retrieval；后续继续推进时，不要再把“只存在于 node 的 metadata 字段”默认成也会参与 route / roam 过滤。
-- 用户当前主线仍然是 foundation 通用能力与本体元数据能力，不要把后续工作偏回 `security_* / stock_* / scorecard / training` 之类业务链路。
-## 2026-04-09
+- 以后只要是“同步股票数据后立刻分析”的任务，不能把补数和分析并行跑；必须先确认 SQLite 已写入，再顺序重跑分析，否则会读到补数前快照。
+- 以后用 `excel_skill.exe` 做真实抓数或分析时，要优先显式设置 `EXCEL_SKILL_STOCK_DB=E:\\TradingAgents\\TradingAgents\\runtime\\stock_history.db`，避免默认写入 `.excel_skill_runtime` 造成“看起来抓到了、实际主库没变”的假象。
+
+## 2026-04-08
 ### 修改内容
-- `src/ops/foundation/metadata_registry.rs`：新增通用 `MetadataRegistry`、`MetadataFieldTarget`、`MetadataConstraintOperator` 与字段定义模型，目的是把 metadata 字段名、适用层级、支持操作符从隐式推断升级成显式注册的标准能力。
-- `src/ops/foundation/metadata_constraint.rs`：新增 `operator()`、`constraints_for_registered_target(...)` 与 `matches_metadata_for_registered_target(...)`，目的是让同一份 `MetadataScope` 能按 registry 显式区分 concept 侧与 node 侧应消费的约束子集。
-- `src/ops/foundation/metadata_scope_resolver.rs`：新增 `constrain_concept_ids_with_registry(...)`，目的是让 concept-level metadata 收敛从“扫现有 key 猜字段适用性”升级成“按注册表显式判断 concept 目标字段”。
-- `src/ops/foundation/roaming_engine.rs`：新增带 registry 的构造器，并让 seed 与 neighbor 收敛在 registry 存在时走显式字段目录，目的是让 roaming 也使用统一的 metadata 字段管理合同。
-- `src/ops/foundation/retrieval_engine.rs`：新增 `retrieve_with_metadata_registry(...)`，目的是让 retrieval 在 registry 模式下只消费 node-target metadata 字段，避免 concept-only 字段误过滤节点命中。
-- `src/ops/foundation/navigation_pipeline.rs`：新增 `new_with_metadata_registry(...)`，并在 route / roam / retrieve 三段统一接入 registry 感知路径，目的是让 foundation 主线共享同一份 metadata 字段目录。
-- `src/ops/foundation.rs`：导出 `metadata_registry` 模块，目的是把元数据字段目录正式纳入 foundation 标准能力边界。
-- `tests/metadata_registry_unit.rs`：新增 registry 单测，钉死字段目标层级与支持操作符的标准声明能力。
-- `tests/navigation_pipeline_integration.rs`：新增 `navigation_pipeline_keeps_hits_when_concept_only_metadata_is_registered`，钉死 concept-only 字段只影响 concept 收敛，不会在 retrieval 侧误过滤 node evidence。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充“metadata 字段管理应走显式 registry，且字段必须声明作用层级”的长期约束，目的是减少后续 AI 会话重复花时间重新对齐。
+- `src/ops/security_committee_vote.rs`：在 `validate_committee_payload()` 中接入 `validate_risk_breakdown_consistency()`，并新增 `derive_key_risks_from_breakdown()`。目的：把 `risk_breakdown` 提升为投决会门禁主源，拒绝分类错桶、字段缺失和摘要漂移。
+- `src/ops/security_committee_vote.rs`：收紧 `effective_key_risks()` 兼容逻辑，仅允许复用已通过强一致性校验的 `key_risks`，否则统一从 `risk_breakdown` 派生。目的：保留旧字段兼容，同时取消“第二套风险事实”。
+- `tests/security_committee_vote_cli.rs`：保留两条失败测试锁住“分类错桶”和“key_risks 与 risk_breakdown 不一致”场景，并把合法夹具中的 `key_risks` 同步到固定派生顺序。目的：让正负样本都符合方案 B 的新合同。
 
 ### 修改原因
-- 用户已批准继续走方案B，并明确当前主线是“通用的本体元数据管理”，不是业务链路扩展，因此需要先把 metadata 字段管理收敛成标准能力。
-- 上一轮 concept-level metadata 收敛仍有一个隐含问题：字段适用层级靠实际数据里有没有某个 key 来猜，这在 concept-only / node-only 字段并存时不够稳定，也不够可治理。
-- 当前最关键的基础能力是把“字段属于 concept、属于 node、还是同时属于两者”显式固定下来，否则同一份 `MetadataScope` 会在不同阶段产生歧义。
+- 用户已批准方案 B，要求把 `risk_breakdown` 提升为 `committee_payload` 的强一致性门禁主源，并要求 `key_risks` 必须与结构化风险拆解严格一致。
+- 上一轮虽然已经补了 `risk_breakdown` 合同与失败测试，但正式实现仍停留在“旧 `key_risks` 优先”的兼容态，投决会还没有真正按新合同拦截脏 payload。
+- 新门禁落地后，原有合法测试夹具仍使用旧摘要顺序；若不一起同步，会把“夹具过时”误判成“规则出错”。
 
-### 方案还差什么？
-- [ ] 还未补 retrieval 层针对 `retrieve_with_metadata_registry(...)` 的专项单测；本轮已用 pipeline 集成红测钉住主线语义，但还缺更细粒度的执行器单测。
-- [ ] 还未补“registry 已注册但 concept/node 当前未携带该字段”时的专项边界测试，当前先只覆盖 concept-only 字段不污染 retrieval 的核心路径。
-- [ ] 还未继续推进更上层的 metadata 字段治理面，例如字段版本、字段分组、字段解释、字段审计输出；本轮只完成 foundation 标准目录第一阶段。
+### 方案还差什么?
+- [ ] 当前只完成了 `committee_payload -> committee_vote` 这段的强一致性收口，还没有继续前推到 `security_decision_briefing` 的生成门禁。
+- [ ] 还没有覆盖“单个桶内多条风险项”的摘要派生与排序测试；当前只锁住了每桶首条 headline 的最小规则。
+- [ ] 还没有跑全量 `cargo test`；本轮只跑了与方案 B 直接相关的定向回归，避免在当前 Windows 环境下放大无关噪声。
 
 ### 潜在问题
-- [ ] 当前 registry 模式下，未注册字段会被对应目标层级忽略；如果后续希望改成“未注册即报错”或“未注册即拒绝执行”，还需要再补校验策略和测试。
-- [ ] 当前 operator 支持关系已进入 registry，但本轮只把它用于筛选适用约束，尚未把“不支持的 operator 是否报错”收敛成正式错误合同。
-- [ ] 仓库现有 `dead_code` warnings 仍然存在，本轮未处理这些历史告警；它们不影响当前 metadata 字段目录主线，但会继续出现在回归输出里。
+- [ ] 当前 `derive_key_risks_from_breakdown()` 仍采用“每个桶取首条 headline”的派生策略；如果后续要引入更复杂的优先级规则，需要先补测试再改实现。
+- [ ] 仓库中仍存在较多历史 `dead_code` warnings，本轮未处理；后续做全量回归时输出噪声仍会偏大。
+- [ ] 当前工作区本身是脏的，存在多处用户既有改动与未跟踪文件；后续提交或推送前需要明确只收本轮相关变更。
 
 ### 关闭项
-- 已先复现红测失败：`cargo test --test metadata_registry_unit --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit --test navigation_pipeline_integration -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test knowledge_record_unit --test capability_router_unit --test ontology_schema_unit --test ontology_store_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`
+- 已通过 `cargo test --test security_committee_vote_cli -- --nocapture`
+- 已通过 `cargo fmt --all`
+- 已通过格式化后的二次回归 `cargo test --test security_committee_vote_cli -- --nocapture`
 
 ### 记忆点（可选）
-- metadata 字段目录现在已经进入 foundation 标准能力边界；后续不要再把 concept/node 字段适用层级写成“靠数据里有没有这个 key 猜”。
-- concept-only 字段与 node-only 字段必须显式区分，否则同一份 `MetadataScope` 会在 route / roam / retrieve 三段产生错误的交叉过滤。
+- 用户再次强调：这种持续主线里的代码收口也必须先给方案、等批准，再执行修改。
+- 用户再次强调：每次代码任务结束后都要按 `task-journal` 思路补 `CHANGELOG_TASK.MD`，不能因为历史编码脏或技能脚本不可用而省略。
 
-## 2026-04-09
+## 2026-04-08
 ### 修改内容
-- `tests/retrieval_engine_unit.rs`：新增 registry 模式下 `concept-only` 字段忽略、未注册字段报错、node-target 不支持 operator 报错三条单测，目的是把 retrieval 执行器的字段目录合同从集成层下沉到单测层钉死。
-- `tests/metadata_scope_resolver_unit.rs`：新增 concept resolver 在 registry 模式下对未注册字段与不支持 operator 的红测，目的是让 route / roam 的 concept-level 收敛也受同一份字段治理合同约束。
-- `tests/navigation_pipeline_integration.rs`：新增 pipeline 对未注册字段与 node-target 非法 operator 的透传测试，并补 `sample_node_only_metadata_registry_navigation_pipeline()` 夹具，目的是验证主线会显式暴露 registry 错误而不是吞成空结果。
-- `src/ops/foundation/metadata_registry.rs`：新增 `MetadataRegistryError` 与 `has_field(...)`，目的是把 registry 模式下的字段治理错误收敛成共享错误模型。
-- `src/ops/foundation/metadata_constraint.rs`：把 `constraints_for_registered_target(...)` 与 `matches_metadata_for_registered_target(...)` 升级为返回 `Result` 的校验路径，目的是让同一份 `MetadataScope` 在 target-aware 切片时既能忽略异 target 字段，也能拒绝未注册字段和非法 operator。
-- `src/ops/foundation/metadata_scope_resolver.rs`：让 `constrain_concept_ids_with_registry(...)` 返回 `Result`，目的是把 registry 模式的 concept-level 错误合同正式带到 route / roam 入口。
-- `src/ops/foundation/retrieval_engine.rs`：新增 `RetrievalEngineError::InvalidMetadataConstraint(...)`，并在 registry 模式下先校验 node-target 约束再执行打分，目的是区分“约束非法”和“合法但无命中证据”。
-- `src/ops/foundation/roaming_engine.rs`：新增 `RoamingEngineError::InvalidMetadataConstraint(...)` 并透传 concept-level registry 校验错误，目的是保证直接调用 roaming 也遵守相同字段目录合同。
-- `src/ops/foundation/navigation_pipeline.rs`：新增 `NavigationPipelineError::InvalidMetadataConstraint(...)`，并让 route / roam / retrieve 三段统一透传 registry 错误，目的是把字段治理失败正式提升为 foundation 主线级可解释错误。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充“registry 模式下未注册字段和不支持 operator 必须 fail fast”的长期约束，目的是减少后续 AI 会话再次把错误合同退化成静默忽略。
+- `docs/plans/2026-04-08-closed-loop-investment-research-roadmap.md`：新增“闭环投研平台路线图”正式文档。目的：把后续主线从“继续加厚投决会”收口到“赔率系统 -> 仓位管理 -> 投后复盘 -> 市场结构 -> 技术面平衡计分卡 -> 深层信息面增强”。
+- `docs/DOCUMENTATION_INDEX.md`：补挂新路线图入口。目的：让后续协作者能从统一索引直接定位这份正式计划，而不是继续从零散对话里推断优先级。
+- `docs/AI_HANDOFF.md`：更新后续优先级建议，明确 `security_committee_vote` 已进入最小可用收口态，下一阶段应转向闭环建设。目的：避免后续 AI 继续默认把投决会当作第一主线。
 
 ### 修改原因
-- 用户已批准继续走方案B，当前目标仍是 foundation 的通用本体元数据管理，不做任何业务化字段或业务链路扩展。
-- 上一轮虽然完成了 metadata registry 第一阶段，但 `CHANGELOG_TASK.MD` 中明确剩余的尾项正是 retrieval 专项单测与“不支持 operator 是否报错”的正式合同；如果不补，registry 仍只有目录声明没有执行约束。
-- 当前最关键的通用化能力不是新增字段，而是把“字段未注册”和“operator 超出合同”与“正常无命中”清晰分离，避免上层把治理缺失误判成检索失败。
+- 用户明确指出：如果没有仓位管理与投后复盘，平台深度不足，不能算闭环体系。
+- 当前仓库虽然已经完成“投前分析 + briefing + 投决会”基础设施，但还缺赔率、仓位和复盘三段，继续深挖投决会会偏离平台成型方向。
+- 用户要求把整套后续思路写成一份正式文档并放到平台文档体系里，供后续 AI 和开发继续接续。
 
 ### 方案还差什么?
-- [ ] 还未补 `metadata_registry_unit.rs` 对 `has_field(...)` 与错误模型的更细单测；本轮先优先补齐执行链路红绿闭环。
-- [ ] 还未推进 metadata 字段治理的更上层能力，例如字段分组、字段解释、字段审计输出、字段版本/兼容策略。
-- [ ] 还未决定未来是否需要“严格 registry 模式”和“兼容 registry 模式”的显式运行时开关；当前行为是只要启用 registry 就走 fail-fast。
+- [ ] 这次只完成了路线图文档化，还没有开始对应的业务实现，尤其是 `signal_outcome_research` 的赔率层、仓位层和复盘层。
+- [ ] 还没有把“免费数据源分层”进一步拆成可执行的数据适配清单；这需要单独开下一轮方案。
+- [ ] 还没有把新路线同步到 `task_plan.md / findings.md / progress.md` 这一组文件化计划体系中。
 
 ### 潜在问题
-- [ ] 当前 fail-fast 语义只在“启用 registry”时成立；旧的空 registry 兼容路径仍保持原有宽松语义，后续如果两种模式混用需要注意解释差异。
-- [ ] 这次新增了新的错误分支 `InvalidMetadataConstraint(...)`；如果未来上层调用方开始依赖 pipeline 错误枚举，需要同步处理这个新增分支。
-- [ ] 仓库内历史 `dead_code` warnings 仍然存在，本轮未处理这些非 foundation metadata 主线问题。
+- [ ] 当前路线图里对“深层免费数据源”仍按分层策略表述，没有落到逐源核验；后续若直接实现这部分，仍可能被源稳定性卡住。
+- [ ] 如果后续协作者只看旧的阶段文档而不看新路线图，仍可能继续把资源投到投决会制度层。
+- [ ] 本轮只改文档，没有跑自动化测试；后续真正开始实现闭环模块时，需要重新按 TDD 建测试入口。
 
 ### 关闭项
-- 已先复现红测失败：`cargo test --test retrieval_engine_unit --test metadata_scope_resolver_unit --test navigation_pipeline_integration -- --nocapture`
-- 已通过定向绿测：`cargo test --test retrieval_engine_unit --test metadata_scope_resolver_unit --test navigation_pipeline_integration -- --nocapture`
-- 已通过 foundation 回归：`cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test knowledge_record_unit --test capability_router_unit --test ontology_schema_unit --test ontology_store_unit --test roaming_engine_unit --test retrieval_engine_unit --test evidence_assembler_unit --test navigation_pipeline_integration -- --nocapture`
+- [ ] 未执行自动化验证：本轮仅涉及路线图、索引与交接文档更新，没有修改生产代码或测试代码。
 
 ### 记忆点（可选）
-- 启用 metadata registry 以后，不要再把“未注册字段”或“operator 不支持”处理成静默忽略；这两类情况现在属于 foundation 主线的正式错误合同。
-- concept-only / node-only 的 target 切片语义依然保留：异 target 字段应被忽略，但只要字段落到当前 target，就必须同时接受 registry 的 operator 合同校验。
-
-## 2026-04-09
+- 用户再次明确：平台是否成型，关键不在“分析更全”，而在“投前、投中、投后是否闭环”。
+- 用户再次明确：仓位管理和投后复盘不是增强项，而是闭环平台的核心层。
+## 2026-04-08
 ### 修改内容
-- `src/ops/foundation/metadata_registry.rs`：新增 `MetadataFieldGroup`、`MetadataFieldGovernance`、`MetadataRegistryValidationIssueKind`、`MetadataRegistryValidationIssue`、`MetadataRegistryValidationSummary`，并为 `MetadataFieldDefinition` 增加治理属性容器，目的是把 metadata 字段目录从“可注册”推进到“可治理、可校验”。
-- `src/ops/foundation/metadata_registry.rs`：新增 `register_text_field_with_governance(...)`、`register_text_list_field_with_governance(...)`、`definition(...)`、`definitions(...)`、`fields_in_group(...)`、`validate_governance()`，目的是提供字段治理属性声明、读取和质量摘要的标准入口，同时保持旧注册 API 兼容。
-- `tests/metadata_registry_unit.rs`：新增字段治理属性读写、按 group 读取、治理摘要输出三组红绿测试，目的是钉死方案B2第一轮的标准能力边界。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充“字段定义应携带治理属性”和“registry 应输出结构化治理摘要”的长期约束，目的是减少后续 AI 会话重复对齐成本。
+- `docs/AI_HANDOFF.md`：追加 foundation 元数据管理下一阶段候选方案，明确方案 A / B / C 的边界、推荐顺序与默认入口。目的：把后续推进方向固化到交接文档，避免再次误入业务化链路。 <!-- 2026-04-08 CST: 本次追加交接方案说明。原因：用户要求把下一步方案一并写入仓库并推送。 -->
+- `docs/plans/2026-04-08-foundation-metadata-migration-contract-phase3-stage4.md`：补充 migration contract 落地后的候选路线、优缺点与推荐路线。目的：让阶段计划文档直接承接下一轮实现。 <!-- 2026-04-08 CST: 本次追加阶段计划说明。原因：需要把候选方案正式落盘。 -->
+- `task_plan.md`、`progress.md`：同步记录“先 A、后 B、最后 C”的默认顺序。目的：统一计划与进度口径，减少交接歧义。 <!-- 2026-04-08 CST: 本次同步计划与进度。原因：避免文档间口径不一致。 -->
+- 本次提交范围收口为 `foundation` 相关源码、测试、交接文档与为其通过编译所需的最小修复。目的：只推送当前通用标准能力主线，不混入其它业务化脏改动。 <!-- 2026-04-08 CST: 本次记录提交范围。原因：仓库当前工作区较脏，需要明确边界。 -->
 
 ### 修改原因
-- 用户已批准继续走方案B2，本轮目标是通用 metadata 字段治理，而不是继续扩展 route / roam / retrieve 的业务行为。
-- 当前 registry 虽然已经有 target/operator 合同，但还缺“字段属于哪一组、字段含义是什么、为什么落在该 target、是否废弃”的治理层信息；如果不补，这条本体元数据主线仍然停留在执行期目录层。
-- 方案B2要求不只是保存治理属性，还要给出结构化校验摘要，否则字段治理质量仍然只能靠人工逐项检查。
+- 用户明确要求先把当前进展推送回 GitHub，并把“下一步方案”一起写进仓库文档。
+- 当前 `Metadata Migration Contract` 已完成第一阶段，如果不把后续默认推进顺序写清，后续接手很容易直接跳到 repository 审计或执行器，偏离当前最小治理闭环。
 
 ### 方案还差什么?
-- [ ] 还未把 `validate_governance()` 接到单独的审计输出模块；本轮只先提供 foundation 内部可复用的摘要结构。
-- [ ] 还未加入字段别名、替代字段、兼容说明等版本演进能力；这些属于后续字段治理第三阶段。
-- [ ] 还未把 group 体系扩展到更细粒度分类；本轮先只保留 `Identity / Classification / Source / Time / Governance` 五个通用分组。
+- [ ] 还没有开始实现方案 A 的 `Validator` 联动，本次仅完成方案入库与推送整理。
+- [ ] 还没有做 repository 级批量审计与 migration executor，这两部分仍需后续单独获批后推进。
 
 ### 潜在问题
-- [ ] 当前治理属性仍是可选的，旧注册 API 继续允许缺省；因此 `validate_governance()` 在过渡阶段会持续报告缺失项，这是有意保留的兼容行为。
-- [ ] `MetadataFieldGroup` 目前是通用最小枚举；如果后续分类扩得过快，可能需要重新梳理分组边界，避免过细导致反复调整。
-- [ ] 本轮只新增了 foundation 内部的治理摘要模型，没有新增 CLI 或导出层，因此外部消费方还不能直接拿到格式化报告。
+- [ ] 当前仓库存在大量非本轮业务线改动和未跟踪文件，如果后续提交不继续按路径收口，仍可能把不相关改动混进 foundation 主线。
+- [ ] `progress.md`、`AI_HANDOFF.md` 等文档在当前 PowerShell 输出下有编码显示噪声，但文件本身按 UTF-8 维护；后续若用错误编码保存，可能造成真正乱码。
 
 ### 关闭项
-- 已先复现红测失败：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过最小绿测：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过回归验证：`cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test retrieval_engine_unit --test navigation_pipeline_integration -- --nocapture`
+- 已通过 `cargo test --test metadata_schema_registry_unit --test metadata_schema_versioning_unit --test metadata_migration_contract_unit --test metadata_validator_unit --test knowledge_repository_unit --test knowledge_ingestion_unit --test knowledge_bundle_unit -- --nocapture`
 
 ### 记忆点（可选）
-- 方案B2这一轮的主线不是新增业务字段，而是把 metadata 字段本体补成“可分组、可解释、可校验”的标准治理对象。
-- 旧的 `register_text_field(...) / register_text_list_field(...)` 仍然保留兼容路径；新治理能力通过带 governance 的注册入口和 `validate_governance()` 渐进接入，不要硬切旧调用。
-
+- 用户再次明确要求：推送前不仅要整理当前实现，还要把“下一步做什么”的方案正式写进仓库文档，不能只停留在对话里。
 ## 2026-04-09
 ### 修改内容
-- `src/ops/foundation/metadata_registry.rs`：在 `MetadataFieldGovernance` 中新增 `aliases`、`replaced_by`、`compatibility_note`，并补 `with_aliases(...)`、`with_replaced_by(...)`、`with_compatibility_note(...)`，目的是把字段兼容关系正式纳入 metadata 字段治理模型。
-- `src/ops/foundation/metadata_registry.rs`：新增 `MetadataRegistryCompatibilityEntry`、`MetadataRegistryAliasMapping`、`MetadataRegistryCompatibilitySummary`，并补 `compatibility_for(...)`、`compatibility_summary()` 与内部 replacement chain 解析逻辑，目的是让 registry 能稳定输出单字段兼容视图和全量兼容映射表。
-- `src/ops/foundation/metadata_registry.rs`：扩展 `MetadataRegistryValidationIssueKind`，新增 `DeprecatedWithoutReplacement`、`DeprecatedWithoutCompatibilityNote`、`ReplacedByMissingField` 三类治理问题，目的是把兼容关系缺口纳入结构化治理校验摘要。
-- `tests/metadata_registry_unit.rs`：新增兼容摘要与替代链路红绿测试，以及兼容关系治理缺口红绿测试，目的是钉死方案B-2的字段兼容骨架和兼容摘要边界。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充“字段治理可携带兼容属性，registry 应输出兼容摘要与替代链路”的长期约束，目的是减少后续 AI 会话重复收敛边界的成本。
+- `src/ops/security_scorecard_training.rs`、`tests/security_scorecard_training_cli.rs`：从已存在提交 `81ce734` 恢复 Task 5 的正式训练主链与端到端测试。目的：把当前分支缺失的 `security_scorecard_training` 入口、artifact 落盘、`security_scorecard_refit` 挂接与 `model_registry` 注册能力补回主工作区。<!-- 2026-04-09 CST: 本次恢复训练主链文件。原因：AI_HANDOFF 已明确 Task 5 只剩尾项，但当前分支本地实际缺文件，必须先把真实实现取回。目的：避免继续在“文档说有、代码里没有”的失真状态下推进。 -->
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐 `security_scorecard_training` 的 stock 域模块声明、兼容导出、tool catalog 暴露与 dispatcher 路由。目的：让训练主链成为和 `security_feature_snapshot` / `security_forward_outcome` / `security_scorecard_refit` 同级的一等正式 Tool。<!-- 2026-04-09 CST: 本次补齐 training 接线。原因：恢复主文件后，当前分支仍缺统一发现与路由入口。目的：先形成完整可调度能力，再做尾项收敛。 -->
+- `src/ops/technical_consultation_basic.rs`：新增 `rsrs_snapshot_stays_computable_when_low_window_collapses_to_same_floor` 复现测试，并把 RSRS 分母为 0 从硬错误降级为返回中性 beta=1.0。目的：修复单边下跌样本把 low 压到同一价格下限时导致 `security_scorecard_training` 端到端失败的问题，同时保持正常 RSRS 分类语义不变。<!-- 2026-04-09 CST: 本次修复底层 RSRS 边界。原因：Task 5 红测真实失败点位于训练上游的技术面指标链，而不是训练逻辑本身。目的：避免单个退化窗口直接打断 snapshot/fullstack/training 主链。 -->
+- `docs/AI_HANDOFF.md`：把 `security_scorecard_training` 从“仍有已知尾项红测”更新为“最小正式训练主链已打通”，并同步调整后续优先级。目的：避免后续 AI 继续按过期文档误判 Task 5 仍处于未收敛状态。<!-- 2026-04-09 CST: 本次同步交接口径。原因：代码已完成 Task 5 最小收口，旧文档状态已失真。目的：让后续接手顺序和真实代码状态重新对齐。 -->
 
 ### 修改原因
-- 用户已批准继续走方案B-2，本轮目标是通用 metadata 字段兼容治理，而不是新增业务字段或修改执行链路。
-- 上一轮已经完成字段治理属性与治理摘要，但还缺 alias、替代字段和兼容说明这一层兼容骨架；如果不补，字段治理仍然只覆盖“当前状态”，无法承载版本演进和历史字段兼容。
-- 方案B-2要求不仅能描述兼容关系，还要能输出结构化兼容摘要，并把兼容缺口纳入校验结果，否则仍然只能靠人工阅读 registry 判断迁移路径是否完整。
+- 用户已批准“方案 A”，要求先把 `Task 5` 的 `security_scorecard_training` 主链按远端已存在实现恢复到当前分支，再继续收尾。
+- 当前分支虽然已经收完 `Task 1-4`，但 `AI_HANDOFF.md` 所描述的 Task 5 代码在本地并不存在，真实阻塞点是“文档与代码状态不一致”。
+- 恢复训练主链后，真实红测暴露的是底层 RSRS 边界 BUG；按用户规则，必须先补复现测试，再修复到通过为止。
 
 ### 方案还差什么?
-- [ ] 还未提供独立的 compatibility audit/export 模块；本轮只把兼容摘要能力收敛在 `MetadataRegistry` 内部。
-- [ ] 还未加入 alias 冲突、替代链路循环等更强校验规则；本轮先只覆盖缺替代目标、缺兼容说明和缺替代字段这三类最小兼容问题。
-- [ ] 还未把兼容摘要接到 CLI、report 或其他外部可见输出层；当前仍是 foundation 内部标准能力。
+- [ ] 还未跑全量 `cargo test`；本轮已完成 `Task 1-4` 四个定向测试、`security_scorecard_training` 端到端测试，以及底层 RSRS 边界修复后的定向回归。
+- [ ] `security_scorecard_training` 当前只实现最小正式闭环，后续仍可继续补 walk-forward、champion-challenger、更多样本治理与更强校验。
 
 ### 潜在问题
-- [ ] 当前 replacement chain 解析会在发现重复字段时停止，避免循环卡死；但本轮还没有把“替代链路循环”显式输出成治理问题。
-- [ ] alias 映射目前按 alias 排序输出，适合测试和审计；如果未来需要按 canonical field 分组展示，摘要结构可能还要再扩一层视图。
-- [ ] 旧注册 API 仍允许完全不声明兼容属性，因此过渡阶段的 registry 仍会在 `validate_governance()` 中持续暴露兼容治理缺口，这是有意保留的渐进接入行为。
+- [ ] RSRS 分母为 0 目前统一降级为中性 beta=1.0；如果后续要引入更严格的统计修正口径，需要先补更多极端样本测试再调整。
+- [ ] 训练夹具仍依赖本地 HTTP 假服务和 SQLite 运行时；如果后续扩大样本量或提高并发，测试时间和锁等待可能继续上升。
+- [ ] 当前工作区仍有不少与本轮无关的既有修改和未跟踪文件；后续提交时必须继续收口路径，避免把无关改动一起带入。
 
 ### 关闭项
-- 已先复现红测失败：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过最小绿测：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过回归验证：`cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test retrieval_engine_unit --test navigation_pipeline_integration -- --nocapture`
+- 已通过 `cargo test --test security_chair_resolution_cli -- --nocapture`
+- 已通过 `cargo test --test security_feature_snapshot_cli -- --nocapture`
+- 已通过 `cargo test --test security_forward_outcome_cli -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_refit_cli -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli security_scorecard_training_generates_artifact_and_registers_refit_outputs -- --exact --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli -- --nocapture`
+- 已通过 `cargo test security_scorecard_training_generates_artifact_and_registers_refit_outputs --test security_scorecard_training_cli -- --exact --nocapture`
 
 ### 记忆点（可选）
-- 兼容骨架这一轮仍然只属于“目录治理能力”，不要把 alias/replaced_by 误解成已经进入 route / roam / retrieve 的运行时规范化逻辑。
-- 对废弃字段来说，`deprecated_reason` 现在不再足够；如果没有 `replaced_by` 或 `compatibility_note`，应视为治理不完整并进入结构化校验摘要。
-## 2026-04-09
+- 用户再次强调：像这类持续主线收口任务，即使已有上下文，也必须先给方案、等批准，再执行代码修改。
+- 用户再次强调：每轮代码任务结束后都要按 `task-journal` 方式补 `CHANGELOG_TASK.MD`，不能因为在调试或恢复远端代码就省略。
 ### 修改内容
-- `src/ops/foundation/metadata_registry.rs`：新增 `MetadataRegistryFieldResolution`、`MetadataRegistryFieldResolutionBatch`、`resolve_field(...)` 与 `normalize_fields(...)`，目的是把字段别名收敛能力从静态 compatibility summary 提升为可直接消费的目录解析能力。
-- `tests/metadata_registry_unit.rs`：新增 canonical field resolver 与 batch normalization 红绿测试，覆盖直命中、alias 命中、废弃字段替代链回传、未知字段保留与输入顺序稳定，目的是钉住方案 B3 的标准能力边界。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充 canonical resolution 与 batch normalization 的长期约束，目的是减少后续 AI 会话再次把目录治理能力误收敛成运行时自动规范化。
+- `docs/AI_HANDOFF.md`：重写为当前主工作区统一交接手册，并补入 `foundation-navigation-kernel` 远端观察结果。目的：把证券主线、foundation 线、评分卡训练尾项和当前默认接手顺序收口到一份主文档里。<!-- 2026-04-09 CST: 本次追加主文档收口记录。原因：用户要求先把远端观察分支信息合并回当前主文档，再清理 worktree。目的：避免后续 AI 继续在分散文档和 worktree 之间找上下文。 -->
+- `docs/DOCUMENTATION_INDEX.md`：重写文档索引，明确“必看入口 / 证券主线入口 / foundation 入口 / 历史交接入口”。目的：让后续协作直接回到当前主工作区文档体系，不再依赖观察分支中的单独入口。<!-- 2026-04-09 CST: 本次同步索引口径。原因：旧索引已过时且存在乱码显示风险。目的：统一当前仓库的文档导航。 -->
+- `docs/交接摘要_证券分析_给后续AI.md`：重写证券专项交接页，补入 `security_scorecard`、`security_chair_resolution`、`security_scorecard_training`、会后结论未完整收口点，以及已知尾项 `security_scorecard_training_generates_artifact_and_registers_refit_outputs`。目的：把证券主线的真实进度写清楚，避免后续重复误判“还没做入口”或“会后链已完全收口”。<!-- 2026-04-09 CST: 本次重写证券专项交接页。原因：本地旧文档仍停留在较早阶段，无法反映 4/8-4/9 的治理与评分卡推进。目的：给后续 AI 一个单页可读的证券主线现状。 -->
 
 ### 修改原因
-- 用户已批准继续走方案 B3，本轮目标仍然是 foundation 的通用 metadata 目录治理，不做任何业务化字段或业务链路扩展。
-- 上一轮已经完成 governance summary 与 compatibility summary，但目录层还缺少“把输入字段名稳定解析到 canonical field”的直接消费能力；如果不补，后续工具仍要手工拼接 alias/replacement 信息。
-- 这轮能力必须继续停留在 registry 目录层，而不能偷渡成 route / roam / retrieve 的运行时字段重写逻辑，所以需要同时把边界写回交接文档。
+- 用户明确要求先把远端 `codex/foundation-navigation-kernel` 的关键信息合并回当前主文档，再清理 worktree，避免长期并行工作区导致“代码和文档不知道该看哪一套”。
+- 当前本地 `AI_HANDOFF.md` 与 `DOCUMENTATION_INDEX.md` 已出现明显过期和乱码显示风险，如果不先重写主入口，后续 AI 会继续从失真的文档状态接续。
+- 这轮目标不是合并远端代码，而是先把交接信息、阅读顺序、已知尾项和开发基线统一回当前主工作区。
 
 ### 方案还差什么?
-- [ ] 还未加入 alias 冲突、replacement chain 循环、多字段汇聚到同一替代字段等更强治理校验；当前只完成 canonical resolver 与批量规范化。
-- [ ] 还未提供 batch normalization 的聚合摘要视图，例如按 canonical field 聚合、未知字段清单、命中统计等目录工具能力。
-- [ ] 还未把 resolver/batch normalization 接到独立 audit/export 模块；当前仍是 foundation 内部标准能力。
+- [ ] 还未执行 worktree 清理；本条日志先记录文档收口动作，worktree 删除将在本轮后续步骤完成。
+- [ ] 还未把远端证券代码改动并回当前分支；本轮明确只做主文档合并，不做代码并线。
+- [ ] `security_scorecard_training` 的端到端红测仍未收敛，这次只是把该尾项正式写回主文档。
 
 ### 潜在问题
-- [ ] 当前 canonical resolver 仍按 registry 现有兼容关系工作；如果后续出现 alias 冲突，现有结构化结果还不能主动暴露冲突诊断。
-- [ ] `normalize_fields(...)` 现在强调“不丢字段”和“保序”，如果后续有人把它误改成只返回 canonical 字段集合，会破坏目录治理的可审计性。
-- [ ] 这轮没有把目录解析能力接入运行主链；如果上层误以为 alias 已自动参与检索或漫游，会产生能力预期偏差。
-
-### 关闭项?
-- 已通过 `cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test retrieval_engine_unit --test navigation_pipeline_integration -- --nocapture`
-
-### 记忆点（可选）
-- canonical field resolver / batch normalization 现在属于 metadata registry 的目录治理能力，不要再把它们误写成 foundation 主链上的自动字段规范化行为。
-- 方案 B3 的关键合同是：保留输入顺序、保留未知字段、同时返回 alias 命中和 replacement chain；后续若继续扩展目录工具，不能丢掉这三个约束。
-## 2026-04-09
-### 修改内容
-- `tests/metadata_registry_unit.rs`：新增 alias 冲突、replacement cycle、共享 replacement target 歧义三组红绿测试，目的是先把方案A要求的三类兼容治理校验边界钉死在单测层。
-- `src/ops/foundation/metadata_registry.rs`：扩展 `MetadataRegistryValidationIssueKind`，新增 `AliasConflict`、`ReplacementCycle`、`AmbiguousReplacementTarget` 三类治理问题；同时补 `alias_owners()`、`replacement_target_sources()`、`has_replacement_cycle()` 等目录级校验辅助逻辑，目的是让 `validate_governance()` 能稳定输出这三类结构化治理问题。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充“alias 冲突 / 替代链循环 / 共享替代目标歧义必须显式报出”的长期约束，目的是避免后续 AI 把目录冲突继续误当成隐式兼容行为。
-
-### 修改原因
-- 用户已批准继续走方案A，本轮目标是把 metadata registry 的兼容治理校验补齐，不扩目录工具视图，也不碰 route / roam / retrieve 的运行语义。
-- 上一轮虽然已经完成 canonical resolver 与 batch normalization，但兼容治理仍缺少三类硬校验：alias 冲突、replacement chain 循环、多个字段汇聚到同一替代目标的歧义。
-- 当前 `replacement_chain_for(...)` 只会在内部避免循环卡死，这不足以支撑审计与交接；必须把“内部保护”提升为“显式治理问题”。
-
-### 方案还差什么?
-- [ ] 还未把 alias 冲突的具体冲突详情结构化输出，例如冲突 alias 名称和参与字段列表；当前治理摘要只先报告字段级问题。
-- [ ] 还未把 replacement cycle 的完整环路路径导出成审计视图；当前只先提供布尔型治理告警。
-- [ ] 还未把共享 replacement target 的歧义整理成更强的目录工具摘要或独立 audit/export 模块；当前仍停留在 validation summary 层。
-
-### 潜在问题
-- [ ] 当前 `AliasConflict` / `AmbiguousReplacementTarget` 只进入治理摘要，不会阻止 `resolve_field(...)` 继续按现有目录遍历逻辑解析；如果后续需要更强 fail-fast，还要再补运行前校验策略。
-- [ ] `ReplacementCycle` 现在会对落入循环链的字段逐个报出问题；如果后续希望按“完整循环组”展示，摘要模型还需要扩结构。
-- [ ] 这轮仍然不改变 registry 目录能力与主链执行之间的边界；如果上层误以为新增治理校验已经自动影响运行时字段解析顺序，会产生能力预期偏差。
-
-### 关闭项?
-- 已先复现红测失败：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test retrieval_engine_unit --test navigation_pipeline_integration -- --nocapture`
-
-### 记忆点（可选）
-- 方案A这一轮补的是“兼容治理校验”，不是“运行时解析策略”；后续不要把 `AliasConflict` / `ReplacementCycle` / `AmbiguousReplacementTarget` 误写成已经进入主链的 fail-fast 执行逻辑。
-- 当前 metadata registry 的兼容治理主线已经补齐到：compatibility summary、canonical resolver、batch normalization、三类兼容冲突校验；下一步若继续，优先看目录工具增强或 audit/export，而不是回头扩业务能力。
-## 2026-04-09
-### 修改内容
-- `tests/metadata_registry_unit.rs`：新增 `metadata_registry_batch_normalization_summary_reports_batch_counts` 红绿测试，覆盖 batch 规范化后的总输入数、直命中数、alias 命中数、未识别数、废弃字段数，目的是钉死方案B1的最小摘要合同。
-- `src/ops/foundation/metadata_registry.rs`：新增 `MetadataRegistryFieldResolutionBatchSummary` 与 `MetadataRegistryFieldResolutionBatch::summary()`，目的是在保留 `normalize_fields(...)` 明细结果的前提下，补一层可直接消费的批量统计摘要。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充“batch normalization 可输出轻量统计摘要”的长期约束，目的是避免后续 AI 把这轮能力误写成未知字段清单或 canonical 聚合视图。
-
-### 修改原因
-- 用户已批准继续走方案B1，本轮目标是目录工具增强里的“批量规范化摘要”，不是新增治理校验，也不是扩展 audit/export。
-- 当前 `normalize_fields(...)` 已能稳定输出逐字段明细，但调用方若只关心“这一批大概解析成什么样”，仍然要重复手写计数逻辑。
-- 方案B1必须保持最小边界，所以这轮只补 count summary，不提前做未知字段清单或按 canonical field 聚合。
-
-### 方案还差什么?
-- [ ] 还未输出未知字段清单；如果后续继续走方案B2，再补结构化 unknown list 视图。
-- [ ] 还未输出按 canonical field 聚合的归并视图；如果后续继续走方案B3，再补 canonical aggregation。
-- [ ] 还未把 batch summary 接到独立 audit/export 模块；当前仍是 metadata registry 内部目录工具能力。
-
-### 潜在问题
-- [ ] 当前 `summary()` 只给出计数，不返回具体字段列表；如果上层把它误当成可审计明细，会发现信息不够。
-- [ ] `deprecated_hits` 现在统计的是“本批输入里最终命中的解析结果是否已废弃”；如果未来需要区分“直命中废弃字段”和“alias 命中废弃字段”，摘要模型还要再扩。
-- [ ] 这轮仍然不改变 `normalize_fields(...)` 的明细语义和主链执行边界；如果有人误以为新增 summary 会驱动运行时行为变化，会产生能力预期偏差。
-
-### 关闭项?
-- 已先复现红测失败：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test retrieval_engine_unit --test navigation_pipeline_integration -- --nocapture`
-
-### 记忆点（可选）
-- 方案B1这一轮只补“批量统计摘要”，不要再把它误写成“未知字段清单”或“canonical 聚合视图”；那两块分别属于后续 B2 / B3。
-- `normalize_fields(...)` 的关键合同仍然是保序和不丢字段，`summary()` 只是读取这份明细后的轻量统计层，不能反过来替代明细输出。
-## 2026-04-09
-### 修改内容
-- `tests/metadata_registry_unit.rs`：新增 `metadata_registry_batch_normalization_lists_unknown_fields_in_input_order` 红绿测试，覆盖未知字段清单的输入顺序、重复未知字段保留、输入位置回传，目的是钉死方案B2的最小目录视图合同。
-- `src/ops/foundation/metadata_registry.rs`：新增 `MetadataRegistryUnknownFieldEntry` 与 `MetadataRegistryFieldResolutionBatch::unknown_fields()`，目的是在 batch normalization 明细与 count summary 之外，再补一层结构化 unknown-field list 视图。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充“unknown-field list 应保序、保留重复项、带输入位置”的长期约束，目的是避免后续 AI 把未知字段清单误做成去重集合或无序导出。
-
-### 修改原因
-- 用户已批准继续走方案B2，本轮目标是目录工具增强里的“未知字段清单视图”，不是再补治理校验，也不是提前做 canonical 聚合。
-- 当前 `summary()` 只能告诉上层“有多少未识别字段”，但不能回答“哪些字段未识别、它们在输入批次中的什么位置出现”，调用方仍需自行二次过滤 unresolved entries。
-- 方案B2必须保持最小边界，因此这轮只补结构化 unknown-field list，不扩成 canonical aggregation 或更复杂 audit report。
-
-### 方案还差什么?
-- [ ] 还未提供未知字段去重视图；当前有意保留重复项，便于审计输入批次中的真实出现次数。
-- [ ] 还未提供未知字段按出现频次或按位置分组的更强目录工具摘要；当前只给最小 ordered list。
-- [ ] 还未进入 canonical field 聚合视图；如果后续继续走方案B3，再补按 canonical field 的归并能力。
-
-### 潜在问题
-- [ ] `unknown_fields()` 现在返回的是有序重复清单，不是去重集合；如果上层误把它当成唯一字段列表，统计口径会偏大。
-- [ ] 当前输入位置使用的是 batch 中的 0-based index；如果后续要直接面向终端展示，可能还需要额外封装成人类可读位置格式。
-- [ ] 这轮依然不改变 `normalize_fields(...)` 的目录语义和主链执行边界；如果有人误以为 unknown-field list 会驱动运行时拒绝逻辑，会产生能力预期偏差。
-
-### 关闭项?
-- 已先复现红测失败：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过 `cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test retrieval_engine_unit --test navigation_pipeline_integration -- --nocapture`
-
-### 记忆点（可选）
-- 方案B2这一轮补的是“未知字段清单视图”，不是“未知字段去重集合”；后续不要把重复项静默折叠掉。
-- `unknown_fields()` 现在属于 batch normalization 的审计辅助层，和 `summary()` 一样都是读取明细的目录工具，不是主链执行策略。
-## 2026-04-09
-### 修改内容
-- `tests/metadata_registry_unit.rs`：新增 `metadata_registry_batch_normalization_groups_entries_by_canonical_field` 红绿测试，约束 `canonical_aggregations()` 只聚合已解析字段、保留 canonical 首次出现顺序，并区分 `direct_hits / alias_hits / deprecated_hits`，目的是把方案 B3 的目录工具边界先钉死。
-- `src/ops/foundation/metadata_registry.rs`：新增 `MetadataRegistryCanonicalFieldAggregationEntry` 与 `MetadataRegistryFieldResolutionBatch::canonical_aggregations()`，目的是真正提供按 canonical field 汇总的只读目录视图，同时不改变 `normalize_fields(...)`、`summary()`、`unknown_fields()` 既有合同。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充 canonical aggregation 的长期约束，明确未知字段不进入聚合、聚合顺序取 canonical 首次出现顺序、该能力仍属于目录治理层，目的是减少后续 AI 会话重复收敛边界。
-
-### 修改原因
-- 用户已批准继续执行方案 `B3`，这一轮目标是补齐 metadata registry 的“按 canonical field 聚合视图”，不是扩业务字段，也不是修改 route / roam / retrieve 运行语义。
-- 在已有 `resolve_field(...)`、`normalize_fields(...)`、`summary()`、`unknown_fields()` 的基础上，调用方如果要做 canonical 归并仍需重复遍历 batch 明细；这部分属于标准目录工具能力，适合下沉到 registry。
-- 这轮能力必须继续保持在 foundation 的目录治理层，因此实现只读聚合视图，不做自动规范化、不接入主链执行。
-
-### 方案还差什么?
-- [ ] 还未提供 canonical aggregation 的更强审计视图，例如输入位置列表、按 canonical field 的去重统计或导出接口；本轮只补最小聚合结构。
-- [ ] 还未把 canonical aggregation 接入独立 audit/export 模块；当前仍是 `MetadataRegistryFieldResolutionBatch` 的目录工具方法。
-- [ ] 还未把 alias 冲突等治理问题直接与 aggregation 关联展示；当前治理校验和聚合视图仍保持解耦。
-
-### 潜在问题
-- [ ] `canonical_aggregations()` 目前以 canonical 首次出现顺序输出；如果后续有人改成按字段名排序，会破坏这轮确定下来的目录审计口径。
-- [ ] 未知字段当前被刻意排除在 canonical 聚合之外；如果上层误把聚合结果当成“全量输入覆盖视图”，会漏看 unresolved 输入，需要继续配合 `unknown_fields()` 一起使用。
-- [ ] `deprecated_hits` 统计的是聚合内命中的解析结果是否已废弃，不区分 direct 命中废弃字段还是 alias 命中废弃字段；如果后续需要更细颗粒度，还要扩模型。
+- [ ] 当前工作区本身仍有多处与本轮无关的未提交改动；如果后续提交不收口路径，容易把无关修改一起带入。
+- [ ] `CHANGELOG_TASK.MD` 当前在终端里仍存在历史编码显示噪声，本轮只追加新条目，没有尝试整体转码清洗，避免扩大改动面。
+- [ ] 即使 worktree 清掉，远端 `codex/foundation-navigation-kernel` 上的代码仍未自动进入当前分支；后续若要继续吸收其实现，仍需单独设计代码合并方案。
 
 ### 关闭项
-- 已先复现红测失败：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过最小绿测：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过回归验证：`cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test retrieval_engine_unit --test navigation_pipeline_integration -- --nocapture`
+- [ ] 未执行自动化验证：本轮修改仅涉及交接文档与索引重写，不涉及生产代码或测试逻辑。
 
 ### 记忆点（可选）
-- 方案 B3 这一轮补的是“canonical 聚合视图”，不是“未知字段清单”也不是“运行时自动规范化”；未知字段仍然只能通过 `unknown_fields()` 显式读取。
-- `canonical_aggregations()` 的合同是：只聚合已解析字段、保留 canonical 首次出现顺序、保留同一 canonical 下的原始输入顺序；后续扩展不能为了摘要方便而破坏这三个约束。
+- 用户再次强调：worktree 不能长期堆积，否则会让后续开发不知道该改哪一套代码；后续默认优先收口到当前主工作区。
+- 用户再次强调：修改代码前要先给方案并等待批准；本轮已先给出方案 A / B / C，并在批准方案 A 后才开始改文档。
 ## 2026-04-09
 ### 修改内容
-- `tests/metadata_registry_unit.rs`：新增 `metadata_registry_audit_report_combines_registry_and_batch_views` 红绿测试，约束 `audit_fields(...)` 必须统一输出 governance summary、compatibility summary、field-resolution batch、batch summary、unknown-field list 与 canonical aggregation，目的是把方案A的标准 audit/export 结果对象先钉死。
-- `src/ops/foundation/metadata_registry.rs`：新增 `MetadataRegistryAuditReport` 与 `MetadataRegistry::audit_fields(...)`，并在实现过程中重建整份 `metadata_registry.rs` 为干净版本，目的有两层：一是补齐方案A的统一审计视图，二是恢复前面文本层损坏后被连行注释污染的 registry 文件。
-- `src/ops/foundation/metadata_registry.rs`：在重建文件时保留并恢复既有 contracts，包括 `validate_governance()`、`compatibility_summary()`、`resolve_field()`、`normalize_fields()`、`summary()`、`unknown_fields()`、`canonical_aggregations()`，目的是确保方案A是在既有目录治理能力上做收口，而不是另起一套行为。
-- `docs/ai-handoff/AI_HANDOFF_MANUAL.md`、`docs/ai-memory/project-baseline.md`：补充“统一 audit/export 对象”的长期约束，明确该对象仍属于目录治理层，不进入 route / roam / retrieve 运行语义，目的是减少后续 AI 会话反复收敛这条边界的成本。
+- `tests/security_scorecard_training_cli.rs`：先新增 `build_trend_rows_keeps_low_series_variable_in_downtrend_fixture` 失败测试，再把 `build_trend_rows()` 的低点下限改成动态正数底。目的：修正训练夹具把下跌样本 `low` 压成固定 `0.10`、人为制造 RSRS 退化窗口的问题。
+- `src/ops/technical_consultation_basic.rs`：新增 `rsrs_status` 合同字段，并把 `rsrs_snapshot()` / `regression_slope_high_on_low()` 从“分母为 0 直接回填中性 beta”改为“显式 `degraded` 状态 + 不作为方向判断依据”。目的：落实用户确认的原则，避免把数学异常伪装成正常信号。
+- `src/ops/technical_consultation_basic.rs`：新增 `rsrs_degraded_guidance_explicitly_excludes_directional_use` 等回归测试，并同步修正摘要、动作、观察点文案。目的：锁住退化 RSRS 的对外合同，防止后续又回退成 neutral/共振语义。
+- `docs/AI_HANDOFF.md`：补充 2026-04-09 的 RSRS 正式收口说明。目的：让后续 AI 接手时明确知道当前已经不是“中性兜底”方案，而是“显式 degraded 并退出投决输入”。
 
 ### 修改原因
-- 用户已批准执行方案A，本轮目标是把 metadata registry 现有的治理摘要、兼容摘要和批量目录工具输出收敛成一个标准对象，而不是继续扩业务字段或修改主链执行逻辑。
-- 在已有 `validate_governance()`、`compatibility_summary()`、`summary()`、`unknown_fields()`、`canonical_aggregations()` 的基础上，上层若要做 audit/export 仍需手工拼装多份结果；这部分应沉淀为 foundation 标准能力。
-- 这轮中途发现 `metadata_registry.rs` 受文本层污染后出现“注释吞掉代码声明”的结构损坏；与其继续做脆弱的局部修补，重建文件并按现有测试回归验证是更稳的恢复方式。
+- 用户明确否决“RSRS 分母为 0 直接中性处理”的止血方案，要求先修正；如果无法修正，则不得再作为投决输入条件。
+- 已定位 Task 5 真正的失败根因是训练夹具构造了平底 `low` 序列，而不是训练主链本身。
 
 ### 方案还差什么?
-- [ ] 还未提供不带输入批次的 registry-only 审计对象；当前 `audit_fields(...)` 仍围绕“给定字段输入批次”的目录审计场景。
-- [ ] 还未把统一 audit/export 对象接入独立 CLI、report 或导出模块；当前仍是 foundation 内部标准能力。
-- [ ] 还未给统一 audit/export 对象增加更细粒度冲突明细，例如 alias 冲突参与字段列表、replacement cycle 完整环路、shared replacement target 来源列表。
+- [ ] 当前只对 RSRS 建立了显式退化合同，其他技术指标若后续也出现数学退化，还没有统一的 availability 框架。
+- [ ] 还没有跑全量 `cargo test`；本轮以定向回归为主，避免在当前脏工作区里扩大无关噪声。
 
 ### 潜在问题
-- [ ] `audit_fields(...)` 当前同时带 `field_resolution_batch` 和它的派生摘要视图；如果后续有人只维护摘要而忘了同步明细合同，容易出现导出结果和明细不一致的问题。
-- [ ] 本轮通过“整文件重建”恢复了受损的 `metadata_registry.rs`；后续如果再对这类带历史隐藏换行的文件做原始文本替换，仍可能重演注释吞代码的问题。
-- [ ] `audit_fields(...)` 仍属于目录治理只读视图；如果上层误把它当成主链入口或运行时自动规范化接口，会产生能力预期偏差。
+- [ ] `docs/AI_HANDOFF.md` 与 `CHANGELOG_TASK.MD` 在当前 PowerShell 输出里仍有历史编码显示噪声；本轮只追加新内容，没有整体清洗旧文档编码。
+- [ ] 当前工作区仍然存在大量与本轮无关的已修改/未跟踪文件；后续提交时仍需严格按路径收口。
 
 ### 关闭项
-- 已先复现红测失败：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过最小绿测：`cargo test --test metadata_registry_unit -- --nocapture`
-- 已通过回归验证：`cargo test --test metadata_registry_unit --test metadata_scope_resolver_unit --test retrieval_engine_unit --test navigation_pipeline_integration -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli build_trend_rows_keeps_low_series_variable_in_downtrend_fixture -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli -- --nocapture`
+- 已通过 `cargo test rsrs_degraded_guidance_explicitly_excludes_directional_use -- --nocapture`
+- 已通过 `cargo test rsrs_snapshot_stays_computable_when_low_window_collapses_to_same_floor -- --nocapture`
+- 已通过 `cargo test --test security_scorecard_training_cli security_scorecard_training_generates_artifact_and_registers_refit_outputs -- --nocapture`
+- 已通过 `cargo fmt --all`
 
 ### 记忆点（可选）
-- 方案A这一轮补的是“统一 audit/export 对象”，不是把 registry 逻辑接进 route / roam / retrieve 主链；统一对象只是目录治理收口层。
-- 如果文件里存在历史“注释和代码之间有隐藏换行”的文本状态，不要再直接用原始全文替换方式做局部文本编辑；优先用结构化重建或更小颗粒度补丁，避免再次把声明压进注释。
+- 用户再次强调：遇到数学退化时，优先修正根因，不能用“中性兜底”掩盖问题；实在修不了，才允许显式剔出投决输入。
+- 用户再次强调：每次代码任务完成后，都必须按 `task-journal` 思路补 `CHANGELOG_TASK.MD`。
+## 2026-04-09
+### 修改内容
+- `tests/security_decision_package_cli.rs`：新增 Task 6 红测与回归测试，覆盖 `post_meeting -> package -> verify -> revision` 正式链路。目的：先锁“会后结论必须挂入 package”的行为，再补实现。
+- `src/ops/security_record_post_meeting_conclusion.rs`：新增正式会后结论 Tool 与文档对象。目的：把主席决议后的会后结论从文档口径升级为正式治理对象。
+- `src/ops/security_decision_package.rs`：新增正式 decision package 对象，装配 `object_graph` 与 `artifact_manifest`。目的：给 verify/revision 提供统一 package 输入。
+- `src/ops/security_decision_verify_package.rs`：新增 package 校验 Tool。目的：显式校验 `post_meeting_conclusion`、`chair_resolution`、`symbol`、`analysis_date` 的挂载与一致性。
+- `src/ops/security_decision_package_revision.rs`：新增 package 修订建议 Tool。目的：把 verify 失败转成可执行修补动作，而不是只返回失败状态。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐新 Tool 的模块声明、导出、catalog 暴露与 dispatcher 路由。目的：让 Task 6 成为正式可发现、可调用的主链能力。
+- `docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：补记 Task 6 已完成的真实状态与后续入口。目的：避免后续 AI 继续把 package 治理链当成“文档里计划过、代码里还没有”。
+
+### 修改原因
+- 用户已批准 `方案C`，要求把 Task 6 做成完整 package 版，而不是只补文档口径。
+- 当前真实缺口不是“修一个尾项”，而是文档里声称存在的 `post_meeting / package / verify / revision` 四个正式对象在代码里尚未落地。
+- 用户明确要求：不能用“中性兜底”或“文档先写上”这种规避方式假收口，必须把正式对象和链路真正做出来。
+
+### 方案还差什么?
+- [ ] 当前 verify 只做了最小一致性校验，后续还可以继续补更细的引用完整性、签名/审计字段、上下游哈希绑定等深水位治理校验。
+- [ ] 当前 revision 只输出最小修补动作，后续还可以继续补自动修补模板或更结构化的 remediation payload。
+- [ ] Task 6 收口后，后续主线应转向更完整的投中 / 投后对象层，而不是继续重复造 package 基础对象。
+
+### 潜在问题
+- [ ] `security_decision_verify_package` 当前直接消费 `serde_json::Value`，优点是兼容现有嵌套对象，缺点是字段重构时编译期保护较弱；后续如果 package 合同稳定，可以考虑再收口成强类型输入。
+- [ ] 当前 package 的 `artifact_manifest` 仍是最小字段集，后续如果要承接更严格审计，可能需要补 `evidence_hash`、签名链、版本指纹等字段。
+- [ ] 工作区本身仍有不少与本轮无关的既有改动和未跟踪文件，后续提交时仍需按路径收口，避免混入无关改动。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+- 已通过 `cargo test --test security_chair_resolution_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：改代码前必须先出多个方案并等待批准；这轮是在用户批准 `方案C` 后才继续实现。
+- 用户再次强调：Task 收口不能靠文档声明，文档里写了的正式对象，代码里也必须真实存在并可验证。
+## 2026-04-09
+### 修改内容
+- `tests/security_position_plan_cli.rs`：先新增 `tool_catalog_includes_security_position_plan` 与 `security_position_plan_outputs_formal_document_aligned_with_briefing` 两条外层合同测试。目的：先复现并锁定 Task 7 的真实需求，确保独立仓位计划 Tool 可发现、可调用，且与 briefing 同源对齐。
+- `src/ops/security_position_plan.rs`：新增正式 `security_position_plan` Tool、请求合同、结果合同与 `SecurityPositionPlanDocument`。目的：把已有 `position_plan` / `odds_brief` / `committee_payload` 正式对象化，形成可被 Skill 与后续治理链直接消费的独立仓位文档。
+- `src/ops/security_decision_briefing.rs`：新增 `SecurityDecisionBriefingCore` 与 `security_decision_briefing_core()`，并把原 `security_decision_briefing()` 改为“先装配 core，再生成默认 committee recommendations”。目的：把 briefing 核心事实层与默认投决建议解耦，避免 Task 7 被不需要的 seat agent 子链阻塞。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐 `security_position_plan` 的模块声明、导出、catalog 暴露与 dispatcher 路由。目的：让独立仓位计划成为正式一等 Tool，而不是继续靠手工拆 briefing。
+- `docs/plans/2026-04-09-task7-security-position-plan.md`：新增本轮收口文档。目的：把 Task 7 的实现边界、设计结论、验证结果和后续建议留档，方便后续 AI 续接。
+
+### 修改原因
+- 用户已批准 Task 7 按方案 A 推进，要求把 briefing 中已存在的仓位层正式对象化，而不是重写第二套仓位算法。
+- 首轮红测已真实复现阻塞：`security_position_plan` 若直接复用完整 `security_decision_briefing`，会在默认 `committee_recommendations` 子链上触发 seat agent 调用，并因 `member_id` 缺失报错。
+- 因此本轮不仅要落地新 Tool，还必须把 `briefing` 的“核心事实层”抽离出来，保证仓位文档继续复用单一事实源，但不被无关副作用卡住。
+
+### 方案还差什么?
+- [ ] 当前只完成了 Task 7 的最小正式对象化，尚未把 `security_position_plan` 继续挂入更完整的 package / audit 治理链。
+- [ ] 当前仅跑了与 Task 7 直接相关的定向测试，还未执行全量 `cargo test`。
+- [ ] 现有主交接文档 `docs/AI_HANDOFF.md` 存在历史编码噪声，本轮改为新增独立 Task 7 收口文档，后续可在文档清洗轮统一回收。
+
+### 潜在问题
+- [ ] `security_decision_briefing_core()` 目前是为了解耦 Task 7 引入的新公共入口；后续若 briefing 顶层字段继续扩展，需要同步保持 core 与完整结果的字段一致性。
+- [ ] 当前 `security_position_plan` 返回 `briefing_core` 而不是完整 `briefing_result`；若上层错误依赖 `committee_recommendations`，仍需要显式调用完整 `security_decision_briefing`。
+- [ ] 仓库当前工作区仍然很脏，存在大量与本轮无关的既有修改和未跟踪文件，后续提交或推送时必须继续按路径收口。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_position_plan_cli -- --nocapture`
+- 已通过 `cargo test --test security_analysis_resonance_cli security_decision_briefing_exposes_odds_and_position_layers -- --exact --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：持续主线开发也必须先给方案，获得批准后再改代码；本轮是在方案 A 获批后才开始实现。
+- 用户再次强调：每轮代码任务结束后都要按 `task-journal` 风格补 `CHANGELOG_TASK.MD`，不能因为历史文件编码噪声而省略。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_post_trade_review.rs`：移除未使用的 `SecurityForwardOutcomeResult` 导入。目的：收敛 `Task 8` 尾项 warning，保持最小正式投后复盘 Tool 编译输出干净。
+- `docs/plans/2026-04-09-task8-security-post-trade-review.md`：新增 `Task 8` 收口文档。目的：把投后复盘最小正式版的实现边界、验证结果与后续扩展方向沉淀为正式交接材料。
+- `docs/DOCUMENTATION_INDEX.md`：补充 `Task 7` / `Task 8` 证券主线收口文档入口。目的：让后续 AI 和开发者从统一索引直接定位仓位管理与投后复盘文档。
+- `docs/AI_HANDOFF.md`：追加 `Task 8` 投后复盘状态说明。目的：把证券主线当前推进到“最小正式复盘 Tool 可用”的真实状态写回主交接文档。
+
+### 修改原因
+- 用户已批准 `Task 8 -> 方案A`，要求先做最小正式版投后复盘 Tool，而不是重造完整平台。
+- 本轮代码主链已经基本打通，剩余问题集中在 warning、文档入口和交接状态未收口；如果不补齐，后续 AI 仍可能误判 `Task 8` 还停留在路线图阶段。
+- 用户明确要求每轮任务结束后必须按 `task-journal` 风格追加 `CHANGELOG_TASK.MD`，不能因为历史文档编码噪声而省略。
+
+### 方案还差什么?
+- [ ] 当前 `security_post_trade_review` 仍是建议层复盘，尚未接入真实成交执行记录、分批成交与实际止损止盈动作。
+- [ ] 当前尚未把 `post_trade_review` 正式挂入 `decision_package` 或后续复盘治理链，只完成了独立 Tool 收口。
+- [ ] 当前只跑了与 `Task 8` 直接相关的格式化和定向回归，尚未执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前 `thesis_status`、`model_miss_reason`、`next_adjustment_hint` 仍是规则型最小版；如果后续引入更多市场状态或执行层输入，现有归因规则需要先补测试再扩展。
+- [ ] 当前 `execution_deviation = not_tracked_v1` 只是显式占位；如果上层误把它当成“无执行偏差”，会放大复盘结论的解释风险。
+- [ ] `docs/AI_HANDOFF.md` 和 `CHANGELOG_TASK.MD` 在 PowerShell 输出里仍存在历史编码显示噪声；本轮只做最小追加，没有做整文件编码清洗，避免扩大改动面。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_forward_outcome_cli -- --nocapture`
+- 已通过 `cargo test --test security_position_plan_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：持续主线开发也必须先给出多个方案，等待批准后再改代码；本轮是在 `方案A` 获批后执行收口。
+- 用户再次强调：每次代码任务结束后都必须按 `task-journal` 风格补 `CHANGELOG_TASK.MD`，不能因为历史文件编码显示噪声而跳过。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_decision_package.rs`：把 `security_post_trade_review` 正式装进 `security_decision_package`，并挂入 `object_graph` 与 `artifact_manifest`。目的：把投后复盘从“独立 Tool 可用”推进到“正式治理对象已入包”。
+- `src/ops/security_decision_verify_package.rs`：新增 `object_graph_post_trade_review_bound`、`artifact_manifest_post_trade_review_bound`、`post_trade_review_refs_consistent` 三类校验，并补充 `missing_post_trade_review`、`post_trade_review_ref_misaligned` 问题码。目的：让 verify 对 review 的存在性和同源引用一致性形成正式门禁。
+- `src/ops/security_decision_package_revision.rs`：新增 review 缺失与引用错绑的修补建议输出。目的：让 verify 失败后能够沿统一 remediation 建议收口，而不是只返回 failed。
+- `tests/security_decision_package_cli.rs`：先补红测，再修正夹具。具体包括：锁定 `post_trade_review` 必须进入 package 的 `object_graph / artifact_manifest`；新增 review 引用错绑后的 verify / revision 回归；把测试历史夹具扩到 `420` 条，并把 `as_of_date` 调整为 `2025-10-15`。目的：先复现 Task 9 真需求，再修复“样本窗不足”导致的假失败。
+- `docs/plans/2026-04-09-task9-post-trade-review-package-governance.md`：新增 Task 9 收口文档。目的：沉淀本轮治理挂接边界、排障结论、验证命令与后续扩展建议。
+- `docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`：补充 Task 9 当前状态与入口索引。目的：让后续 AI 明确知道投后复盘已经正式并入 package 治理闭环。
+
+### 修改原因
+- 用户已批准 `方案B`，要求把 Task 9 做成“标准治理版投后闭环”，不是重做 `security_post_trade_review`，而是接入 `decision_package -> verify -> revision`。
+- 本轮红测后定位出的真实阻塞不是治理代码，而是测试夹具日期窗口冲突：`as_of_date = 2025-07-15` 时，技术分析链只拿到 `196` 条历史样本，低于最少 `200` 条要求。
+- 用户明确要求：遇到 BUG 先补能复现的测试，再修复；同时每轮任务结束后都必须补本地任务日志和 AI 交接文档。
+
+### 方案还差什么?
+- [ ] 当前 Task 9 只完成了投后复盘进入 package 的最小治理挂接，尚未接入真实成交执行记录。
+- [ ] 当前 verify 仍是最小一致性门禁，尚未补更强的哈希、签名、审计指纹或自动修补模板。
+- [ ] 本轮只跑了定向回归，还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] `security_decision_verify_package` 目前仍直接消费 `serde_json::Value`，对 future schema drift 的编译期保护较弱；如果 package 合同稳定，后续可考虑收口成强类型输入。
+- [ ] `tests/security_decision_package_cli.rs` 当前通过更长夹具和更晚快照日保证样本窗充足；后续如果再改技术分析最小样本要求或 review horizon，夹具日期仍需要同步维护。
+- [ ] 当前工作区依然存在大量与本轮无关的已修改/未跟踪文件；后续提交时必须继续按路径收口，不能混入杂项改动。
+
+### 关闭项
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_position_plan_cli -- --nocapture`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 用户再次强调：持续开发也必须先出多个方案，等批准后再改代码；本轮是在 `方案B` 获批后才继续实现。
+- 用户再次强调：根因优先于规避；这轮 package 测试失败的真实根因是测试快照日过早导致历史样本不足，不是治理链没接上。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_execution_record.rs`：新增正式 `security_execution_record` Tool、请求合同、执行文档和收益归因规则。目的：把真实执行对象从 review 占位字段升级为正式一等治理对象。
+- `src/ops/security_post_trade_review.rs`：改为复用 `security_execution_record`，并新增 `execution_record_ref`、`executed_return`、`execution_return_gap`。目的：让投后复盘从“建议层复盘”进入“真实执行复盘”。
+- `src/ops/security_decision_package.rs`：新增 `execution_record_result`、`execution_record`，并把 `execution_record` 正式挂入 `object_graph` 与 `artifact_manifest`。目的：把真实执行对象并入 package 主治理链。
+- `src/ops/security_decision_verify_package.rs`：新增 execution record 挂载与引用一致性门禁，补充 `missing_execution_record`、`execution_record_ref_misaligned` 问题码。目的：让 verify 对真实执行对象形成正式校验，而不是只校验 review 文档存在性。
+- `src/ops/security_decision_package_revision.rs`：新增 execution record 缺失与错绑的修补建议。目的：让 verify 失败后能够沿统一 remediation 继续收口。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐 `security_execution_record` 的模块边界、catalog 暴露和 dispatcher 路由。目的：让 Task 10 成为正式可发现、可调用的主链能力。
+- `tests/security_execution_record_cli.rs`：新增 execution record 外层合同测试。目的：先用红测锁住真实执行对象与收益归因字段，再补实现。
+- `tests/security_post_trade_review_cli.rs`、`tests/security_decision_package_cli.rs`：扩展 review 与 package 治理链回归，要求 execution record 正式进入 review/package，并能被 verify/revision 识别错绑。目的：防止 Task 10 退化成孤立 Tool。
+- `docs/plans/2026-04-09-task10-security-execution-record.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`：补充 Task 10 收口文档与入口。目的：让后续 AI 直接知道 M3 已进入真实执行对象阶段。
+
+### 修改原因
+- 用户已批准 `方案A-2`，要求 Task 10 不是只补最小执行壳，而是要带收益归因。
+- 当前主链虽然已经有 `post_trade_review`，但 `execution_deviation = not_tracked_v1` 仍然说明真实执行对象缺位；如果不补这一层，M3 只能算“建议闭环”，不能算“真实执行闭环”。
+- 本轮仍按要求先补红测，再改实现，确保真实执行对象、自身合同和 package 治理挂接都被源码测试锁住。
+
+### 方案还差什么?
+- [ ] 当前 execution record 仍只支持单次进出，不支持多笔成交 journal。
+- [ ] 当前还没有接入真实券商成交单、回单或外部交易流水。
+- [ ] 本轮只跑了定向回归，尚未执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] Windows 下 `target\\debug\\excel_skill.exe` 在连续回归时仍可能残留占用，需要先结束残留进程再继续编译或测试。
+- [ ] 当前 `execution_quality` 仍是最小规则分档版；如果后续加入分批执行、滑点容忍度模板或不同资产类别，规则需要先补测试再扩展。
+- [ ] 当前工作区仍有大量与本轮无关的既有修改和未跟踪文件；后续提交时必须继续按路径收口。
+
+### 关闭项
+- 已通过 `cargo test --test security_execution_record_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：持续开发也必须先给方案并等批准；本轮是在 `方案A-2` 获批后才继续实现。
+- 用户再次强调：不要重复开发已有模块；因此本轮 review 没有重造 position/outcome 底层，而是让 `security_execution_record` 复用现有主链并成为新的正式对象。
+## 2026-04-09
+### 修改内容
+- `docs/AI_HANDOFF.md`：清理 `Task 10` 后残留的旧 `Task 8` 口径，并补充“`not_tracked_v1` 已被正式 execution record 替代”的说明。目的：避免主交接文档同时存在“执行已接入”和“执行未接入”两套冲突状态。
+- `docs/交接摘要_证券分析_给后续AI.md`：补写 `Task 8-10` 的最新真实状态，并把推荐续做顺序改为“确认 M3 收口 -> 进入 M4 增强层”。目的：让后续 AI 不再按旧文档误判证券主线还停留在训练链或会后结论阶段。
+
+### 修改原因
+- 本轮定向测试已确认 `Task 10 / 方案A-2` 代码主链通过，但主文档仍残留一段 `execution_deviation = not_tracked_v1` 的旧口径，会误导后续 AI。
+- 用户此前明确要求把主文档和 AI 交接手册统一到当前主工作区，不要再让下一位 AI 去 worktree 或远端分支里猜真实进展。
+
+### 方案还差什么?
+- [ ] 当前只完成了 `Task 10` 的代码与文档收口，还未执行全量 `cargo test`。
+- [ ] 当前 `M3` 虽可视为核心收口完成，但 `M4` 的多笔成交 journal、增强审计链和更细归因模板仍未开始。
+
+### 潜在问题
+- [ ] `docs/AI_HANDOFF.md` 和 `docs/交接摘要_证券分析_给后续AI.md` 属于长期累积文档，后续继续追加时仍有再次出现旧段落覆盖新状态的风险，需要保持“新状态覆盖旧状态”的单一口径。
+- [ ] 当前验证仍是定向测试，不等同于全仓库回归；若其他模块改动影响编译或运行，仍需后续全量确认。
+
+### 关闭项
+- 已通过 `cargo test --test security_execution_record_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+- 已通过 `cargo fmt --all`
+
+### 记忆点（可选）
+- 用户再次强调：文档要能让其他 AI 直接接续，因此主交接文档里不能同时保留互相冲突的阶段口径。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_execution_journal.rs`：新增正式 `security_execution_journal` Tool、成交输入合同、journal 文档和聚合规则。目的：把多笔成交从备注文本升级为正式一等对象。
+- `src/ops/security_execution_record.rs`：改为兼容旧单次进出字段与新 `execution_trades`，并统一复用 `security_execution_journal` 聚合结果。目的：在不打断既有调用的前提下，把 execution record 升级为 journal 的摘要层。
+- `src/ops/security_post_trade_review.rs`：新增 `execution_journal_ref`，并在结果中正式暴露 `execution_journal_result` 与 `execution_journal`。目的：让投后复盘能够直接追溯多笔成交事实源。
+- `src/ops/security_decision_package.rs`、`src/ops/security_decision_verify_package.rs`、`src/ops/security_decision_package_revision.rs`：把 `execution_journal` 挂入 package / verify / revision，新增缺挂载与错绑门禁及修补建议。目的：确保 journal 进入正式治理链，而不是停留在孤立 Tool。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐 `security_execution_journal` 的模块边界、catalog 暴露和 dispatcher 路由。目的：让 P1 成为正式可发现、可调用的证券主链能力。
+- `tests/security_execution_journal_cli.rs`：新增 journal 外层合同测试。目的：先锁“多笔成交正式文档 + 聚合字段”再补实现。
+- `tests/security_execution_record_cli.rs`、`tests/security_decision_package_cli.rs`：扩展 journal -> record 聚合回归，以及 journal 进入 package 后的挂载与错绑校验。目的：防止 P1 退化成只多一个孤立 Tool。
+- `docs/plans/2026-04-09-task11-security-execution-journal.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`：补充 Task 11 收口文档与交接入口。目的：让后续 AI 直接知道当前已经进入“journal 明细层 + record 摘要层”阶段。
+
+### 修改原因
+- 用户已批准方案 A-1，要求先做最实用方向：多笔成交 `execution_journal`，再由它聚合生成 `execution_record`，不要直接打碎现有 record 合同。
+- 当前主链虽然已经有真实执行对象，但仍只支持单次进出；如果不补 journal，系统无法真实承载分批买入、分批卖出、加仓和减仓。
+- 本轮仍按要求先补红测，再改实现，并在任务结束后补主文档与任务日志。
+
+### 方案还差什么?
+- [ ] 当前 `journal v1` 仍要求最终回到空仓，还不支持“持仓未结束”的跨周期 journal。
+- [ ] 当前还没有账户级仓位管理和账户现金流约束。
+- [ ] 当前只跑了定向回归，还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前 `journal v1` 不处理 FIFO/LIFO 税务口径，也不处理跨周期残余仓位；后续如果进入更真实的实盘场景，需要先补测试再扩展。
+- [ ] 当前执行收益仍是最小聚合版；如果后续要拆分加仓收益、减仓收益、滑点来源和纪律偏差，还需要更细归因模型。
+- [ ] 当前工作区依然很脏，后续提交时必须继续按路径收口，不能把无关修改混进来。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_execution_journal_cli -- --nocapture`
+- 已通过 `cargo test --test security_execution_record_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+- 已通过 `cargo test --test security_decision_package_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次确认：当前阶段优先做“最实用”的能力，因此先补 execution journal，再做账户级仓位和更细收益归因。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_position_plan.rs`：补入 `entry_tranche_pct`、`add_tranche_pct`、`reduce_tranche_pct`、`max_tranche_count`、`tranche_template`、`tranche_trigger_rules`、`cooldown_rule`。目的：把方案 A-1 的“试仓 / 加仓 / 减仓模板”正式对象化，而不是继续只给 starter/max。
+- `src/ops/security_portfolio_position_plan.rs`：补入 `suggested_tranche_action`、`suggested_tranche_pct`、`remaining_tranche_count`，并新增旧版 `SecurityPositionPlanDocument` 的分层字段回退推导。目的：让账户层不仅能分配资金，还能明确告诉上层当前该走哪一层。
+- `tests/security_position_plan_cli.rs`、`tests/security_portfolio_position_plan_cli.rs`：先补红测锁定分层模板与账户层分层动作输出，再收口实现。目的：按用户要求先用测试固定需求，再修到通过。
+- `docs/plans/2026-04-09-task12-security-portfolio-position-plan.md`、`docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：补齐 Task 12 第三轮“仓位分层模板”记录。目的：避免主文档仍停在风险预算版。
+
+### 修改原因
+- 用户已批准按方案 A-1 继续，要求把“更细的仓位分层模板”落到正式代码上。
+- 当前如果只有 starter/max 和风险预算，系统仍然回答不了“这次动作是试仓、加仓还是等待”。
+- 本轮在实现中确认了一个真实问题：旧版 `SecurityPositionPlanDocument` 缺少分层字段时，账户层会把层数误算为 0；已补回退推导修复。
+
+### 方案还差什么?
+- [ ] 当前分层模板仍是规则型，不含时间序列统计最优层数和波动率自适应层宽。
+- [ ] 当前还没有把执行后的账户偏差回写进分层模板调整。
+- [ ] 当前还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前 `max_tranche_count` 和 `remaining_tranche_count` 仍基于规则推导，不是交易流水回写后的真实层数。
+- [ ] 旧版 `SecurityPositionPlanDocument` 虽然已能回退推导，但如果上游只给极简字段，层数精度仍会下降。
+- [ ] 当前工作区仍然存在大量与本轮无关的已修改/未跟踪文件；后续提交时仍需严格按路径收口。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_position_plan_cli -- --nocapture`
+- 已通过 `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次确认：方案 A-1 的目标不是另造一套仓位算法，而是把“更细的仓位分层模板”正式对象化。
+- 用户再次强调：发现逻辑问题时，先补能复现的测试，再修复，并在每轮结束后同步主文档和 `CHANGELOG_TASK.MD`。
+
+## 2026-04-09
+### 修改内容
+- `src/ops/security_portfolio_position_plan.rs`：在现有账户级仓位 Tool 上补入 `max_portfolio_risk_budget_pct`、`current_portfolio_risk_budget_pct`、`max_single_trade_risk_budget_pct` 三个正式输入，并新增账户汇总风险预算字段与逐标的 `estimated_risk_budget_pct`。目的：把账户层从“只看现金怎么分配”推进到“现金 + 风险预算双门禁”。
+- `tests/security_portfolio_position_plan_cli.rs`：先补红测，锁定“第一只候选吃满剩余风险预算后，第二只候选必须被 `portfolio_risk_budget_reached` 挡住”的正式行为，再收口实现。目的：按用户要求先复现需求，再修复到通过。
+- `docs/plans/2026-04-09-task12-security-portfolio-position-plan.md`、`docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：补齐 Task 12 第二轮“账户级风险预算门禁”记录。目的：避免代码已经升级到风险预算版，但主文档仍停留在现金分配版。
+
+### 修改原因
+- 用户已批准按方案 A 继续，当前阶段优先补“账户级风险预算”，而不是跳去复杂组合优化。
+- 如果账户层只有资金分配，没有风险预算门禁，系统仍回答不了“账户风险预算还够不够继续加仓”这个核心问题。
+- 本轮按要求先补红测，再把风险预算门禁并入现有 `security_portfolio_position_plan`，避免再次新拆平行 Tool。
+
+### 方案还差什么?
+- [ ] 当前风险预算仍是规则型折算，尚未接入真实波动率、相关性矩阵和组合最大回撤预算。
+- [ ] 当前还没有执行后账户偏差回写，也还没有自动再平衡。
+- [ ] 当前还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前 `position_risk_grade -> 风险预算占用系数` 是规则型映射，不是统计校准结果；后续如果误把它当成真实风险模型，会高估当前能力。
+- [ ] 当前风险预算只约束新增仓位，不会自动重估历史持仓的真实波动与相关性漂移。
+- [ ] 当前工作区仍然存在大量与本轮无关的已修改/未跟踪文件；后续提交时仍需严格按路径收口。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次确认：当前阶段先补最实用的账户级风险预算，不做马科维茨类复杂优化，也不做自动再平衡。
+- 用户再次强调：遇到新增逻辑时，先补红测，再改实现，并在任务结束后同步主文档与 `CHANGELOG_TASK.MD`。
+
+## 2026-04-09
+### 修改内容
+- `src/ops/security_portfolio_position_plan.rs`：新增正式 `security_portfolio_position_plan` Tool、账户级请求合同、输出文档和规则型分配逻辑。目的：把“账户里这笔可部署现金优先投给谁、投多少”收口为正式对象。
+- `src/ops/stock.rs`、`src/ops/mod.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`：补齐账户级仓位管理 Tool 的模块导出、目录暴露与路由接线。目的：让 Task 12 成为正式可发现、可调用能力。
+- `tests/security_portfolio_position_plan_cli.rs`：新增账户级仓位管理外层合同测试，并补同一 symbol 持仓累计与正式输出断言。目的：先锁住真实需求，再验证实现不退化。
+- `docs/plans/2026-04-09-task12-security-portfolio-position-plan.md`、`docs/AI_HANDOFF.md`、`docs/DOCUMENTATION_INDEX.md`、`docs/交接摘要_证券分析_给后续AI.md`：补齐 Task 12 收口文档与后续 AI 接手入口。目的：避免代码已完成但主文档口径断档。
+
+### 修改原因
+- 用户已批准按方案 A 继续推进，且明确当前阶段不做马科维茨类复杂优化、不做自动再平衡，优先落“最实用”的账户级仓位管理。
+- 如果只有单票 `security_position_plan` 而没有账户级分配对象，系统仍回答不了“同一账户新增资金该先投谁、投多少”，闭环深度不够。
+- 本轮在测试中确认了一个真实风险点：同一 `symbol` 的现有持仓暴露不能覆盖，必须累计；否则账户层建议会被低估。
+
+### 方案还差什么?
+- [ ] 当前还没有账户级风险预算、相关性矩阵和组合最大回撤约束。
+- [ ] 当前还没有真实券商账户、订单流或现金流水接入。
+- [ ] 当前还没有自动再平衡和调仓审计链。
+- [ ] 当前还没有执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 当前排序规则是规则型打分，不是统计最优组合；如果后续误把它理解成“最优解”，会高估当前能力边界。
+- [ ] 当前行业暴露依赖 `sector_tag` 输入质量；如果上游标签缺失或错误，行业上限约束会失真。
+- [ ] 当前 `risk_cap_pct` 是固定档位，不含波动率联动和相关性联动；在高波动市场中，真实风险可能高于当前建议。
+- [ ] 当前工作区仍然存在大量与本轮无关的已修改/未跟踪文件；后续提交时必须继续按路径收口，不能混入杂项改动。
+
+### 关闭项
+- 已通过 `cargo test --test security_portfolio_position_plan_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次确认：当前阶段先做“最实用”的账户级仓位管理，明确不做马科维茨类复杂优化，也不做自动再平衡。
+- 用户要求：每次代码任务结束后都要把主文档、AI 交接和 `CHANGELOG_TASK.MD` 同步到同一口径，不能只让代码完成而记录断档。
+## 2026-04-09
+### 修改内容
+- `src/ops/security_execution_record.rs`：新增可选 `portfolio_position_plan_document` 输入，并正式回写账户层计划对齐字段。目的：把账户层仓位建议和真实执行偏差沉淀进 execution record，而不是只记录单票收益归因。
+- `src/ops/security_post_trade_review.rs`：新增 `account_plan_alignment`、`tranche_discipline`、`budget_drift_reason`、`next_account_adjustment_hint`。目的：把账户层偏差进一步翻译成投后治理结论。
+- `src/ops/security_decision_package.rs`：补 `portfolio_position_plan_document: None`。目的：保持既有 package 链路在未接入账户计划时继续兼容编译和运行。
+- `tests/security_execution_record_cli.rs`：先补账户偏差回写红测，再验证 `execution_record` 的账户层事实字段。目的：锁定 A-2 的正式合同。
+- `tests/security_post_trade_review_cli.rs`：先补账户复盘红测，再验证 `post_trade_review` 的治理输出。目的：确保账户偏差能进入正式复盘层。
+- `docs/plans/2026-04-09-task12-security-portfolio-position-plan.md`、`docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：补 Task 12 第四轮“账户偏差回写”记录。目的：让后续 AI 直接知道 A-2 已收口到哪。
+
+### 修改原因
+- 用户已批准按 `方案3` 做 `方案A-2`，要求把账户层“计划 vs 实际执行”的偏差正式回写，不再停留在单票层。
+- 本轮先补红测后修实现，确认新增字段确实按账户层计划口径工作。
+- 实现过程中确认了一个真实口径问题：`tranche_count_drift` 若按单票 starter 回推，会被单票默认模板干扰；已改为按“账户层本次明确建议的 tranche 大小”计算。
+
+### 方案还差什么?
+- [ ] 当前账户偏差回写仍依赖显式传入 `portfolio_position_plan_document`，还未自动从运行时存储中回溯账户计划。
+- [ ] 当前 `direction_mismatch` 主要覆盖方向不一致的最小口径，尚未继续拆到更细的部分执行/反手场景。
+- [ ] 当前只执行了定向测试与相关测试文件回归，尚未执行全量 `cargo test`。
+
+### 潜在问题
+- [ ] 如果上游传入的 `portfolio_position_plan_document` 不含目标 `symbol`，当前会直接返回构建错误；这符合严格口径，但接入方要先保证引用一致。
+- [ ] 当前 `actual_peak_position_pct` 采用“账户当前持仓 + execution_journal 峰值增量”的口径，更适合描述建仓/加仓波段；后续若覆盖更复杂的纯减仓或反手场景，需先补测试再扩展。
+- [ ] 工作区仍存在大量与本轮无关的既有修改和未跟踪文件；后续若提交 Git，仍需按路径精确收口。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_execution_record_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_trade_review_cli -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次强调：每次代码任务结束后都要同步主文档、AI 交接文档和 `CHANGELOG_TASK.MD`，不能只改代码不留痕。
+- 用户再次强调：账户级仓位管理不是只给建议，还必须能回写执行偏差并进入投后复盘，这样闭环才算成立。

@@ -116,11 +116,7 @@ impl CapabilityRouter {
     // 2026-04-09 CST: 这里把“命中概念 + 命中短语”收口成局部结构，原因是方案 A 第一刀要在不引入
     // 业务字段的前提下提升 foundation 路由的可解释性。
     // 目的：保持 phrase-first 的匹配顺序不变，同时把 matched term 一起保留下来。
-    fn match_candidates(
-        &self,
-        tokens: &[String],
-        required_tags: &[String],
-    ) -> Vec<MatchedConcept> {
+    fn match_candidates(&self, tokens: &[String], required_tags: &[String]) -> Vec<MatchedConcept> {
         let mut matched_concept_ids = Vec::new();
         let mut matched_terms = Vec::new();
         let mut covered_tokens = vec![false; tokens.len()];
@@ -136,7 +132,10 @@ impl CapabilityRouter {
                 let constrained_candidates =
                     self.constrained_concept_ids(&candidate, required_tags);
                 if let Some(concept_id) = constrained_candidates.first() {
-                    if !matched_concept_ids.iter().any(|matched| matched == concept_id) {
+                    if !matched_concept_ids
+                        .iter()
+                        .any(|matched| matched == concept_id)
+                    {
                         matched_concept_ids.push((*concept_id).to_string());
                         matched_terms.push(candidate.clone());
                     }

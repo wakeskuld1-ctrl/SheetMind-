@@ -1,11 +1,13 @@
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::ops::foundation::ontology_schema::OntologyRelationType;
 
 // 2026-04-07 CST: 这里定义证据引用模型，原因是 foundation 图谱节点后续需要把命中的原始出处
 // 以统一结构挂在节点上，而不是把 source/locator 这种字段散落在各层调用中。
 // 目的：先固定最小证据载体，让 retrieval 和 evidence assembly 后面都能复用同一份基础结构。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvidenceRef {
     pub source_ref: String,
     pub locator: String,
@@ -26,7 +28,8 @@ impl EvidenceRef {
 // 2026-04-09 CST: 这里新增节点级元数据值模型，原因是 foundation 现在要支持 business-agnostic 的 metadata 过滤，
 // 但还不适合把 source / kind / time 等字段硬编码成多个专用字段。
 // 目的：先用通用单值 / 多值模型承载节点元数据，为 MetadataConstraint 提供统一匹配输入。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum MetadataFieldValue {
     Text(String),
     TextList(Vec<String>),
@@ -58,27 +61,55 @@ impl MetadataFieldValue {
     // 目的：把多值 metadata 的通用交集语义稳定收口。
     pub fn intersects(&self, candidates: &[String]) -> bool {
         match self {
-            MetadataFieldValue::Text(value) => candidates.iter().any(|candidate| candidate == value),
+            MetadataFieldValue::Text(value) => {
+                candidates.iter().any(|candidate| candidate == value)
+            }
             MetadataFieldValue::TextList(values) => values
                 .iter()
                 .any(|value| candidates.iter().any(|candidate| candidate == value)),
         }
+    }
+
+    // 2026-04-09: keep legacy string-based tests and callers working on top of the richer enum.
+    pub fn to_legacy_string(&self) -> String {
+        match self {
+            MetadataFieldValue::Text(value) => value.clone(),
+            MetadataFieldValue::TextList(values) => values.join(","),
+        }
+    }
+}
+
+impl PartialEq<String> for MetadataFieldValue {
+    fn eq(&self, other: &String) -> bool {
+        match self {
+            MetadataFieldValue::Text(value) => value == other,
+            MetadataFieldValue::TextList(values) => values.iter().any(|value| value == other),
+        }
+    }
+}
+
+impl PartialEq<MetadataFieldValue> for String {
+    fn eq(&self, other: &MetadataFieldValue) -> bool {
+        other == self
     }
 }
 
 // 2026-04-07 CST: 这里定义知识节点模型，原因是 retrieval 后续真正命中的对象应该是节点，
 // 不是 ontology concept 本身，因此需要独立记录节点文本、关联概念和证据引用。
 // 目的：把“节点是图谱里的信息载体”这层语义稳定下来，避免后续把 concept 和 node 混成一层。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KnowledgeNode {
     pub id: String,
     pub title: String,
     pub body: String,
+    #[serde(default)]
     pub concept_ids: Vec<String>,
+    #[serde(default)]
     pub evidence_refs: Vec<EvidenceRef>,
     // 2026-04-09 CST: 这里新增节点级 metadata 容器，原因是通用 MetadataConstraint 第一阶段先作用于 retrieval，
     // 需要节点能够承载 source / kind / observed_at 等非语义主字段。
     // 目的：把元数据过滤建立成 foundation 正式能力，而不是让不同上层各自拼字段。
+    #[serde(default)]
     pub metadata: BTreeMap<String, MetadataFieldValue>,
 }
 
@@ -126,6 +157,11 @@ impl KnowledgeNode {
         self
     }
 
+    // 2026-04-09: preserve the older builder name during merge closeout.
+    pub fn with_metadata_entry(self, field: impl Into<String>, value: impl Into<String>) -> Self {
+        self.with_metadata_text(field, value)
+    }
+
     // 2026-04-09 CST: 这里补多值元数据写入入口，原因是 tags / kind / labels 等字段天然可能有多个值，
     // 需要一个不额外引入业务命名的通用承载方式。
     // 目的：让多值 metadata 与单值 metadata 使用同一套节点容器和约束框架。
@@ -141,7 +177,7 @@ impl KnowledgeNode {
 // 2026-04-07 CST: 这里定义知识边模型，原因是图谱关系发生在 node 与 node 之间，
 // 它和 ontology 层的 concept relation 不是同一层职责，因此要单独留出图谱关系载体。
 // 目的：先为后续 graph store 出边读取和 retrieval/evidence 路径还原准备稳定结构。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KnowledgeEdge {
     pub from_node_id: String,
     pub to_node_id: String,

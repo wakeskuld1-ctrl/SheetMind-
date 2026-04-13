@@ -1038,6 +1038,19 @@ fn security_chair_resolution_downgrades_to_abstain_when_scorecard_model_is_unava
         output["data"]["chair_resolution"]["selected_exposure_side"],
         "neutral"
     );
+    // 2026-04-13 CST: Add the chair-side entry-layer regression, because the
+    // first-stage governed entry signal must be readable from the final chair
+    // object as well as the position-plan object.
+    // Purpose: enforce the "position_plan + chair" dual-anchor contract.
+    assert_eq!(output["data"]["chair_resolution"]["entry_grade"], "watch");
+    assert_eq!(output["data"]["chair_resolution"]["target_gross_pct"], 0.01);
+    assert_eq!(output["data"]["chair_resolution"]["sizing_grade"], "watch_probe");
+    assert!(
+        output["data"]["chair_resolution"]["entry_reason"]
+            .as_str()
+            .expect("entry reason should exist")
+            .contains("scorecard")
+    );
     assert!(
         output["data"]["chair_resolution"]["chair_reasoning"]
             .as_str()

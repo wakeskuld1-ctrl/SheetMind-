@@ -1,6 +1,16 @@
+#![recursion_limit = "256"]
+
 mod common;
 
 use chrono::{Duration, NaiveDate};
+use excel_skill::ops::stock::security_decision_briefing::PositionPlan;
+use excel_skill::tools::contracts::PositionAdjustmentEventType;
+use excel_skill::tools::contracts::PositionPlanAlignment;
+use excel_skill::tools::contracts::PostTradeReviewDimension;
+use excel_skill::tools::contracts::PostTradeReviewOutcome;
+use excel_skill::tools::contracts::SecurityPositionPlanRecordResult;
+use excel_skill::tools::contracts::SecurityPostTradeReviewResult;
+use excel_skill::tools::contracts::SecurityRecordPositionAdjustmentResult;
 use excel_skill::tools::contracts::ToolResponse;
 use serde_json::json;
 use std::fs;
@@ -170,6 +180,31 @@ fn cli_tool_catalog_matches_registered_tool_names() {
 }
 
 #[test]
+fn explicit_tool_catalog_request_returns_registered_tool_names() {
+    // 2026-04-02 CST: 这里补显式 `tool_catalog` 请求回归，原因是当前 catalog 既支持空输入兜底，也被新 stock Tool 测试当作正式 Tool 调用；
+    // 目的：锁住“显式请求”和“空输入兜底”返回同一份目录合同，避免后续只保住默认入口却让 dispatcher 路由悄悄漂移。
+    let output = run_cli_with_json(r#"{"tool":"tool_catalog","args":{}}"#);
+    let actual = output["data"]["tool_catalog"]
+        .as_array()
+        .expect("tool catalog should be an array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("tool name should be a string")
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+
+    let expected = excel_skill::tools::catalog::tool_names()
+        .iter()
+        .map(|name| (*name).to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn tool_catalog_response_uses_registered_tool_names() {
     let response = ToolResponse::tool_catalog();
     let actual = response.data["tool_catalog"]
@@ -263,6 +298,25 @@ fn technical_consultation_basic_contract_exposes_bullish_continuation_conclusion
     // 2026-04-01 CST: 这里先锁外层工具合同里的多头延续输出，原因是 CLI 专项回归虽然已覆盖内部矩阵，
     // 目的：但 `integration_tool_contract` 还没有证明调用方在工具层拿到的确实是完整 `consultation_conclusion` 合同。
     assert_eq!(output["status"], "ok");
+    // 2026-04-08 CST: 这里先补顶层日期与证据版本红测，原因是方案 C 第一批要把证券分析链公共合同收口到统一字段；
+    // 目的：锁定 technical_consultation_basic 不再只暴露 as_of_date，而是对外也提供统一 analysis_date / evidence_version。
+    assert_eq!(
+        output["data"]["analysis_date"],
+        output["data"]["data_window_summary"]["end_date"]
+    );
+    assert!(
+        output["data"].get("as_of_date").is_none(),
+        "technical_consultation_basic should no longer expose legacy as_of_date"
+    );
+    assert_eq!(
+        output["data"]["evidence_version"],
+        format!(
+            "technical-consultation-basic:688169.SH:{}:v1",
+            output["data"]["analysis_date"]
+                .as_str()
+                .expect("analysis_date should exist")
+        )
+    );
     assert_eq!(
         output["data"]["consultation_conclusion"]["bias"],
         "bullish_continuation"
@@ -403,4 +457,476 @@ fn technical_consultation_basic_contract_exposes_range_wait_conclusion() {
             .filter_map(|value| value.as_str())
             .any(|text| text.contains("方向确认不足"))
     );
+}
+
+#[test]
+fn security_decision_briefing_contract_exposes_required_top_level_fields() {
+    // 2026-04-02 CST: 这里先用最小夹具锁定 security_decision_briefing 的正式对外合同，原因是本轮第一步只需要先把 briefing
+    // Tool 的字段边界钉住，再继续做 assembler 和 dispatcher；目的：避免后续实现过程中字段名漂移，导致咨询场景与投决场景拿到不同口径。
+    let serialized = json!({
+        "symbol": "600519.SH",
+        "analysis_date": "2026-04-02",
+        "summary": "结构化简报合同样例",
+        "evidence_version": "briefing-contract-v1",
+        "fundamental_brief": {
+            "headline": "财报叙事样例",
+            "profit_signal": "stable_growth"
+        },
+        "technical_brief": {
+            "consultation_conclusion": {
+                "bias": "bullish_continuation"
+            }
+        },
+        "resonance_brief": {
+            "resonance_score": 0.72,
+            "action_bias": "add_on_strength"
+        },
+        "execution_plan": {
+            "add_trigger_price": 1510.0,
+            "add_trigger_volume_ratio": 1.35,
+            "add_position_pct": 0.12,
+            "reduce_trigger_price": 1460.0,
+            "rejection_zone": "1495-1510",
+            "reduce_position_pct": 0.08,
+            "stop_loss_price": 1420.0,
+            "invalidation_price": 1398.0,
+            "watch_points": ["量价共振是否延续"],
+            "explanation": ["execution_plan 样例仅用于锁定合同字段"]
+        },
+        "odds_brief": {
+            "status": "available",
+            "historical_confidence": "medium",
+            "sample_count": 12,
+            "win_rate_10d": 0.58,
+            "loss_rate_10d": 0.33,
+            "flat_rate_10d": 0.09,
+            "avg_return_10d": 0.041,
+            "median_return_10d": 0.036,
+            "avg_win_return_10d": 0.086,
+            "avg_loss_return_10d": -0.041,
+            "payoff_ratio_10d": 2.10,
+            "expectancy_10d": 0.036,
+            "expected_return_window": "10日收益均值 4.10%，中位数 3.60%",
+            "expected_drawdown_window": "10日回撤均值 -2.30%，中位数 -2.10%",
+            "odds_grade": "B",
+            "confidence_grade": "medium",
+            "rationale": ["赔率层合同样例仅用于锁定字段"],
+            "research_limitations": []
+        },
+        "position_plan": {
+            "position_action": "starter_then_confirm",
+            "entry_mode": "breakout_confirmation",
+            "starter_position_pct": 0.10,
+            "max_position_pct": 0.22,
+            "add_on_trigger": "站上关键位且放量后再追加",
+            "reduce_on_trigger": "跌破短承接位先减仓",
+            "hard_stop_trigger": "跌破失效位退出",
+            "liquidity_cap": "单次执行不超过计划仓位的 50%",
+            "position_risk_grade": "medium",
+            "regime_adjustment": "若市场共振转弱则整体降一级仓位",
+            "execution_notes": ["position_plan 样例仅用于锁定合同字段"],
+            "rationale": ["仓位层合同样例仅用于锁定字段"]
+        },
+        "committee_payload": {
+            "symbol": "600519.SH",
+            "analysis_date": "2026-04-02",
+            "recommended_action": "hold_and_confirm",
+            "confidence": "medium",
+            "key_risks": ["高位放量回撤"],
+            "risk_breakdown": {
+                "technical": [
+                    {
+                        "category": "technical",
+                        "severity": "medium",
+                        "headline": "高位放量回撤",
+                        "rationale": "价格仍处于高位震荡，若量价背离扩大则需要重新评估突破有效性。"
+                    }
+                ],
+                "fundamental": [],
+                "resonance": [],
+                "execution": []
+            },
+            "minority_objection_points": ["尚未突破关键阻力"],
+            "evidence_version": "briefing-contract-v1",
+            "briefing_digest": "结构化简报摘要样例",
+            "committee_schema_version": "committee-payload:v1",
+            "recommendation_digest": {
+                "final_stance": "watchful_positive",
+                "action_bias": "hold_and_confirm",
+                "summary": "结构化简报摘要样例",
+                "confidence": "medium"
+            },
+            "execution_digest": {
+                "add_trigger_price": 1510.0,
+                "add_trigger_volume_ratio": 1.35,
+                "add_position_pct": 0.12,
+                "reduce_trigger_price": 1460.0,
+                "reduce_position_pct": 0.08,
+                "stop_loss_price": 1420.0,
+                "invalidation_price": 1398.0,
+                "rejection_zone": "1495-1510",
+                "watch_points": ["量价共振是否延续"],
+                "explanation": ["execution_plan 样例仅用于锁定合同字段"]
+            },
+            "resonance_digest": {
+                "resonance_score": 0.72,
+                "action_bias": "hold_and_confirm",
+                "top_positive_driver_names": ["行业景气"],
+                "top_negative_driver_names": ["高位回撤"],
+                "event_override_titles": ["政策观察"]
+            },
+            "evidence_checks": {
+                "fundamental_ready": true,
+                "technical_ready": true,
+                "resonance_ready": true,
+                "execution_ready": true,
+                "briefing_ready": true
+            },
+            "historical_digest": {
+                "status": "available",
+                "historical_confidence": "medium",
+                "analog_sample_count": 12,
+                "analog_win_rate_10d": 0.58,
+                "analog_loss_rate_10d": 0.33,
+                "analog_flat_rate_10d": 0.09,
+                "analog_avg_return_10d": 0.041,
+                "analog_median_return_10d": 0.036,
+                "analog_avg_win_return_10d": 0.086,
+                "analog_avg_loss_return_10d": -0.041,
+                "analog_payoff_ratio_10d": 2.10,
+                "analog_expectancy_10d": 0.036,
+                "expected_return_window": "10日收益均值 4.10%，中位数 3.60%",
+                "expected_drawdown_window": "10日回撤均值 -2.30%，中位数 -2.10%",
+                "research_limitations": []
+            },
+            "odds_digest": {
+                "status": "available",
+                "historical_confidence": "medium",
+                "sample_count": 12,
+                "win_rate_10d": 0.58,
+                "loss_rate_10d": 0.33,
+                "flat_rate_10d": 0.09,
+                "avg_return_10d": 0.041,
+                "median_return_10d": 0.036,
+                "avg_win_return_10d": 0.086,
+                "avg_loss_return_10d": -0.041,
+                "payoff_ratio_10d": 2.10,
+                "expectancy_10d": 0.036,
+                "expected_return_window": "10日收益均值 4.10%，中位数 3.60%",
+                "expected_drawdown_window": "10日回撤均值 -2.30%，中位数 -2.10%",
+                "odds_grade": "B",
+                "confidence_grade": "medium",
+                "rationale": ["赔率层合同样例仅用于锁定字段"],
+                "research_limitations": []
+            },
+            "position_digest": {
+                "position_action": "starter_then_confirm",
+                "entry_mode": "breakout_confirmation",
+                "starter_position_pct": 0.10,
+                "max_position_pct": 0.22,
+                "add_on_trigger": "站上关键位且放量后再追加",
+                "reduce_on_trigger": "跌破短承接位先减仓",
+                "hard_stop_trigger": "跌破失效位退出",
+                "liquidity_cap": "单次执行不超过计划仓位的 50%",
+                "position_risk_grade": "medium",
+                "regime_adjustment": "若市场共振转弱则整体降一级仓位",
+                "execution_notes": ["position_plan 样例仅用于锁定合同字段"],
+                "rationale": ["仓位层合同样例仅用于锁定字段"]
+            }
+        }
+    });
+
+    for field_name in [
+        "summary",
+        "fundamental_brief",
+        "technical_brief",
+        "resonance_brief",
+        "execution_plan",
+        "odds_brief",
+        "position_plan",
+        "committee_payload",
+    ] {
+        assert!(
+            serialized.get(field_name).is_some(),
+            "security_decision_briefing should expose top-level field `{field_name}`"
+        );
+    }
+
+    for field_name in [
+        "recommended_action",
+        "confidence",
+        "key_risks",
+        "risk_breakdown",
+        "evidence_version",
+        "odds_digest",
+        "position_digest",
+    ] {
+        assert!(
+            serialized["committee_payload"].get(field_name).is_some(),
+            "committee_payload should expose field `{field_name}`"
+        );
+    }
+}
+
+#[test]
+fn security_decision_briefing_is_cataloged() {
+    let output = run_cli_with_json("");
+    let tool_catalog = output["data"]["tool_catalog"]
+        .as_array()
+        .expect("tool_catalog should be an array")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>();
+    let stock_catalog = output["data"]["tool_catalog_modules"]["stock"]
+        .as_array()
+        .expect("stock tool catalog should be an array")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>();
+
+    // 2026-04-02 CST: 这里先锁 security_decision_briefing 的目录可见性，原因是 Task 4 的目标是把 briefing Tool 正式接入
+    // catalog / dispatcher 主链；目的：防止后续只在 ops 层存在实现，但外层 CLI / Skill 仍无法发现或路由到它。
+    assert!(
+        tool_catalog.contains(&"security_decision_briefing"),
+        "tool_catalog should include security_decision_briefing"
+    );
+    assert!(
+        stock_catalog.contains(&"security_decision_briefing"),
+        "stock tool group should include security_decision_briefing"
+    );
+}
+
+#[test]
+fn security_position_plan_record_contract_exposes_required_fields() {
+    // 2026-04-08 CST: 这里先补仓位计划记录正式合同红测，原因是投后复盘闭环的第一步必须先把 position_plan
+    // 从 briefing 子层建议升级成正式可引用对象；目的：锁定后续 position_plan_record 至少要暴露引用字段与核心仓位边界，避免实现时字段漂移。
+    let result = SecurityPositionPlanRecordResult {
+        position_plan_ref: "position-plan:600519.SH:2026-04-08:v1".to_string(),
+        decision_ref: "decision:600519.SH:2026-04-08:v1".to_string(),
+        approval_ref: "approval:600519.SH:2026-04-08:v1".to_string(),
+        evidence_version: "briefing:600519.SH:2026-04-08:v1".to_string(),
+        symbol: "600519.SH".to_string(),
+        analysis_date: "2026-04-08".to_string(),
+        position_action: "starter_then_confirm".to_string(),
+        starter_position_pct: 0.10,
+        max_position_pct: 0.22,
+        position_plan: PositionPlan {
+            position_action: "starter_then_confirm".to_string(),
+            entry_mode: "breakout_confirmation".to_string(),
+            starter_position_pct: 0.10,
+            max_position_pct: 0.22,
+            add_on_trigger: "站上关键位且放量后再追加".to_string(),
+            reduce_on_trigger: "跌破短承接位先减仓".to_string(),
+            hard_stop_trigger: "跌破失效位退出".to_string(),
+            liquidity_cap: "单次执行不超过计划仓位的 50%".to_string(),
+            position_risk_grade: "medium".to_string(),
+            regime_adjustment: "若市场共振转弱则整体降一级仓位".to_string(),
+            execution_notes: vec!["position_plan_record 样例仅用于锁定合同字段".to_string()],
+            rationale: vec!["position_plan_record 合同样例仅用于锁定字段".to_string()],
+        },
+    };
+
+    let serialized =
+        serde_json::to_value(&result).expect("position plan record contract should serialize");
+
+    for field_name in [
+        "position_plan_ref",
+        "decision_ref",
+        "approval_ref",
+        "evidence_version",
+        "symbol",
+        "analysis_date",
+        "position_action",
+        "starter_position_pct",
+        "max_position_pct",
+    ] {
+        assert!(
+            serialized.get(field_name).is_some(),
+            "security_position_plan_record should expose field `{field_name}`"
+        );
+    }
+}
+
+#[test]
+fn security_record_position_adjustment_contract_exposes_required_fields() {
+    // 2026-04-08 CST: 这里先补调仓事件正式合同红测，原因是 Task 3 要先把“多次调仓记录”的最小对象边界锁死，
+    // 目的：确保后续 security_record_position_adjustment Tool 实装时，事件引用、仓位变化和计划偏离口径不会在实现阶段漂移。
+    let result = SecurityRecordPositionAdjustmentResult {
+        adjustment_event_ref: "position-adjustment:600519.SH:2026-04-09:reduce:v1".to_string(),
+        decision_ref: "decision:600519.SH:2026-04-08:v1".to_string(),
+        approval_ref: "approval:600519.SH:2026-04-08:v1".to_string(),
+        evidence_version: "briefing:600519.SH:2026-04-08:v1".to_string(),
+        position_plan_ref: "position-plan:600519.SH:2026-04-08:v1".to_string(),
+        symbol: "600519.SH".to_string(),
+        event_type: PositionAdjustmentEventType::Reduce,
+        event_date: "2026-04-09".to_string(),
+        before_position_pct: 0.22,
+        after_position_pct: 0.14,
+        trigger_reason: "跌破减仓线，按计划先降回试错仓位".to_string(),
+        plan_alignment: PositionPlanAlignment::JustifiedDeviation,
+    };
+
+    let serialized =
+        serde_json::to_value(&result).expect("position adjustment event contract should serialize");
+
+    for field_name in [
+        "adjustment_event_ref",
+        "position_plan_ref",
+        "event_type",
+        "event_date",
+        "before_position_pct",
+        "after_position_pct",
+        "trigger_reason",
+        "plan_alignment",
+    ] {
+        assert!(
+            serialized.get(field_name).is_some(),
+            "security_record_position_adjustment should expose field `{field_name}`"
+        );
+    }
+
+    assert_eq!(serialized["event_type"], "reduce");
+    assert_eq!(serialized["plan_alignment"], "justified_deviation");
+}
+
+#[test]
+fn security_post_trade_review_contract_exposes_required_fields() {
+    // 2026-04-08 CST: 这里先补投后复盘正式合同红测，原因是 Task 5 需要先把复盘对象的最小字段边界钉住；
+    // 目的：保证后续 security_post_trade_review Tool 落地时，能够稳定回指 plan / decision / approval，并输出统一复盘维度。
+    let result = SecurityPostTradeReviewResult {
+        post_trade_review_ref: "post-trade-review:600519.SH:2026-04-15:v1".to_string(),
+        position_plan_ref: "position-plan:600519.SH:2026-04-08:v1".to_string(),
+        decision_ref: "decision:600519.SH:2026-04-08:v1".to_string(),
+        approval_ref: "approval:600519.SH:2026-04-08:v1".to_string(),
+        evidence_version: "briefing:600519.SH:2026-04-08:v1".to_string(),
+        symbol: "600519.SH".to_string(),
+        analysis_date: "2026-04-15".to_string(),
+        adjustment_event_refs: vec![
+            "position-adjustment:600519.SH:2026-04-09:build:v1".to_string(),
+            "position-adjustment:600519.SH:2026-04-11:reduce:v1".to_string(),
+        ],
+        review_outcome: PostTradeReviewOutcome::Mixed,
+        decision_accuracy: PostTradeReviewDimension::Acceptable,
+        execution_quality: PostTradeReviewDimension::Strong,
+        risk_control_quality: PostTradeReviewDimension::Weak,
+        correction_actions: vec![
+            "缩小首次建仓比例，避免确认前过早打满计划仓位".to_string(),
+            "若再次放量冲高回落，优先执行计划内减仓".to_string(),
+        ],
+        next_cycle_guidance: vec![
+            "下一轮只在量价共振重建后恢复加仓".to_string(),
+            "继续对照 position_plan_ref 记录偏离原因".to_string(),
+        ],
+    };
+
+    let serialized =
+        serde_json::to_value(&result).expect("post trade review contract should serialize");
+
+    for field_name in [
+        "post_trade_review_ref",
+        "position_plan_ref",
+        "decision_ref",
+        "approval_ref",
+        "review_outcome",
+        "decision_accuracy",
+        "execution_quality",
+        "risk_control_quality",
+        "correction_actions",
+        "next_cycle_guidance",
+    ] {
+        assert!(
+            serialized.get(field_name).is_some(),
+            "security_post_trade_review should expose field `{field_name}`"
+        );
+    }
+
+    assert_eq!(serialized["review_outcome"], "mixed");
+    assert_eq!(serialized["decision_accuracy"], "acceptable");
+    assert_eq!(serialized["execution_quality"], "strong");
+    assert_eq!(serialized["risk_control_quality"], "weak");
+}
+
+#[test]
+fn signal_outcome_platform_contract_exposes_research_tools_and_required_fields() {
+    let flat_catalog = excel_skill::tools::catalog::tool_names();
+    let stock_catalog = excel_skill::tools::catalog::stock_tool_names();
+
+    // 2026-04-02 CST：这里先锁研究平台 Tool 家族的可发现性，原因是方案C要求把“快照 -> forward returns -> analog study”
+    // 做成正式平台入口，而不是只留在内部 helper；目的：保证后续咨询、briefing 和投决会都能基于统一 Tool 主链读取研究结果。
+    for tool_name in [
+        "record_security_signal_snapshot",
+        "backfill_security_signal_outcomes",
+        "study_security_signal_analogs",
+        "signal_outcome_research_summary",
+    ] {
+        assert!(
+            flat_catalog.contains(&tool_name),
+            "tool catalog should include `{tool_name}`"
+        );
+        assert!(
+            stock_catalog.contains(&tool_name),
+            "stock tool catalog should include `{tool_name}`"
+        );
+    }
+
+    let signal_outcome_contract = json!({
+        "snapshot": {
+            "symbol": "600519.SH",
+            "snapshot_date": "2026-04-02",
+            "indicator_digest": "adx=31.2|rsi=63.4|rsrs=0.58",
+            "resonance_score": 0.73,
+            "action_bias": "hold_and_confirm"
+        },
+        "forward_returns": [
+            {
+                "horizon_days": 5,
+                "forward_return_pct": 0.042,
+                "max_drawdown_pct": -0.018
+            }
+        ],
+        "analog_summary": {
+            "sample_count": 24,
+            "win_rate": 0.625,
+            "avg_return_pct": 0.031,
+            "median_return_pct": 0.024
+        }
+    });
+
+    for field_name in [
+        "symbol",
+        "snapshot_date",
+        "indicator_digest",
+        "resonance_score",
+        "action_bias",
+    ] {
+        assert!(
+            signal_outcome_contract["snapshot"]
+                .get(field_name)
+                .is_some(),
+            "snapshot contract should expose `{field_name}`"
+        );
+    }
+
+    for field_name in ["horizon_days", "forward_return_pct", "max_drawdown_pct"] {
+        assert!(
+            signal_outcome_contract["forward_returns"][0]
+                .get(field_name)
+                .is_some(),
+            "forward return contract should expose `{field_name}`"
+        );
+    }
+
+    for field_name in [
+        "sample_count",
+        "win_rate",
+        "avg_return_pct",
+        "median_return_pct",
+    ] {
+        assert!(
+            signal_outcome_contract["analog_summary"]
+                .get(field_name)
+                .is_some(),
+            "analog summary contract should expose `{field_name}`"
+        );
+    }
 }

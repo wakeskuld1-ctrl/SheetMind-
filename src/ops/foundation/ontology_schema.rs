@@ -1,21 +1,26 @@
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::ops::foundation::knowledge_record::MetadataFieldValue;
 
 // 2026-04-07 CST: 这里定义 ontology concept，原因是 foundation 导航内核后续所有语义定位都要围绕概念来做。
 // 目的：先提供最小稳定数据结构，让 concept id、展示名和别名能在 schema 构建时统一收口。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OntologyConcept {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub aliases: Vec<String>,
     // 2026-04-09 CST: 这里增加 concept tags，原因是 foundation 路由开始需要最小 scope 约束能力，
     // 不能再假设同一短语在全局只会对应一个概念。
     // 目的：先用轻量标签承接“同词不同域”的约束输入，而不提前引入更重的元数据模型。
+    #[serde(default)]
     pub tags: Vec<String>,
     // 2026-04-09 CST: 这里补 concept 级通用 metadata 容器，原因是方案B下一阶段要让 metadata 真正参与 concept-level 收敛，
     // 但又不能把 domain、channels 这类字段业务化硬编码进 roaming 或 router。
     // 目的：让 ontology concept 和 knowledge node 共享同一套 metadata value 模型，为通用 MetadataScopeResolver 提供标准输入。
+    #[serde(default)]
     pub metadata: BTreeMap<String, MetadataFieldValue>,
 }
 
@@ -74,7 +79,7 @@ impl OntologyConcept {
 
 // 2026-04-07 CST: 这里先定义关系类型占位枚举，原因是本轮 schema 构造函数已经要求接收 relations 集合。
 // 目的：即使当前测试暂时不使用 relation，也先把 schema 的外部形状固定下来，避免后续再改构造契约。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OntologyRelationType {
     ParentOf,
     ChildOf,
@@ -86,7 +91,7 @@ pub enum OntologyRelationType {
 
 // 2026-04-07 CST: 这里定义 concept 之间的关系记录，原因是后续 roaming 需要基于 relation 做受控扩展。
 // 目的：先稳定 relation 的最小载体，Task 2 里不做复杂校验，只保留字段骨架。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OntologyRelation {
     pub from_concept_id: String,
     pub to_concept_id: String,
@@ -97,9 +102,7 @@ pub struct OntologyRelation {
 // 目的：让测试和后续调用方能明确区分“构造成功”和“索引冲突”两类结果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OntologySchemaError {
-    DuplicateConceptId {
-        concept_id: String,
-    },
+    DuplicateConceptId { concept_id: String },
 }
 
 // 2026-04-07 CST: 这里定义 ontology schema，原因是 schema 需要同时持有原始 concepts/relations 和查找索引。

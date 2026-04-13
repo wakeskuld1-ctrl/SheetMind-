@@ -1,7 +1,9 @@
 use crate::ops::foundation::capability_router::{
     CapabilityRoute, CapabilityRouter, CapabilityRouterError, NavigationRequest,
 };
-use crate::ops::foundation::evidence_assembler::{EvidenceAssembler, NavigationEvidence};
+use crate::ops::foundation::evidence_assembler::{
+    EvidenceAssembler, NavigationEvidence, NavigationEvidenceExportDtoV1,
+};
 use crate::ops::foundation::knowledge_graph_store::KnowledgeGraphStore;
 use crate::ops::foundation::metadata_registry::{MetadataRegistry, MetadataRegistryError};
 use crate::ops::foundation::metadata_scope_resolver::MetadataScopeResolver;
@@ -102,10 +104,26 @@ impl NavigationPipeline {
         Ok(self.assembler.assemble(route, scope, hits))
     }
 
+    // 2026-04-12 CST: Added a DTO-facing mainline export entry because upper
+    // layers should consume a stable versioned contract instead of the internal
+    // NavigationEvidence struct directly. Purpose: keep roaming mainline
+    // adapters aligned with the new export-boundary rule used in foundation.
+    pub fn run_export_v1(
+        &self,
+        request: &NavigationRequest,
+    ) -> Result<NavigationEvidenceExportDtoV1, NavigationPipelineError> {
+        let evidence = self.run(request)?;
+        Ok(NavigationEvidenceExportDtoV1::from_evidence(&evidence))
+    }
+
     // 2026-04-09 CST: 这里从模板计划派生实际漫游计划，原因是 route 产出的 matched concept ids 才是每次请求的真实种子，
     // 不能直接复用构造时写死的 seed 列表，否则 pipeline 会失去“按问题导航”的意义。
     // 目的：保留计划模板里的深度、关系类型和规模预算，只在运行时替换种子概念。
-    fn build_roaming_plan(&self, request: &NavigationRequest, concept_ids: &[String]) -> RoamingPlan {
+    fn build_roaming_plan(
+        &self,
+        request: &NavigationRequest,
+        concept_ids: &[String],
+    ) -> RoamingPlan {
         let mut plan = self.roaming_plan_template.clone();
         plan.seed_concept_ids = concept_ids.to_vec();
         // 2026-04-09 CST: 这里把请求级 metadata scope 注入运行时 roaming plan，原因是方案B第二阶段要让
@@ -220,9 +238,11 @@ impl NavigationPipeline {
         &self,
         question: &str,
         scope: &crate::ops::foundation::roaming_engine::CandidateScope,
-    ) -> Result<Vec<crate::ops::foundation::retrieval_engine::RetrievalHit>, RetrievalEngineError> {
+    ) -> Result<Vec<crate::ops::foundation::retrieval_engine::RetrievalHit>, RetrievalEngineError>
+    {
         if self.metadata_registry.is_empty() {
-            self.retrieval_engine.retrieve(question, scope, &self.graph_store)
+            self.retrieval_engine
+                .retrieve(question, scope, &self.graph_store)
         } else {
             self.retrieval_engine.retrieve_with_metadata_registry(
                 question,
@@ -242,9 +262,11 @@ impl NavigationPipeline {
         error: CapabilityRouterError,
     ) -> NavigationPipelineError {
         match error {
-            CapabilityRouterError::NoConceptMatched { .. } => NavigationPipelineError::RouteFailed {
-                question: request.question.clone(),
-            },
+            CapabilityRouterError::NoConceptMatched { .. } => {
+                NavigationPipelineError::RouteFailed {
+                    question: request.question.clone(),
+                }
+            }
         }
     }
 
