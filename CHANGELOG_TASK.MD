@@ -1,3 +1,218 @@
+## 2026-04-13
+### 修改内容
+- `docs/plans/2026-04-13-trading-readiness-roadmap.md`：新增“实盘可用路线图”，把当前体系拆成 `P0：可试运行`、`P1：可小仓辅助实盘`、`P2：可正式作为决策辅助系统` 三个阶段。目的：把“离实盘可用还差什么”从对话结论固化成正式开发路线。
+- `docs/AI_HANDOFF.md`：追加“2026-04-13 实盘可用标准补充”，明确当前不要把训练链能跑通误判成接近实盘，统一后续优先级。目的：防止后续 AI 在路线判断上重新走偏。
+- `docs/交接摘要_证券分析_给后续AI.md`：追加“2026-04-13 实盘可用路线补充”，把样本、标签、验证、ETF 四类核心缺口写成直白摘要。目的：让后续 AI 在最短入口就看到当前真实阶段。
+
+### 修改原因
+- 用户明确要求先把“实盘可用标准”和“离实盘还差什么”整理清楚，而不是继续零散讨论。
+- 当前体系已经有研究、训练和治理底盘，但外观上容易被误解成“已经快能实盘”，需要统一口径。
+- 需要把当前优先级锁定为“扩样本 -> 多周期标签 -> 滚动验证 -> 赔率输出 -> 仓位联动 -> ETF 专项训练”，避免后续直接跳复杂模型。
+
+### 方案还差什么?
+- [ ] 还没有把路线图进一步拆成具体开发任务清单，例如样本扩池任务、标签任务、walk-forward 验证任务、ETF 专项训练任务。
+- [ ] 还没有把这份路线图同步进 README 对外使用说明，目前主要覆盖内部 handoff 和规划文档。
+
+### 潜在问题
+- [ ] 当前新增的是路线和阶段判断，不等于这些能力已经落地；如果后续 AI 把路线图误读成“功能已完成”，会造成执行偏差。
+- [ ] `docs/AI_HANDOFF.md` 与交接摘要文件历史存在部分编码混杂，本轮采用追加方式规避中段破坏；后续如做全文清洗，需单开任务处理。
+
+### 关闭项
+- [ ] 未执行验证：本轮仅修改文档与任务日志，未运行 `cargo test`
+
+### 记忆点（可选）
+- 用户当前要的是“实盘可用”，不是“训练链能跑”。
+- 用户希望先把标准和全貌讲清楚，再继续沿这条主线推进，不要散着做。
+### 修改内容
+- `src/ops/security_analysis_fullstack.rs`：新增 `EtfContext` 正式结构，并补 `fetch_etf_context` / `build_optional_etf_facts_url` / `is_etf_symbol` 等最小 ETF 事实层入口；同时让 `integrated_conclusion` 在 ETF 场景下显式参考 ETF 专项事实上下文。目的：把 ETF 从“仅识别资产类型”升级到“正式携带基金结构事实进入证券主链”。
+- `src/ops/security_decision_evidence_bundle.rs`：把 `etf_context` 冻结进证据包，并新增 `subject_asset_class`、`etf_context_status`、`etf_benchmark_available`、`etf_scale_available`、`etf_premium_discount_rate_pct`、`etf_structure_risk_count` 等特征种子字段。目的：让 ETF 专项事实继续向 snapshot / training 下沉，不再只停留在 fullstack 临时对象。
+- `src/ops/security_feature_snapshot.rs`：补 `M` 组里的 `subject_asset_class` 和 `X` 组 ETF 结构事实冻结。目的：让 ETF 专项事实上主链后，特征快照也能稳定承接。
+- `tests/security_analysis_fullstack_cli.rs`：新增 `security_analysis_fullstack_exposes_etf_public_facts_context`。目的：先用红测锁住 ETF 事实层必须对外暴露基金名称、基准、规模、份额与折溢价字段。
+- `tests/security_feature_snapshot_cli.rs`：新增 `security_feature_snapshot_freezes_etf_fact_features_into_x_group`。目的：锁住 ETF 事实层会继续冻结为 raw feature 和 X 组特征，而不是在 snapshot 层丢失。
+
+### 修改原因
+- 用户要求不再继续空拆计划，而是直接把“信息厚度”补起来，并明确要求 `证券主链 + ETF` 一起推进。
+- 当前 ETF 虽然已进入证券主链最小分流，但真正进入证据层和快照层的仍主要是技术面/公告面，缺少基金结构、跟踪基准、规模与折溢价等专项事实。
+- 为避免和另一条 ETF 长测训练线冲突，这一轮选择先补 ETF 正式事实层与统一合同，不直接扩到 ETF 专项训练主体。
+
+### 方案还差什么?
+- [ ] 还没有把 ETF 公共事实源从“可配置 URL + 正式合同”进一步落到默认免费数据源适配器，例如交易所 / 指数官网 / 基金公开页的标准抓取实现。
+- [ ] 还没有把 ETF 历史研究层、ETF 专项标签和 ETF 专项模型补齐到和股票同一深度。
+- [ ] 还没有把这轮 ETF 信息厚度补齐同步进 `docs/AI_HANDOFF.md` 的最新主链状态说明。
+
+### 潜在问题
+- [ ] 当前 ETF 公共事实层默认依赖 `EXCEL_SKILL_ETF_FACTS_URL_BASE` 注入；如果运行环境未配置该入口，ETF 上下文会降级为 `unavailable`，这是当前版本的已知边界。
+- [ ] ETF 综合结论现在会把 `structure_risk_flags` 视为谨慎因子；如果后续要把“可提示风险但不降级 stance”做成更细颗粒规则，需要再细化这层判定。
+- [ ] 工作区当前依然很脏，后续提交时必须按路径精确收口，避免把无关改动一并带上。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_analysis_fullstack_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test security_feature_snapshot_cli -- --nocapture --test-threads=1`
+
+### 记忆点（可选）
+- 用户已明确：这条线优先补“信息厚度”，不要再空拆计划，也不要直接跳去更复杂的模型层。
+- 用户已明确：ETF 要沿证券主链正式补洞，不做平行架构，不要和别的 AI 正在做的 ETF 长测训练主体重复开发。
+### 修改内容
+- `tests/security_chair_resolution_builder_unit.rs`：新增纯 builder 级主席测试文件，覆盖 `scorecard_not_ready -> return_for_revision`、`committee_abstain + no_independent_advice -> defer`、`independent_advice_conflict -> return_for_revision`、`post_meeting_conclusion` 字段一致性。目的：绕开 Windows 下会挂住的旧 `security_chair_resolution_cli` 重链路，先把主席核心仲裁分支正式锁住。
+- `docs/AI_HANDOFF.md`：补充“主席链测试收口规则”段落，明确独立建议线已正式落地、旧 `security_chair_resolution_cli` 仍属高风险链路、当前默认验证入口应切到新的 builder 测试文件。目的：避免后续 AI 继续误把旧 CLI 链当成当前唯一门禁。
+- `docs/architecture/graphify-navigation-guide.md`：补充主席链测试导航规则。目的：让后续 AI 在查看 `tests` 图时，能直接知道主席链应先走哪几个轻量测试文件。
+
+### 修改原因
+- 用户明确要求：先查图、再看修改内容，然后用低风险方式把主席链未收住的点补上，不再硬顶旧重链路测试。
+- 当前真正未收口的是 `security_chair_resolution_cli` 的旧测试链，而不是独立建议合同本身；如果继续在旧链上做高风险改写，Windows 下很容易再次出现残留进程、链接占用和 Cargo 锁竞争。
+
+### 方案还差什么?
+- [ ] 还没有真正修复旧 `tests/security_chair_resolution_cli.rs` 重链路，只是先通过 builder 测试把主席核心仲裁逻辑锁住。
+- [ ] 还没有把新的 builder 测试继续扩成更完整的 approve / conditional_approve / reject 全分支矩阵。
+- [ ] 还没有把主席链的最小回归清单进一步固化到更细的图谱说明或脚本输出里。
+
+### 潜在问题
+- [ ] 旧 `security_chair_resolution_cli` 当前仍可能在 Windows 下残留测试进程；后续若有人直接回去跑这条链，仍可能遇到链接占用与 Cargo 锁竞争。
+- [ ] 新的 builder 测试主要锁正式对象和仲裁逻辑，不等价于端到端 CLI 回归；如果后续修改了 dispatcher/runtime 链，仍需要单独补对应验证。
+
+### 关闭项
+- 已通过 `cargo test --test security_chair_resolution_builder_unit -- --nocapture --test-threads=1`
+
+### 记忆点（可选）
+- 用户再次明确：高风险情况下要优先规避，不要为了“看起来推进了”而继续在旧重链路上硬顶。
+
+## 2026-04-13
+### 修改内容
+- `src/tools/contracts.rs`：新增 `FoundationNavigationRequest`、`FoundationNavigationResult`、`FoundationNavigationRoamingStep`、`FoundationNavigationHit`。目的：把 knowledge roaming 主线的正式 Tool 输入输出边界固定为稳定 DTO，而不是直接暴露内部 pipeline 对象。
+- `src/tools/catalog.rs`：补充 `foundation_navigation` 到 `FOUNDATION_TOOL_NAMES` 与 `TOOL_NAMES`。目的：让 CLI / Skill / tool_catalog 正式发现通用知识漫游入口。
+- `src/tools/dispatcher.rs`：接入 `foundation_navigation` 路由分支。目的：让通用导航能力沿统一 dispatcher 正式可调用。
+- `src/tools/dispatcher/foundation_ops.rs`：新增 `dispatch_foundation_navigation(...)` 与错误映射 helper。目的：复用现有 `NavigationPipeline` 内核，把 route -> roam -> retrieve -> assemble 收口成正式 foundation Tool。
+- `tests/foundation_navigation_cli.rs`：新增 catalog、成功路径、未知问题失败路径三条回归。目的：先锁住知识漫游入口的最小对外合同和失败语义。
+- `tests/integration_tool_contract.rs`：补 `foundation_navigation` 的 catalog 合同校验。目的：把新 Tool 的可发现性纳入现有统一目录合同。
+- `docs/AI_HANDOFF.md`：补 `foundation_navigation` 的当前能力边界。目的：避免后续 AI 继续把 knowledge roaming 误判成“只有内核骨架，没有正式入口”。
+- `graphify-out/src-map-2026-04-13/`、`graphify-out/docs-map-2026-04-13/`、`graphify-out/tests-map-2026-04-13/`：按最新代码与文档重跑图谱。目的：保证本轮 foundation 主线变更后账实一致。
+
+### 修改原因
+- 用户已批准按方案 B1 推进，目标是把通用知识漫游主线从模块级闭环提升为正式 Tool 入口，而不是继续停留在 capability router / navigation pipeline 的内部骨架层。
+- 当前 foundation 已经完成 repository audit / import gate 等治理入口，如果 navigation 主线不尽快工具化，后续知识漫游、自动建体系和上层通用编排都没有统一入口可依赖。
+
+### 方案还差什么?
+- [ ] 还没有把 `foundation_navigation` 接到 repository layout 自动装载链，当前仍要求调用方显式传 `knowledge_bundle`。
+- [ ] 还没有把 `foundation_navigation` 接到更高层的导入编排、知识库接入链或自动建体系流程。
+- [ ] 还没有补多 seed 顺序、跨概念命中排序、规模更大时的 scoped retrieval 策略优化。
+
+### 潜在问题
+- [ ] 当前 `foundation_navigation` 使用的是内存知识包输入边界，适合标准能力验证，但如果上层误以为它已经能直接消费 repository layout 或多仓库场景，会产生能力预期偏差。
+- [ ] 当前 retrieval 评分仍是最小关键词交集排序；如果后续接入更复杂知识包，可能需要补更细的排序、截断或多命中解释规则。
+- [ ] `cargo test` 过程中仍存在工作区级大量 dead_code warning，这不是本轮引入的问题，但会继续影响后续长链编译输出可读性。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test foundation_navigation_cli -- --nocapture`
+- 已通过 `cargo test --test integration_tool_contract foundation_navigation_is_cataloged_in_foundation_group -- --nocapture`
+- 已通过 `cargo test --test navigation_pipeline_integration -- --nocapture`
+- 已通过 `python scripts/graphify_map_tools.py update --json`
+- 已通过 `python scripts/graphify_map_tools.py check --json`
+
+### 记忆点（可选）
+- 用户当前主线是“通用知识漫游/通用标准能力”，所以本轮实现只把 foundation navigation 工具化，不把它扩成证券业务编排。
+- 用户已明确把依赖图当作正式门禁，所以本轮代码改动后也同步重跑了 `src / docs / tests` 三类图谱。
+
+## 2026-04-13
+### 修改内容
+- `scripts/graphify_map_tools.py`：新增图谱更新与校验核心脚本，统一支持 `update / check` 两个命令，默认覆盖 `src / docs / tests` 三类图谱。目的：把“开发前检查图谱、开发后回写图谱”从口头约束落成仓库内标准入口。
+- `scripts/update_graph_maps.ps1`：新增 PowerShell 图谱更新入口。目的：为开发完成后的图谱回写提供统一命令，降低后续执行门槛。
+- `scripts/check_graph_maps.ps1`：新增 PowerShell 图谱校验入口。目的：把“无图禁止开发”固化成可执行门禁。
+- `docs/architecture/graphify-navigation-guide.md`：补充图谱更新与门禁命令说明。目的：让后续 AI / 开发者直接知道开发前后该跑什么命令。
+- `docs/AI_HANDOFF.md`、`AGENTS.md`：补充正式图谱门禁命令。目的：把规则和命令入口一起写进长期交接与仓库级规范，避免只写原则不写执行方式。
+
+### 修改原因
+- 用户明确要求把“图谱更新”做成仓库内标准能力，不再只停留在规则层。
+- 当前仓库已经把依赖图作为开发导航资产，如果没有统一的更新与检查命令，后续很容易出现“规则写了，但没人真正执行”的脱节。
+- 实际验证中发现文档图导出 `graph.graphml` 时会被 `NoneType` 卡住，因此本轮额外把文档图字段收敛为 GraphML 可接受的空字符串，保证更新命令能完整跑通。
+
+### 方案还差什么?
+- [ ] 还没有把图谱检查命令接入 Git hook、CI 或 pre-push 流程，当前仍需要人工显式执行。
+- [ ] 还没有为“只更新受影响子范围”的场景补更细粒度参数，当前默认是按 `src / docs / tests` 三类全量重建。
+- [ ] 还没有把 PowerShell 外层脚本的控制台回显风格进一步收敛，当前核心验证主要依赖 Python 内核的 JSON 输出。
+
+### 潜在问题
+- [ ] 当前 `docs` 图是基于 Markdown 标题、显式链接、同目录和同日期规则构建的导航图，不是语义抽取图；如果后续把它误当成精确语义图，会高估它的事实表达能力。
+- [ ] 当前 `links_to_edges` 仍为 `0`，说明现有文档显式互链仍然偏少；后续如果要提升文档图价值，优先应补正式文档之间的互链。
+- [ ] `update_graph_maps.ps1` 与 `check_graph_maps.ps1` 在当前工具环境里执行时没有回显标准输出，但退出码正常；后续若需要更强的交互反馈，可以再补 `Write-Host` 包装或日志文件输出。
+
+### 关闭项
+- 已通过 `python scripts/graphify_map_tools.py update --json`
+- 已通过 `python scripts/graphify_map_tools.py check --json`
+- 已确认生成/校验通过：`graphify-out/src-map-2026-04-13/`
+- 已确认生成/校验通过：`graphify-out/docs-map-2026-04-13/`
+- 已确认生成/校验通过：`graphify-out/tests-map-2026-04-13/`
+
+### 记忆点（可选）
+- 用户明确要求：图谱不只是辅助资料，而是后续所有开发的正式门禁和导航资产。
+- 用户明确要求：开发完成以后必须更新图谱，确保账实一致，而不是等到交接时再补。
+
+## 2026-04-13
+### 修改内容
+- `AGENTS.md`：新增仓库级开发约束，明确“无最新依赖图禁止开发、开发完成后必须回写图谱、图谱只作一级导航不能替代源码与测试验证”。目的：把依赖图驱动开发固化成所有后续会话共享的硬规则。
+- `docs/AI_HANDOFF.md`：新增“依赖图开发门禁”章节，统一说明图谱的使用边界、开发前置条件与开发后的回写义务。目的：避免后续接手者只在对话里听到口头要求，而没有正式文档入口。
+
+### 修改原因
+- 用户明确要求把“依赖图作为通用标准、没有这张图禁止开发、每次开发完都要更新图谱确保账实一致”写进 rules 或 agents，避免后续开发再次写偏主线。
+- 当前仓库体量较大，且同时存在 foundation 通用能力线与证券业务线；如果没有图谱门禁，后续 AI 很容易在局部搜索后直接动手，导致落错层、混入业务支线或误判上下游。
+
+### 方案还差什么?
+- [ ] 还没有把图谱生成流程固化成仓库内正式脚本或单命令入口，当前“开发后回写图谱”仍依赖人工执行。
+- [ ] 还没有补“什么情况下允许只更新图谱说明、不重跑全量图谱”的更细粒度操作规则，后续可以按改动范围继续细化。
+
+### 潜在问题
+- [ ] 如果后续开发者机械执行“无图禁止开发”，但图谱产物日期新却范围旧，仍可能产生伪满足；后续需要结合改动范围判断图谱是否真的覆盖本轮模块。
+- [ ] 当前依赖图本身包含 inferred 关系，若误把它当成严格调用链，仍会导致实现判断偏差；因此本轮规则已经明确要求回到源码与测试验证。
+
+### 关闭项
+- 已新增仓库级规则文件：`AGENTS.md`
+- 已补充交接手册章节：`docs/AI_HANDOFF.md -> 0. 依赖图开发门禁`
+- 已完成本次规范变更日志追加：`CHANGELOG_TASK.MD`
+
+### 记忆点（可选）
+- 用户明确要求：以后所有修改和开发都依赖依赖图来校准主线与上下游，没有图谱就不要直接开发。
+- 用户明确要求：每次开发结束后都要更新图谱内容，保证账实一致，而不是只改代码不回写导航资产。
+
+## 2026-04-13
+### 修改内容
+- `docs/architecture/graphify-navigation-guide.md`：新增图谱导航使用说明，明确 `src` 代码图与 `docs` 文档图的用途、推荐阅读顺序、证券主链接手路径与图谱局限。目的：让后续 AI / 开发者先认路，再进入正式源码和交接文档。
+- `docs/DOCUMENTATION_INDEX.md`：补充 `graphify-navigation-guide.md` 入口。目的：把图谱导航说明挂进正式文档索引，避免图已生成但没人知道从哪里进入。
+- `graphify-out/src-map-2026-04-13/`：生成 `src` 第一版知识图产物，包含 `graph.html`、`GRAPH_REPORT.md`、`graph.json`、`graph.graphml` 与 `summary.json`。目的：为代码主链提供模块导航图。
+- `graphify-out/docs-map-2026-04-13/`：生成 `docs` 第一版导航图产物，包含 `graph.html`、`GRAPH_REPORT.md`、`graph.json`、`graph.graphml` 与 `summary.json`。目的：为文档体系提供交接入口图。
+- `graphify-out/tests-map-2026-04-13/`：生成 `tests` 第一版验证图产物，包含 `graph.html`、`GRAPH_REPORT.md`、`graph.json`、`graph.graphml` 与 `summary.json`。目的：为后续改动提供测试影响面与回归入口导航。
+- `docs/architecture/graphify-navigation-guide.md`：补充第三张 `tests` 图的用途、阅读顺序和局限。目的：把导航底图从“双图”扩成“文档图 + 代码图 + 测试图”闭环。
+- 本机 Python 环境：将 `networkx` 从 `3.2.1` 升级到 `3.6.1`。目的：修复 `graphifyy 0.3.11` 与旧版 `networkx` 在 `cluster / export` 阶段的不兼容问题，恢复建图能力。
+
+### 修改原因
+- 用户明确要求先清理仓库噪声，再用 `graphify` 做图，并补一份“后续怎么用这些图”的正式说明文档。
+- 实际执行中确认 `graphifyy 0.3.11` 与本机旧版 `networkx 3.2.1` 不兼容，导致纯代码图在聚类和 JSON 导出阶段都失败；如果不先修环境，图谱产物无法稳定生成。
+- 当前仓库文档与代码体量已经足够大，如果仍依赖全文搜索，后续 AI 很容易重复走错主线或重新翻旧计划。
+
+### 方案还差什么?
+- [ ] 还没有把 `graphify` 导航入口同步写入 `docs/AI_HANDOFF.md`，当前入口先落在 `DOCUMENTATION_INDEX.md` 与新增使用说明文档中。
+- [ ] 还没有优化 `docs` 图的显式互链质量，当前文档图更多依赖标题层级、目录关系和日期时间线。
+- [ ] 还没有把图谱生成流程固化成仓库内正式脚本，当前仍属于一次性产物生成。
+- [ ] 还没有把 `tests` 图进一步整理成“最小回归清单”视图，当前仍是结构导航图，不是执行优先级图。
+
+### 潜在问题
+- [ ] `networkx` 升级发生在本机 Anaconda 环境层，若同环境下有其它脚本依赖旧版 API，后续可能出现兼容性变化。
+- [ ] `docs` 图的高连接节点当前偏“日期”，这反映的是文档沉淀方式，不应被误读为日期本身就是最重要业务节点。
+- [ ] `tests` 图当前主要反映测试结构和夹具复用，不等价于测试覆盖率，更不能替代真实回归执行结果。
+- [ ] 当前工作区本身仍有大量与本轮无关的已修改或未跟踪文件，后续若提交代码，仍需按路径精确收口，不能整仓提交。
+
+### 关闭项?
+- 已完成 `src` 建图产物生成：`graphify-out/src-map-2026-04-13/`
+- 已完成 `docs` 建图产物生成：`graphify-out/docs-map-2026-04-13/`
+- 已完成 `tests` 建图产物生成：`graphify-out/tests-map-2026-04-13/`
+- 已校对 `docs/architecture/graphify-navigation-guide.md` UTF-8 内容与路径引用
+- 已校对 `docs/DOCUMENTATION_INDEX.md` 新入口可读
+- 已通过环境验证：`python -c "import networkx; print(networkx.__version__)"` 当前为 `3.6.1`
+
+### 记忆点（可选）
+- 用户明确要求：先降噪，再做图，不要一上来直接扫整仓。
+- 用户当前更关心“后续 AI 怎么接这个项目、怎么用这些图”，不是只看一次性的技术演示。
+
 ## 2026-04-10
 ### 修改内容
 - `src/ops/security_scorecard.rs`：修复多周期投决卡对客视图收口过程中出现的编译破损，恢复 `build_security_scorecard(...)`、`build_security_scorecard_client_view(...)` 与多周期概率函数可编译、可输出状态。目的：把内部评分卡与对客投决卡重新拉回同一条稳定主链。
@@ -2124,3 +2339,182 @@
 ### 记忆点（可选）
 - 用户再次明确：客户视角输出优先讲“走势辅助判断和动作建议”，不要把模型内部字段直接当成客户交付物。
 - 当内部 artifact 与对客视图用途不同的时候，要优先做“内部继续落盘，外部单独映射”的双层合同，而不是拿一个对象同时服务治理和客户展示。
+## 2026-04-13
+### 淇敼鍐呭
+- `tests/foundation_repository_metadata_audit_export_cli.rs`锛氭柊澧?`foundation_repository_metadata_audit_export` 鐨?catalog 绾㈡祴銆乯SON/JOSNL 鏂囦欢杈撳叆绾㈡祴锛屼互鍙?`schema_path / bundle_path` 绌虹櫧鍊?fail-fast 绾㈡祴銆傜洰鐨勶細鍏堥攣浣忔枃浠惰竟鐣屽拰 DTO 椤跺眰 shape锛屽啀鍋氬疄鐜般€?
+- `src/tools/contracts.rs`锛氭柊澧?`FoundationRepositoryMetadataAuditExportRequest` 涓?`FoundationRepositoryMetadataAuditExportResult`銆傜洰鐨勶細鎶?export tool 鐨勬枃浠惰緭鍏ュ悎鍚屽拰绋冲畾 DTO 杈撳嚭鏀跺彛鎴愭爣鍑嗚竟鐣屻€?
+- `src/tools/catalog.rs`銆乣src/tools/dispatcher.rs`锛氳ˉ鍏?`foundation_repository_metadata_audit_export` 鐨?catalog 涓庤矾鐢便€傜洰鐨勶細璁?CLI / Skill 鍙互姝ｅ紡鍙戠幇骞惰皟鐢ㄦ柊 public tool銆?
+- `src/tools/dispatcher/foundation_ops.rs`锛氭柊澧?`dispatch_foundation_repository_metadata_audit_export(...)`銆佽矾寰?trim + fail-fast`銆乻chema JSON 瑁呰浇銆乨undle `.json/.jsonl` 鍒嗘祦鍜屽凡鍔犺浇 repository 鐨?audit helper澶嶇敤銆傜洰鐨勶細鍦ㄤ笉鏀瑰姩 existing audit 涓荤嚎璇箟鐨勫墠鎻愪笅锛岃ˉ涓€鏉″苟鍒楃殑鏂囦欢杈圭晫鍏ュ彛銆?
+- `docs/AI_HANDOFF.md`锛氳ˉ鍏?foundation repository metadata audit export 浜ゆ帴娈佃惤銆傜洰鐨勶細璁╁悗缁?AI 鐩存帴鐭ラ亾杩欐槸骞跺垪 public boundary锛屼笉鏄 existing audit tool 鐨勬浛鎹€?
+
+### 淇敼鍘熷洜
+- 鐢ㄦ埛宸叉壒鍑嗘寜鏂规A鎺ㄨ繘锛屼絾鏄庣‘瑕佹眰鏈疆鍙仛 foundation / 閫氱敤鏍囧噯鑳藉姏锛屼笉鍋氳瘉鍒镐笟鍔″寲鑳藉姏銆?
+- 褰撳墠 existing `foundation_repository_metadata_audit` 鍙敮鎸?`repository_layout_dir + inline metadata_schema`锛屼笉閫傚悎鏂囦欢浜х墿鎺ュ叆鍦烘櫙锛屽洜姝ら渶瑕佹柊澧炲苟鍒楃殑 file boundary銆?
+- 杩欒疆闇€瑕佷弗鏍煎鐢ㄥ凡鏈?ingestion / repository audit` 涓婚摼锛岄伩鍏嶄负 export tool 鍐嶉€犵浜屽瀹¤閫昏緫銆?
+
+### 鏂规杩樺樊浠€涔?
+- [ ] 杩樻病鏈夎ˉ `integration_tool_contract` 閽堝 `foundation_repository_metadata_audit_export` 鐨勫悎鍚屾牱渚嬨€?
+- [ ] 杩樻病鏈夋妸 export tool 鎺ヨ繘鏇撮珮灞傜殑 import orchestration 鎴栫煡璇嗘极娓哥紪鎺掑叆鍙ｃ€?
+- [ ] 杩樻病鏈夊 schema JSON 鏍煎紡鍋氬崟鐙枃妗ｅ寲绾︽潫鎴栫ず渚嬫枃浠躲€?
+
+### 娼滃湪闂
+- [ ] 褰撳墠 `bundle_path` 鍙敮鎸?`.json` 涓?`.jsonl`锛涘鏋滀笂灞傝浼犲叾浠栨墿灞曞悕锛屼細鐩存帴杩斿洖 `bundle_path must end with .json or .jsonl`銆?
+- [ ] 褰撳墠 schema 鍔犺浇鏄€氳繃 `MetadataSchemaContract` 鍙嶅簭鍒楀寲鍚庡啀 `build_schema`锛涘鏋滃悗缁渶瑕佹敮鎸佺嫭绔?schema file versioning/document schema锛岄渶瑕佸崟鐙壙鎺ヨ繖涓害瀹氥€?
+- [ ] 娴嬭瘯澶瑰叿浼氬湪 `tests/runtime_fixtures/foundation_repository_metadata_audit_export/` 涓嬬敓鎴愪复鏃剁洰褰曪紱濡傛灉鍚庣画瑕佹敹鍙ｆ竻鐞嗙瓥鐣ワ紝搴斿崟鐙ˉ娴嬭瘯鍜岀害瀹氥€?
+- [ ] 浠撳簱宸ヤ綔鍖轰粛鐒跺緢鑴忥紝鍚庣画鎻愪氦鎴栨帹閫佹椂浠嶈鎸夎矾寰勭簿纭敹鍙ｏ紝閬垮厤璇甫鏃犲叧璇佸埜鏀瑰姩銆?
+
+### 鍏抽棴椤?
+- 宸查€氳繃 `cargo fmt --all`
+- 宸查€氳繃 `cargo test --test foundation_repository_metadata_audit_export_cli -- --nocapture`
+- 宸查€氳繃 `cargo test --test foundation_repository_metadata_audit_cli -- --nocapture`
+- 宸查€氳繃 `cargo test --test foundation_repository_metadata_audit_gate_cli -- --nocapture`
+- 宸查€氳繃 `cargo test --test foundation_repository_metadata_audit_batch_cli -- --nocapture`
+- 宸查€氳繃 `cargo test --test foundation_repository_import_gate_cli -- --nocapture`
+
+### 璁板繂鐐癸紙鍙€夛級
+- 鐢ㄦ埛鍐嶆鏄庣‘锛氬綋鍓嶉樁娈靛彧鍋?foundation / 閫氱敤鏍囧噯鑳藉姏锛屼笉瑕佹妸瀹炵幇鎷愬洖璇佸埜涓氬姟鍖栬兘鍔涖€?
+- 鐢ㄦ埛鍐嶆鏄庣‘锛氫氦鎺ユ墜鍐屽拰椤圭洰澶囧繕瑕佸強鏃跺悓姝ワ紝鍚﹀垯鍚庣画 AI 浼氬湪杩欑被杈圭晫鍐冲畾涓婂弽澶嶆氮璐规椂闂淬€?
+## 2026-04-13
+### 修改内容
+- `docs/AI_HANDOFF.md`：新增“2026-04-13 模型升级路线共识”段落，明确当前证券主线不要直接跳神经网络，优先补数据、标签、分资产建模和验证，再引入树模型 challenger。目的：把本轮关于预测可靠性提升顺序的共识固化到主交接手册。
+- `docs/交接摘要_证券分析_给后续AI.md`：新增“模型路线补充共识”段落，补充当前训练基线、ETF 关键缺口与模型升级优先级。目的：让后续 AI 在证券主线交接入口就看到统一口径，不再反复讨论。
+- `docs/plans/2026-04-13-security-model-upgrade-roadmap.md`：新增专项路线文档，系统整理“当前训练模型是什么、为什么数据与验证优先、ETF 要追平股票还差什么、为什么当前不直接上神经网络”。目的：给后续证券主线继续开发提供单页路线图。
+
+### 修改原因
+- 用户明确要求把“是否上神经网络、先补数据还是先补模型、ETF 还缺什么”的讨论结果写进报告和 AI 手册，避免下一个 AI 不知道当前共识。
+- 当前证券主线已经具备正式训练入口，但后续模型升级路线如果不统一，容易被误导到“先换复杂模型”的错误优先级。
+
+### 方案还差什么?
+- [ ] 还没有把这份模型升级路线进一步映射到具体的开发任务拆分，例如 ETF 专项特征清单、ETF 专项标签定义和树模型 challenger 的最小实施计划。
+- [ ] 还没有把这份模型路线同步进 README 对外说明层，当前主要覆盖内部交接和规划文档。
+
+### 潜在问题
+- [ ] 当前文档写的是方向性共识，不等于已经完成股票/ETF 分模、ETF 专项特征或树模型 challenger；如果后续 AI 把文档共识误读成“能力已落地”，会造成执行偏差。
+- [ ] 当前仓库工作区仍然很脏，后续如果继续提交代码改动，仍需要精确收口路径，避免混入无关修改。
+
+### 关闭项?
+- [ ] 未执行验证：本轮仅修改文档与任务日志，未运行 `cargo test`。
+
+### 记忆点（可选）
+- 用户确认：如果目标是提升未来预测可靠性，当前优先级是“增补数据与验证”高于“直接升级到神经网络”。
+- 用户确认：后续关于 ETF 追平股票能力的讨论，必须落成文档，而不是只停留在对话里。
+## 2026-04-13
+### 修改内容
+- `docs/plans/2026-04-13-chair-arbitration-protocol.md`：新增主席裁决协议文档，并补完整链路 mermaid 流程图，明确“议会制投决会 + 数据建议 + 大模型独立建议 + 单主席仲裁”的关系。目的：把主席层从口头概念收口成正式协议入口。
+- `docs/AI_HANDOFF.md`：新增“主席裁决协议共识”段落，明确主席层不做主席团、核心约束必须放 Tool、Skill 只做编排与解释。目的：让后续 AI 接手时直接沿统一治理边界继续推进。
+- `docs/交接摘要_证券分析_给后续AI.md`：新增“主席裁决层补充共识”段落，强调主席层拥有禁止审批并退回指定环节补件后重审的正式权力。目的：避免后续 AI 把主席层误写成另一个会说话的大模型总结器。
+
+### 修改原因
+- 用户明确要求把整个链路整理成流程图，并优先写文档。
+- 用户进一步确认：主席层除批准/否决外，还必须拥有“禁止审批并退回补件再提交”的正式流程权力。
+- 当前证券主线已存在议会制投决会，如果不把主席层职责和边界写清，后续很容易重复造“主席团”或放大模型自由发挥。
+
+### 方案还差什么?
+- [ ] 还没有把主席裁决协议进一步拆成正式 Tool 输入/输出合同和测试清单。
+- [ ] 还没有把主席层接入现有 `chair_resolution` 或新的主席裁决 Tool 设计稿。
+- [ ] 还没有把“大模型独立建议线”的正式输入合同单独冻结。
+
+### 潜在问题
+- [ ] 当前仍是文档共识和流程设计，不等于主席裁决 Tool 已经落地；如果后续 AI 误把协议文档当成已实现能力，会造成推进偏差。
+- [ ] 当前仓库工作区仍然很脏，后续继续做代码实现时仍要精确收口路径，避免混入无关修改。
+
+### 关闭项?
+- [ ] 未执行验证：本轮仅修改文档与任务日志，未运行 `cargo test`。
+
+### 记忆点（可选）
+- 用户确认：当前体系已有议会制，所以主席层应做“单主席仲裁”，不再扩成主席团。
+- 用户确认：主席层必须具备“禁止审批并退回指定环节补件后再次提交”的正式权力。
+## 2026-04-13
+### 修改内容
+- `docs/plans/2026-04-13-chair-arbitration-protocol.md`：补齐主席裁决协议设计稿，明确“议会制投决会 + 数据建议 + 大模型独立建议 + 单主席仲裁”的正式流程、动作枚举、退回补件规则与 Mermaid 流程图。目的：先把主席层治理边界写成正式协议，而不是继续停留在口头约定。
+- `src/ops/security_chair_resolution.rs`：重写主席裁决对象与仲裁逻辑，新增 `independent_advice` 输入、`final_action / final_stance / conflict_level / evidence_sufficiency / revision_required / return_to_stage / required_materials / blocking_reasons / evidence_mapping` 等正式字段，并落地 `derive_arbitration_outcome(...)`。目的：把主席从“会后说明层”升级成受合同约束的正式 Tool 仲裁层。
+- `src/ops/security_record_post_meeting_conclusion.rs`：对旧会后结论主链显式补 `independent_advice: None`。目的：在不凭空创造独立建议源的前提下，保持旧链继续可编译、可回放。
+- `tests/security_chair_resolution_cli.rs`：新增主席协议测试夹具与回归用例，覆盖“正常签发”“风险阻断 reject”“独立建议冲突 return_for_revision”等场景，并为主席链补可用评分卡 artifact。目的：锁住主席动作不再只靠手工解释。
+- `docs/AI_HANDOFF.md`、`docs/交接摘要_证券分析_给后续AI.md`：同步主席层与模型升级路线共识。目的：避免后续 AI 重复讨论“是否主席团、是否先上神经网络、主席是否可以自由发挥”等已决问题。
+
+### 修改原因
+- 用户明确要求先做设计稿，再直接开工，不再停留在讨论层。
+- 用户已确认当前体系是“议会制投决会 + 数据建议 + 大模型独立建议 + 单主席仲裁”，并要求主席具备“禁止审批并退回指定环节补件后重审”的正式权力。
+- 当前证券主线已经有投决会，但缺少一个受 Tool 合同约束的最终裁决层；如果不补，最终审批仍容易退化成自由发挥式总结。
+
+### 方案还差什么?
+- [ ] 还没有把“大模型独立建议线”的上游输入合同单独冻结成更独立的 Tool/对象边界。
+- [ ] 还没有把 `security_post_meeting_conclusion` 全量对齐新的“流程动作 final_action / 交易立场 final_stance”双语义出口。
+- [ ] 还没有把主席裁决层继续接到更上层 Skill 编排与最终对客解释链，当前主要完成的是 Tool 层正式化。
+
+### 潜在问题
+- [ ] 当前 `cargo test` 全量未能收绿，阻塞点不是主席业务断言，而是编译/内存环境出现 `memory allocation failed` 与 `rustc 0xc0000409 / STATUS_STACK_BUFFER_OVERRUN`；后续若要按全量收口，需要先稳定本机编译环境。
+- [ ] `post_meeting_conclusion` 仍沿用旧会后结论对象语义，虽然目前可编译，但和主席新协议“动作/立场分离”的口径仍有继续统一空间。
+- [ ] 仓库工作区当前仍有大量并行改动和未跟踪文件，后续提交时必须按路径精确收口，避免把 foundation 或其他支线误带入证券主链提交。
+
+### 关闭项?
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_chair_resolution_cli -- --nocapture`
+- 已通过 `cargo test --test security_post_meeting_conclusion_cli -- --nocapture`
+- [ ] 未完成 `cargo test` 全量收口：已执行但被环境级内存/编译崩溃阻塞，当前未能全绿
+
+### 记忆点（可选）
+- 用户再次明确：主席层必须 Tool 化，Skill 只做编排与解释，不要把治理规则只写在提示词里。
+- 用户再次明确：主席不是主席团，而是位于议会制投决会之后的单主席仲裁层。
+- 用户再次明确：如果需要禁止审批，应该正式退回指定环节补件后再审，而不是让主席硬给结论。
+## 2026-04-13
+### 修改内容
+- `tests/security_chair_resolution_cli.rs`：将本地 HTTP 假服务改为“空闲超时自动退出”的非阻塞监听。目的：避免固定连接上限导致主席链测试把夹具问题误判成业务问题。
+- `src/ops/security_independent_advice.rs`、`src/ops/security_chair_resolution.rs`、`src/ops/security_record_post_meeting_conclusion.rs`、`src/tools/catalog.rs`、`src/tools/dispatcher.rs`、`src/tools/dispatcher/stock_ops.rs`、`src/ops/mod.rs`、`src/ops/stock.rs`：已完成“大模型独立建议线”标准化，独立建议已升级为正式 Tool，并接入主席裁决输入合同与会后结论字段。
+- `tests/security_independent_advice_cli.rs`、`tests/security_chair_resolution_cli.rs`：补了独立建议 Tool 合同测试与主席/会后结论一致性测试，其中主席重链路测试仍在收口。
+
+### 修改原因
+- 用户要求“先测试这几类，再把大模型独立建议线改掉”，并强调高风险路径要规避，不能靠猜。
+- 实测发现主席链路旧测试的主要阻塞不是断言错误，而是测试运行链路会挂住，导致 Windows 上残留大量测试进程并触发链接器占用。
+
+### 方案还差什么?
+- [ ] 继续把 `tests/security_chair_resolution_cli.rs` 中两条重链路 builder 测试降级为真正的纯 builder 测试，避免 runtime/HTTP/子进程耦合。
+- [ ] 重新验证 `security_chair_resolution_returns_for_revision_when_scorecard_is_not_ready`。
+- [ ] 重新验证 `security_chair_resolution_builds_defer_when_committee_abstains_without_independent_advice`。
+- [ ] 重新验证 `security_chair_resolution_accepts_standard_independent_advice_document_without_conflict`。
+- [ ] 重新验证 `security_record_post_meeting_conclusion_keeps_chair_process_fields_consistent`。
+
+### 潜在问题
+- [ ] `security_chair_resolution_cli` 旧测试当前仍可能挂住，并残留大量 `security_chair_resolution_cli-*.exe` 进程，影响后续编译与测试。
+- [ ] 由于仓库工作区很脏，后续提交时必须按路径精确收口，避免把无关 foundation/文档/运行产物一起带上。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test security_independent_advice_cli -- --nocapture --test-threads=1`
+- 已通过 `cargo test --test security_chair_resolution_cli --no-run`
+
+### 记忆点（可选）
+- 用户再次明确：高风险情况下要优先规避，不要为了“看起来推进了”而把不稳定测试当成功。
+- 用户再次明确：证券主链优先，测试结论要能给后续 AI 直接接续，避免重复踩同一问题。
+## 2026-04-13
+### 修改内容
+- `src/tools/contracts.rs`：新增 `FoundationDesignVisualArtifacts`，并把 `FoundationDesignSkeletonResult` 的 Mermaid 顶层字段收敛到 `visuals` 可选辅助块。目的：把 foundation design tool 的主边界明确为 JSON，而不是图形输出。
+- `src/tools/dispatcher/foundation_ops.rs`：同步调整 `foundation_design_skeleton` 的结果组装逻辑，保留 Mermaid 生成能力，但只作为 `visuals` 辅助信息返回。目的：继续支持人工扫图，同时不影响 JSON-first 消费链。
+- `tests/foundation_design_tools_cli.rs`：把 skeleton 主测试改成优先校验 JSON 结果，再校验 `visuals.*_mermaid`。目的：锁住“先看结构化结果，再按需看图”的标准输出顺序。
+- `tests/foundation_design_tools_cli.rs`：追加 `graph_path` 为空时自动发现最新 `graphify-out/src-map-*/graph.json` 的回归测试。目的：锁住 graphify 联动默认直接读 `graph.json` 的标准行为。
+- `skills/design-skeleton-v1/SKILL.md`：更新使用说明，明确先检查 `summary / warnings / counts`，Mermaid 只作辅助阅读。目的：避免后续 AI 把图误当主合同。
+- `docs/AI_HANDOFF.md`：补充“graphify 以 `graph.json` 为事实源、foundation design 以 JSON 为主边界、Mermaid 只是辅助块”的共识。目的：减少后续交接时再次讨论 HTML/Mermaid/JSON 主次关系的成本。
+
+### 修改原因
+- 用户明确指出这层能力不应该优先生成 HTML，也不应该把 Mermaid 当主产物；真正的事实源和对账边界应是 JSON。
+- 用户进一步确认 `graphify` 联动时默认直接看 `graph.json` 就够了，图形只需要作为附带能力，而不是主链入口。
+- 因此本轮按已批准的方案B执行：收敛 design tool 契约边界，而不是继续扩展示层。
+
+### 方案还差什么？
+- [ ] 还没有把 `foundation_ops.rs` 顶部历史插入顺序进一步整理成更干净的 import/函数布局。
+- [ ] 还没有提供单独的 JSON viewer/report 层；当前仍只保留 foundation tool 的结构化结果和可选 Mermaid。
+
+### 潜在问题
+- [ ] 这次改动调整了 `foundation_design_skeleton` 的返回 shape；如果外部已有脚本直接读取旧的顶层 Mermaid 字段，需要改读 `visuals.layer_diagram_mermaid` 等新路径。
+- [ ] Mermaid 目前仍默认生成并放进 `visuals`，所以严格意义上还不是“完全不产图”，只是已经降级为辅助输出。
+- [ ] 当前仓库工作区仍然较脏，后续提交或推送时仍需按路径精确收口，避免混入无关改动。
+- [ ] `integration_tool_contract` 全量仍有两个与本轮无关的旧失败：`technical_consultation_basic_*` 两条用例未全绿，不能误归因到本轮 design tool 收敛。
+
+### 关闭项
+- 已通过 `cargo fmt --all`
+- 已通过 `cargo test --test foundation_design_tools_cli -- --nocapture`
+- 已通过 `cargo test --test integration_tool_contract foundation_design_tools_are_cataloged_in_foundation_group -- --nocapture`
+
+### 记忆点（可选）
+- 用户再次明确：foundation 设计能力的主边界应是 JSON，Mermaid 或 HTML 都只能是附属展示层，不能反客为主。
+- 用户再次明确：`graphify` 联动时优先直接读取 `graph.json` 做对账，不要默认把“看图”当成主入口。

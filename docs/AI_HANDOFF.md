@@ -2,6 +2,23 @@
 
 <!-- 2026-04-09 CST: 重写统一 AI 交接手册。原因：当前本地主文档已混入过期主线与乱码内容，而远端 foundation-navigation-kernel 又补进了新的证券治理与评分卡进展。目的：把“当前该看哪条主线、做到哪了、接下来该从哪里继续”统一收口到一份主文档里。 -->
 
+## 0. 依赖图开发门禁
+
+<!-- 2026-04-13 CST: 新增依赖图开发门禁。原因：用户明确要求把“无图禁止开发、开发完成后必须回写图谱”的约束写入正式交接手册，作为所有后续开发的统一标准。目的：让后续 AI / 开发者先按图确认主线与上下游，再进入源码实现，并在开发后保持账实一致。 -->
+
+- 从 2026-04-13 这轮开始，依赖图与图谱说明是正式开发前置条件，不再只是辅助材料。
+- 没有最新可用的图谱产物时，不应直接进入开发实现；至少要先确认现有图谱是否覆盖当前改动范围。
+- 依赖图主要用于判断三件事：
+  1. 当前改动位于哪条主线。
+  2. 当前改动位于上游入口层、中游编排层还是下游基础治理层。
+  3. 当前改动是否误入业务化支线。
+- 图谱不能替代源码、合同、编译和测试验证。原因是图谱里仍可能包含 inferred 关系，它更适合看结构，不适合直接当精确调用链。
+- 每次开发完成后，必须同步更新图谱产物或图谱说明；如果主线入口、核心路由、模块归属或上下游关系发生变化，必须优先补图再继续下一轮开发。
+- 如果图谱与代码现实不一致，默认先修正图谱或在交接文档中明确差异，再继续后续开发。
+- 当前仓库的正式图谱门禁命令是：
+  - 开发前：`powershell -ExecutionPolicy Bypass -File .\scripts\check_graph_maps.ps1`
+  - 开发后：`powershell -ExecutionPolicy Bypass -File .\scripts\update_graph_maps.ps1`
+
 ## 1. 当前仓库怎么理解
 
 这个仓库当前有两条并行能力线：
@@ -15,6 +32,33 @@
 2. foundation 通用导航内核线
 
 除非用户明确要求继续 foundation，否则后续默认先沿证券主线推进。
+
+## 1.1 2026-04-13 设计骨架前置共识
+
+<!-- 2026-04-13 CST: 新增设计骨架前置共识。原因：用户要求新功能和重大重构先产出类似 graphify 的设计骨架，再顺着骨架开发，并在开发后做设计与成品的差距对比。目的：减少后续 AI 每次重新澄清“先设计还是先写代码”的成本。 -->
+
+- 从 2026-04-13 这轮开始，新功能、重大重构、跨层路由改动默认先做设计骨架，不再允许直接跳进实现。
+- 当前正式 Tool 入口已经扩成两条：
+  - `foundation_design_skeleton`
+  - `foundation_design_gap_audit`
+- 两者和 `graphify` 的分工固定为：
+  - `graphify`：现状实现 JSON 图谱，`graph.json` 是事实源
+  - `foundation_design_skeleton`：目标设计 JSON 骨架
+  - `foundation_design_gap_audit`：设计 vs 成品差距 JSON 审计
+- 2026-04-13 本轮收敛补充：
+  - foundation design tool 的主边界是 JSON，不是 HTML，也不是 Mermaid。
+  - `graphify` 联动时默认直接读 `graph.json` 做对账，不把图渲染当主入口。
+  - Mermaid 只作为 `foundation_design_skeleton` 的 `visuals` 辅助块保留，方便人工扫边界。
+- 设计骨架的最小必备字段固定为：
+  - `feature_name`
+  - `objective`
+  - `success_criteria`
+  - `layers`
+  - `modules`
+  - `interfaces`
+  - `methods`
+  - `test_scenarios`
+- 实现完成后，不仅要更新 `src-map-*` 图谱，还要补一次差距审计或等价对比，确认账实一致。
 
 ## 2. 当前正式主线
 
@@ -58,6 +102,23 @@ foundation 当前是独立的通用能力内核，不应误判成证券主链的
 - navigation pipeline
 
 它的职责仍然是通用知识导航，不是证券业务编排。
+
+从 2026-04-13 这轮开始，foundation 已经新增一个正式 Tool 入口：
+
+- `foundation_navigation`
+
+当前它的边界是：
+
+- 输入：`question + knowledge_bundle + allowed_relation_types + max_depth + max_concepts`
+- 主链：`capability_router -> roaming_engine -> retrieval_engine -> evidence_assembler`
+- 输出：`matched_concept_ids / roaming_path / hits / citations / summary`
+
+当前它仍然是“通用内存知识包上的标准导航入口”，还没有继续扩成：
+
+- repository layout 自动装载导航
+- 跨仓库批量漫游
+- 上层业务化编排
+- 自动建体系或自动补知识
 
 ## 3. 当前证券主线做到哪了
 
@@ -195,6 +256,123 @@ foundation 当前是独立的通用能力内核，不应误判成证券主链的
 
 - 用户明确纠正过：不能只在对话里“记住”日期回退规则，必须写进项目 Skill、Tool 和上层合同。
 - 证券分析的标准顺序是“先本地，再同步，再回退，再显式披露”，不是直接拿过期缓存或手工临时解释。
+
+## 9.2 2026-04-13 模型升级路线共识
+
+<!-- 2026-04-13 CST: 这里补模型升级路线共识。原因：用户明确要求把“暂不上神经网络、优先补数据/标签/验证、下一阶段优先树模型”写进 AI 手册，避免后续 AI 再从黑盒模型起步。目的：统一证券主线后续的预测可靠性提升顺序。 -->
+
+- 当前不要把“神经网络”当成证券主线的下一默认动作。
+- 当前训练主链仍以“feature_snapshot -> forward_outcome -> 分箱 -> WOE -> logistic -> artifact/refit/registry”为正式基线。
+- 如果目标是提高未来预测可靠性，默认优先级应是：
+  1. 先补数据与验证体系
+  2. 再做股票/ETF 分模
+  3. 再补特征与标签定义
+  4. 再引入树模型 challenger
+  5. 最后才重新评估是否需要神经网络
+
+当前这里说的“先补数据与验证体系”，最低限度包括：
+
+- ETF 专项特征补齐
+- ETF 专项标签定义补齐
+- ETF 历史研究与外部代理数据补齐
+- walk-forward / out-of-time 验证补齐
+- champion-challenger 比较链补齐
+
+当前这里说的“树模型 challenger”，优先考虑：
+
+- GBDT / XGBoost / LightGBM / CatBoost 这类结构化表格模型
+
+不要默认直接跳到：
+
+- MLP
+- LSTM
+- Transformer
+- 其他黑盒时序模型
+
+原因统一口径如下：
+
+- 当前瓶颈主要不是模型容量不够，而是特征、标签、分资产建模和验证体系还不够完整。
+- 证券主链当前需要可解释、可治理、可复盘的正式对象链，黑盒模型过早接入会抬高投决会解释成本和训练治理成本。
+- 在当前样本厚度与数据准备度下，树模型通常比神经网络更稳、更容易形成 challenger 体系。
+
+如果后续 AI 要继续推进“让 ETF 达到股票这一级”，默认应先补以下 4 类硬能力，而不是直接换更复杂模型：
+
+1. ETF 专项特征
+2. ETF 专项标签
+3. ETF 专项模型
+4. ETF 专项验证
+
+## 9.3 2026-04-13 主席裁决协议共识
+
+<!-- 2026-04-13 CST: 这里补主席裁决协议共识。原因：用户确认当前体系是“议会制投决会 + 大模型独立建议 + 数据建议”的二元并行结构，并要求主席层具备正式仲裁与退回补件能力。目的：避免后续 AI 把主席层做成重复议会或自由发挥的大模型总结。 -->
+
+- 当前推荐结构不是“主席团”，而是“议会制投决会之后的单主席仲裁层”。
+- 主席层默认不重做投决会，不重新创造事实，而是消费：
+  - 议会制结论
+  - 数据建议
+  - 大模型独立建议
+  - 风险/日期/证据质量门禁
+- 主席层的硬约束必须放 Tool，不要只写在 Skill。
+- Skill 只负责编排与解释，Tool 负责动作枚举、退回补件、冲突等级、禁止行为和越权门禁。
+- 主席层必须拥有一项正式权力：
+  - `return_for_revision`
+  - 即禁止当前审批，退回指定环节补充资料，再次提交
+- 主席层默认动作至少包括：
+  - `approve`
+  - `conditional_approve`
+  - `reject`
+  - `return_for_revision`
+  - `defer`
+- 当前避免主席幻觉的统一口径不是“换更强模型”，而是：
+  - 限定输入
+  - 禁止创造新事实
+  - 强制证据映射
+  - 允许拒判/退回补件
+  - 不得越过风险与日期等硬门禁
+- 详细协议见：
+  - `docs/plans/2026-04-13-chair-arbitration-protocol.md`
+
+## 9.4 2026-04-13 主席链测试收口规则
+
+<!-- 2026-04-13 CST: 这里补主席链测试收口规则。原因：当前“大模型独立建议线”正式 Tool 合同已经落地，但旧 security_chair_resolution_cli 重链路在 Windows 上仍可能挂住并残留测试进程。目的：给后续 AI 一个稳定、低风险的主席链验证入口，避免继续把旧重链路当成唯一门禁。 -->
+
+- 已正式落地的对象与入口包括：
+  - `src/ops/security_independent_advice.rs`
+  - `src/ops/security_chair_resolution.rs`
+  - `src/ops/security_record_post_meeting_conclusion.rs`
+  - `tests/security_independent_advice_cli.rs`
+- 当前不要把“独立建议线未落地”和“旧主席 CLI 测试会挂住”混为一谈。
+- 当前真正未完全收口的点，是旧 `tests/security_chair_resolution_cli.rs` 仍属于高风险重链路：
+  - 会走 runtime
+  - 会走 HTTP 假服务
+  - 会触发 Windows 下测试进程残留
+  - 会进一步引发链接占用与 Cargo 锁竞争
+- 因此，当前主席链默认验证规则应改成：
+  - 先跑新的纯 builder 测试文件：`tests/security_chair_resolution_builder_unit.rs`
+  - 不把旧 `security_chair_resolution_cli.rs` 当成当前轮必须先打通的唯一门禁
+  - 旧 CLI 链后续如要继续修，只能单独做风险隔离，不要顺手混进主开发任务
+
+当前 builder 测试已锁住的最小主席分支：
+
+- `scorecard_not_ready -> return_for_revision`
+- `committee_abstain + no_independent_advice -> defer`
+- `independent_advice_conflict -> return_for_revision`
+- `post_meeting_conclusion` 与主席流程字段一致性
+
+当前推荐的主席链验证命令：
+
+- `cargo test --test security_independent_advice_cli -- --nocapture --test-threads=1`
+- `cargo test --test security_chair_resolution_builder_unit -- --nocapture --test-threads=1`
+
+当前不建议默认执行的高风险验证命令：
+
+- `cargo test --test security_chair_resolution_cli -- --nocapture`
+
+如果下一位 AI 继续沿主席链推进，默认规则应是：
+
+- 先看 `security_independent_advice`、`security_chair_resolution`、`security_record_post_meeting_conclusion` 这三份正式对象
+- 先改 builder 层，再决定是否回头拆旧 CLI 链
+- 先定向单测，再决定是否扩大回归范围
 
 ## 10. 2026-04-09 RSRS 正式收口补充
 
@@ -873,3 +1051,97 @@ foundation 当前是独立的通用能力内核，不应误判成证券主链的
 - `foundation_repository_import_gate` 已是正式导入接入层入口
 - 方案B1已经完成，不该重复再造“accepted / rejected 列表解释层”
 - 后续优先应进入方案B2或更上层的导入批次对象化，而不是回头重写 batch/gate 语义
+## 2026-04-13 foundation repository metadata audit export 鏀跺彛琛ュ厖
+
+濡傛灉鍚庣画 AI 缁х画娌?foundation 閫氱敤鑳藉姏鎺ㄨ繘锛屼笉瑕佹妸褰撳墠杩欒疆鐞嗚В鎴愨€滄妸 existing audit 鏀规垚 file mode鈥濄€傝繖涓€杞柊澧炵殑鏄竴涓?parallel public boundary锛屼笓闂ㄦ壙鎺モ€淔ile input + stable DTO output鈥濓紝鐢ㄤ簬鎺ュ叆涓嶅悓鏁版嵁婧愭垨涓婃父浜х墿钀藉嚭鐨勬爣鍑嗘枃浠躲€?
+
+鏈疆鏂板鐨勬寮?foundation Tool锛?
+- `foundation_repository_metadata_audit_export`
+
+褰撳墠 export tool 宸叉寮忔帴鍏ヤ互涓嬩綅缃細
+
+- `src/tools/contracts.rs`
+- `src/tools/catalog.rs`
+- `src/tools/dispatcher.rs`
+- `src/tools/dispatcher/foundation_ops.rs`
+- `tests/foundation_repository_metadata_audit_export_cli.rs`
+
+褰撳墠 export tool 鐨勬渶灏忚兘鍔涜竟鐣岋細
+
+- 杈撳叆鍥哄畾涓?`schema_path + bundle_path`
+- `schema_path` 鍙敮鎸?metadata schema JSON 鏂囦欢
+- `bundle_path` 鍙敮鎸?`.json` 涓?`.jsonl`
+- dispatcher 灞傚厛鍋?`trim + fail-fast`
+- 搴曞眰澶嶇敤 existing `knowledge_ingestion` 涓?`KnowledgeRepository::audit_metadata(...)`
+- 杈撳嚭鏄ǔ瀹?DTO锛屼笉鐩存帴鏆撮湶鍐呴儴 `MetadataRepositoryAuditReport`
+- 涓嶆浛鎹?`foundation_repository_metadata_audit`
+- 涓嶅紩鍏?navigation evidence export`
+- 涓嶅仛 remediation 寤鸿鎴?migration executor
+- 涓嶅仛璇佸埜涓氬姟鍖栬兘鍔?
+
+褰撳墠 export 杈撳嚭鐨勬爣鍑嗗瓧娈碉細
+
+- `schema_path`
+- `bundle_path`
+- `bundle_format`
+- `repository_schema_version`
+- `metadata_schema_version`
+- `issue_count`
+- `is_clean`
+- `issues`
+
+鏈疆宸查獙璇侀€氳繃锛?
+- `cargo fmt --all`
+- `cargo test --test foundation_repository_metadata_audit_export_cli -- --nocapture`
+- `cargo test --test foundation_repository_metadata_audit_cli -- --nocapture`
+- `cargo test --test foundation_repository_metadata_audit_gate_cli -- --nocapture`
+- `cargo test --test foundation_repository_metadata_audit_batch_cli -- --nocapture`
+- `cargo test --test foundation_repository_import_gate_cli -- --nocapture`
+
+濡傛灉涓嬩竴浣?AI 缁х画娌胯繖鏉′富绾挎帹杩涳紝榛樿鍓嶆彁搴旀敼鎴愶細
+
+- `foundation_repository_metadata_audit_export` 宸叉槸姝ｅ紡鏂囦欢杈圭晫 Tool
+- 瀹冧笌 `foundation_repository_metadata_audit` 鏄苟鍒楀叆鍙ｏ紝涓嶆槸鏇挎崲鍏ュ彛
+- 涓嬩竴姝ヤ紭鍏堝簲鏄ˉ integration contract 鎴栦笂灞傛帴鍏ヨ矾鐢憋紝鑰屼笉鏄妸 export tool 鎵╂垚涓氬姟鍖栫紪鎺掋€?
+## 2026-04-13 实盘可用标准补充
+
+如果后续 AI 继续沿证券主链推进，不要再把“训练链能跑通”误判成“已经接近实盘可用”。
+
+当前统一判断是：
+
+- 证券主链、ETF 最小正式接入、评分卡训练入口、投决会、主席链、投中 / 投后基础对象都已经具备。
+- 但当前阶段仍更接近“研究与治理底盘”，不是“可稳定辅助真金白银决策的实盘系统”。
+
+当前离实盘可用最近的 4 个硬门槛是：
+
+1. 样本厚度不够
+- 当前真实训练已经能跑，但样本量和覆盖市场状态还不够，不能证明模型泛化能力。
+
+2. 标签体系不够像实盘
+- 不能只停留在单一方向标签。
+- 需要逐步补齐 `1/5/10/20/30` 日多周期标签，以及赚钱概率、亏钱概率、预期收益、预期回撤、盈亏比等赔率化输出。
+
+3. 验证体系不够硬
+- 后续必须走 walk-forward、分阶段验证、champion/challenger，而不是只接受“单次训练成功”。
+
+4. ETF 还没有追平股票
+- ETF 当前已经正式进入 `fullstack -> evidence_bundle -> feature_snapshot`。
+- 但仍缺默认免费事实源、ETF 历史研究、ETF 标签和 ETF 专项训练模型。
+
+当前优先级共识已经锁定为：
+
+1. 扩样本
+2. 做多周期标签
+3. 做滚动验证
+4. 做赔率输出
+5. 做仓位联动
+6. 再补 ETF 专项训练
+7. 最后才考虑更复杂模型
+
+当前不建议直接跳神经网络或更复杂模型。
+原因不是它们绝对没用，而是当前真正短板仍在数据、标签、验证和分资产建模。
+
+如果后续 AI 要继续接这条线，默认优先阅读：
+
+- `docs/plans/2026-04-13-trading-readiness-roadmap.md`
+- `docs/plans/2026-04-13-security-model-upgrade-roadmap.md`

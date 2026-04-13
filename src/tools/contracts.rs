@@ -3,9 +3,12 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::ops::foundation::knowledge_bundle::KnowledgeBundle;
+use crate::ops::foundation::knowledge_record::EvidenceRef;
 use crate::ops::foundation::metadata_schema::{
     ConceptMetadataPolicy, MetadataFieldDefinition, MetadataSchema, MetadataSchemaError,
 };
+use crate::ops::foundation::ontology_schema::OntologyRelationType;
 use crate::ops::stock::security_decision_briefing::PositionPlan;
 use crate::tools::catalog;
 
@@ -345,6 +348,15 @@ pub struct FoundationRepositoryMetadataAuditRequest {
     pub metadata_schema: MetadataSchemaContract,
 }
 
+// 2026-04-13 CST: 这里新增 foundation repository metadata audit export 请求合同，原因是方案A本轮需要补一个
+// “文件输入边界” public tool，而不是继续复用 layout dir + inline schema contract；
+// 目的：把外部输入最小化为 schema_path 与 bundle_path，便于接入不同数据源落出的标准文件产物。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryMetadataAuditExportRequest {
+    pub schema_path: String,
+    pub bundle_path: String,
+}
+
 // 2026-04-10 CST: 这里定义可序列化的 repository audit issue 合同，原因是内部审计 issue 枚举更适合 Rust 侧治理，
 // 但 CLI 输出需要稳定、扁平、可被外部直接消费；目的：统一对外的 issue kind 与字段载荷结构。
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -395,6 +407,45 @@ impl FoundationRepositoryMetadataAuditResult {
     ) -> Self {
         Self {
             repository_layout_dir: repository_layout_dir.into(),
+            repository_schema_version: repository_schema_version.into(),
+            metadata_schema_version: metadata_schema_version.into(),
+            issue_count: issues.len(),
+            is_clean: issues.is_empty(),
+            issues,
+        }
+    }
+}
+
+// 2026-04-13 CST: 这里新增 foundation repository metadata audit export 结果合同，原因是 export tool 的边界
+// 不是直接暴露内部 MetadataRepositoryAuditReport，而是返回稳定 DTO；
+// 目的：让上层拿到 schema_path、bundle_path、bundle_format 与标准审计摘要，不耦合内部 report 结构。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationRepositoryMetadataAuditExportResult {
+    pub schema_path: String,
+    pub bundle_path: String,
+    pub bundle_format: String,
+    pub repository_schema_version: String,
+    pub metadata_schema_version: String,
+    pub issue_count: usize,
+    pub is_clean: bool,
+    pub issues: Vec<FoundationRepositoryMetadataAuditIssue>,
+}
+
+impl FoundationRepositoryMetadataAuditExportResult {
+    // 2026-04-13 CST: 这里集中封装 export 结果构造，原因是 issue_count 与 is_clean 依旧是 issues 的派生字段，
+    // 目的：避免 dispatcher、测试和后续调用方各自重复计算，保持 export DTO 顶层 shape 稳定。
+    pub fn new(
+        schema_path: impl Into<String>,
+        bundle_path: impl Into<String>,
+        bundle_format: impl Into<String>,
+        repository_schema_version: impl Into<String>,
+        metadata_schema_version: impl Into<String>,
+        issues: Vec<FoundationRepositoryMetadataAuditIssue>,
+    ) -> Self {
+        Self {
+            schema_path: schema_path.into(),
+            bundle_path: bundle_path.into(),
+            bundle_format: bundle_format.into(),
             repository_schema_version: repository_schema_version.into(),
             metadata_schema_version: metadata_schema_version.into(),
             issue_count: issues.len(),
@@ -495,6 +546,238 @@ impl FoundationRepositoryMetadataAuditBatchResult {
 pub struct FoundationRepositoryImportGateRequest {
     pub repository_layout_dirs: Vec<String>,
     pub metadata_schema: MetadataSchemaContract,
+}
+
+// 2026-04-13 CST: 这里新增 foundation navigation 请求合同，原因是知识漫游主线已经具备 route/roam/retrieve/assemble 内核，
+// 但还没有正式 Tool 边界；目的：把外部输入最小化为 question、标准知识包和漫游预算，先补齐通用导航入口。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationNavigationRequest {
+    pub question: String,
+    pub knowledge_bundle: KnowledgeBundle,
+    pub allowed_relation_types: Vec<OntologyRelationType>,
+    pub max_depth: usize,
+    pub max_concepts: usize,
+}
+
+// 2026-04-13 CST: 这里新增 foundation navigation 漫游步骤合同，原因是外部消费层需要知道候选域如何展开，
+// 不能只拿最终 hit 列表；目的：把 roaming path 收口成稳定、可序列化、可审计的 DTO。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationNavigationRoamingStep {
+    pub from_concept_id: String,
+    pub to_concept_id: String,
+    pub relation_type: OntologyRelationType,
+    pub depth: usize,
+}
+
+impl FoundationNavigationRoamingStep {
+    // 2026-04-13 CST: 这里集中封装内部 roaming step 到外部 DTO 的映射，原因是 dispatcher 不应散落字段搬运逻辑，
+    // 目的：让后续如需扩展 path 字段时只改单点。
+    pub fn new(
+        from_concept_id: String,
+        to_concept_id: String,
+        relation_type: OntologyRelationType,
+        depth: usize,
+    ) -> Self {
+        Self {
+            from_concept_id,
+            to_concept_id,
+            relation_type,
+            depth,
+        }
+    }
+}
+
+// 2026-04-13 CST: 这里新增 foundation navigation hit 合同，原因是 retrieval 层的 node/score/evidence 已经稳定，
+// 但当前还没有对外 DTO；目的：让上层直接消费结构化命中结果，而不是继续依赖内部 retrieval 类型。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationNavigationHit {
+    pub node_id: String,
+    pub score: usize,
+    pub evidence_refs: Vec<EvidenceRef>,
+}
+
+impl FoundationNavigationHit {
+    // 2026-04-13 CST: 这里集中封装命中 DTO 构造，原因是后续 hit 字段若继续扩展，
+    // 不应让 foundation_ops 与测试夹具重复同步字段映射。
+    pub fn new(node_id: String, score: usize, evidence_refs: Vec<EvidenceRef>) -> Self {
+        Self {
+            node_id,
+            score,
+            evidence_refs,
+        }
+    }
+}
+
+// 2026-04-13 CST: 这里新增 foundation navigation 结果合同，原因是 B1 的目标不是只暴露内部 pipeline，
+// 而是形成一个上层可直接消费的正式 Tool；目的：把 route、roaming、hits、citations 与 summary 收口成稳定输出。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationNavigationResult {
+    pub matched_concept_ids: Vec<String>,
+    pub roaming_path: Vec<FoundationNavigationRoamingStep>,
+    pub hits: Vec<FoundationNavigationHit>,
+    pub citations: Vec<EvidenceRef>,
+    pub summary: String,
+}
+
+impl FoundationNavigationResult {
+    // 2026-04-13 CST: 这里提供最小结果构造函数，原因是 foundation navigation 输出属于内核主链正式边界，
+    // 需要一个集中装配点来约束字段顺序与语义。
+    pub fn new(
+        matched_concept_ids: Vec<String>,
+        roaming_path: Vec<FoundationNavigationRoamingStep>,
+        hits: Vec<FoundationNavigationHit>,
+        citations: Vec<EvidenceRef>,
+        summary: String,
+    ) -> Self {
+        Self {
+            matched_concept_ids,
+            roaming_path,
+            hits,
+            citations,
+            summary,
+        }
+    }
+}
+
+// 2026-04-13 CST: 这里新增 foundation 设计层级契约，原因是用户要求把“开发前先做设计骨架”
+// 正式收口成通用标准能力，而不是只靠文档口头约束；
+// 目的：让设计 Skeleton Tool 能稳定接收 layer 级输入，并在后续输出 Mermaid 边界图与 warning。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignLayerContract {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+}
+
+// 2026-04-13 CST: 这里新增 foundation 设计模块契约，原因是设计骨架不仅要表达抽象层级，
+// 还要表达具体模块归属、模块依赖与预期落盘文件；
+// 目的：为设计骨架输出和后续 graphify gap audit 提供统一的 module 粒度输入边界。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignModuleContract {
+    pub id: String,
+    pub label: String,
+    pub layer_id: String,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub source_files: Vec<String>,
+}
+
+// 2026-04-13 CST: 这里新增 foundation 接口契约，原因是用户要求设计阶段先把类/接口骨架画清楚，
+// 不能等实现完成后再从代码里反推；
+// 目的：统一表达 module 下的 interface/class/service 等边界，供 Mermaid 与差距审计复用。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignInterfaceContract {
+    pub id: String,
+    pub label: String,
+    pub module_id: String,
+    pub kind: String,
+}
+
+// 2026-04-13 CST: 这里新增 foundation 方法契约，原因是“设计 vs 成品”差距比较至少要覆盖 method 粒度，
+// 否则只能停在模块层，无法发现实现是否真的补齐关键入口；
+// 目的：把 method 的归属关系与最小职责说明固定成正式输入 DTO。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignMethodContract {
+    pub id: String,
+    pub label: String,
+    pub interface_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purpose: Option<String>,
+}
+
+// 2026-04-13 CST: 这里新增 foundation design skeleton 请求契约，原因是方案C要求把“设计先于开发”
+// 做成正式 Tool，而不是继续停留在 Skill 里的软约束；
+// 目的：统一 feature/objective/success_criteria/layers/modules/interfaces/methods/test_scenarios 的输入边界。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignSkeletonRequest {
+    pub feature_name: String,
+    pub objective: String,
+    #[serde(default)]
+    pub success_criteria: Vec<String>,
+    #[serde(default)]
+    pub layers: Vec<FoundationDesignLayerContract>,
+    #[serde(default)]
+    pub modules: Vec<FoundationDesignModuleContract>,
+    #[serde(default)]
+    pub interfaces: Vec<FoundationDesignInterfaceContract>,
+    #[serde(default)]
+    pub methods: Vec<FoundationDesignMethodContract>,
+    #[serde(default)]
+    pub test_scenarios: Vec<String>,
+}
+
+// 2026-04-13 CST: 这里新增 foundation design 可视化辅助产物契约，原因是当前用户明确要求
+// foundation 设计能力的主边界应以 JSON 为准，而不是 HTML 或 Mermaid 图优先；
+// 目的：把 Mermaid 收敛为可选辅助块，避免上层把图误当作正式交换格式。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignVisualArtifacts {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer_diagram_mermaid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dependency_diagram_mermaid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interface_diagram_mermaid: Option<String>,
+}
+
+// 2026-04-13 CST: 这里新增 foundation design skeleton 结果契约，原因是设计 Tool 不能只回一段文本，
+// 否则上层无法稳定消费，也无法作为交接与审计产物沉淀；
+// 2026-04-13 CST 追加：本轮按用户要求把 JSON 结构定义为主边界，Mermaid 改为 visuals 辅助块；
+// 目的：让上层先消费 summary、warnings 与计数字段，再按需读取可视化产物。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignSkeletonResult {
+    pub feature_name: String,
+    pub summary: String,
+    pub warnings: Vec<String>,
+    pub layer_count: usize,
+    pub module_count: usize,
+    pub interface_count: usize,
+    pub method_count: usize,
+    pub test_scenario_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visuals: Option<FoundationDesignVisualArtifacts>,
+}
+
+// 2026-04-13 CST: 这里新增 foundation design gap audit 请求契约，原因是方案C要求设计骨架能与 graphify
+// 现状图联动，做“设计 vs 成品”的差距收口；
+// 目的：在沿用同一份 design skeleton 输入的同时，只额外暴露 graph_path 这个审计边界。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignGapAuditRequest {
+    #[serde(flatten)]
+    pub skeleton: FoundationDesignSkeletonRequest,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph_path: Option<String>,
+}
+
+// 2026-04-13 CST: 这里新增 foundation design gap audit 单项检查契约，原因是差距审计需要返回
+// 可追溯的逐项命中结果，而不是只给汇总数字；
+// 目的：统一 module/interface/method 三个粒度的 matched + matched_node_labels 输出结构。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignGapCheck {
+    pub design_id: String,
+    pub design_label: String,
+    pub matched: bool,
+    pub matched_node_labels: Vec<String>,
+}
+
+// 2026-04-13 CST: 这里新增 foundation design gap audit 结果契约，原因是上层既要看逐项命中，
+// 也要看总缺口和自动发现到的 graph 路径；
+// 目的：把 graph_path、checks、missing 列表、warning 与计数统一收口为正式 DTO。
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct FoundationDesignGapAuditResult {
+    pub feature_name: String,
+    pub graph_path: String,
+    pub module_checks: Vec<FoundationDesignGapCheck>,
+    pub interface_checks: Vec<FoundationDesignGapCheck>,
+    pub method_checks: Vec<FoundationDesignGapCheck>,
+    pub missing_modules: Vec<String>,
+    pub missing_interfaces: Vec<String>,
+    pub missing_methods: Vec<String>,
+    pub warnings: Vec<String>,
+    pub matched_module_count: usize,
+    pub matched_interface_count: usize,
+    pub matched_method_count: usize,
 }
 
 // 2026-04-10 CST: 这里新增 foundation repository import gate 结果合同，原因是方案B1的目标不是重复暴露 batch 原始摘要，
