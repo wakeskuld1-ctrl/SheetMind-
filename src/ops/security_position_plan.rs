@@ -209,21 +209,21 @@ pub fn build_security_position_plan(
         starter
     };
     let plan_direction = normalize_plan_direction(&committee.decision_card.exposure_side);
-    let initial_entry_assessment = build_security_entry_assessment(
-        &SecurityEntryAssessmentInput {
-            plan_direction: plan_direction.clone(),
-            committee_status: committee.decision_card.status.clone(),
-            score_status: "pending_scorecard".to_string(),
-            chair_action: committee.decision_card.recommendation_action.clone(),
-            confidence_score: confidence,
-            expected_return_pct: Some(parse_percent_midpoint(&committee.decision_card.expected_return_range)),
-            expected_drawdown_pct: parse_percent(&committee.decision_card.downside_risk),
-            warn_count,
-            blocking_gate_names: collect_blocking_gate_names(committee),
-        },
-    );
-    let initial_sizing_assessment = build_security_sizing_assessment(
-        &SecuritySizingAssessmentInput {
+    let initial_entry_assessment = build_security_entry_assessment(&SecurityEntryAssessmentInput {
+        plan_direction: plan_direction.clone(),
+        committee_status: committee.decision_card.status.clone(),
+        score_status: "pending_scorecard".to_string(),
+        chair_action: committee.decision_card.recommendation_action.clone(),
+        confidence_score: confidence,
+        expected_return_pct: Some(parse_percent_midpoint(
+            &committee.decision_card.expected_return_range,
+        )),
+        expected_drawdown_pct: parse_percent(&committee.decision_card.downside_risk),
+        warn_count,
+        blocking_gate_names: collect_blocking_gate_names(committee),
+    });
+    let initial_sizing_assessment =
+        build_security_sizing_assessment(&SecuritySizingAssessmentInput {
             entry_grade: initial_entry_assessment.entry_grade.clone(),
             plan_direction: plan_direction.clone(),
             score_status: "pending_scorecard".to_string(),
@@ -234,8 +234,7 @@ pub fn build_security_position_plan(
             )),
             expected_drawdown_pct: parse_percent(&committee.decision_card.downside_risk),
             warn_count,
-        },
-    );
+        });
 
     let cancel_conditions = if plan_status == "blocked" {
         vec![
@@ -397,7 +396,8 @@ pub fn apply_security_entry_layer_to_position_plan(
     position_plan.entry_grade = entry_assessment.entry_grade;
     position_plan.entry_reason = entry_assessment.entry_reason.clone();
     position_plan.entry_blockers = entry_assessment.entry_blockers.clone();
-    position_plan.entry_plan.entry_mode = build_entry_mode_from_entry_grade(&position_plan.entry_grade);
+    position_plan.entry_plan.entry_mode =
+        build_entry_mode_from_entry_grade(&position_plan.entry_grade);
     position_plan.entry_plan.notes = format!(
         "{} | {}",
         position_plan.entry_plan.notes, entry_assessment.entry_reason
@@ -674,7 +674,8 @@ fn apply_security_sizing_assessment_to_position_plan(
     position_plan.sizing_grade = sizing_assessment.sizing_grade.clone();
     position_plan.sizing_reason = sizing_assessment.sizing_reason.clone();
     position_plan.sizing_risk_flags = sizing_assessment.sizing_risk_flags.clone();
-    position_plan.entry_plan.entry_mode = build_entry_mode_from_entry_grade(&position_plan.entry_grade);
+    position_plan.entry_plan.entry_mode =
+        build_entry_mode_from_entry_grade(&position_plan.entry_grade);
     position_plan.entry_plan.trigger_condition =
         build_entry_trigger_condition(&position_plan.entry_grade, sizing_assessment);
     position_plan.entry_plan.starter_gross_pct = sizing_assessment.starter_gross_pct;
@@ -933,7 +934,12 @@ mod tests {
         });
 
         assert_eq!(result.entry_grade, "blocked");
-        assert!(result.entry_blockers.iter().any(|item| item == "risk_reward_gate"));
+        assert!(
+            result
+                .entry_blockers
+                .iter()
+                .any(|item| item == "risk_reward_gate")
+        );
     }
 
     #[test]
@@ -951,7 +957,12 @@ mod tests {
         });
 
         assert_eq!(result.entry_grade, "watch");
-        assert!(result.entry_blockers.iter().any(|item| item == "model_unavailable"));
+        assert!(
+            result
+                .entry_blockers
+                .iter()
+                .any(|item| item == "model_unavailable")
+        );
     }
 
     #[test]

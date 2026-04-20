@@ -8,8 +8,7 @@ use excel_skill::ops::foundation::metadata_validator::MetadataValidationIssue;
 use excel_skill::ops::foundation::ontology_schema::{OntologyConcept, OntologyRelationType};
 use excel_skill::ops::foundation::repository_metadata_audit::{
     RepositoryEvidenceHygieneDiagnostic, RepositoryMetadataAudit,
-    RepositoryMetadataAuditExportDtoV1, RepositoryWeakLocatorReason,
-    RepositoryWeakSourceRefReason,
+    RepositoryMetadataAuditExportDtoV1, RepositoryWeakLocatorReason, RepositoryWeakSourceRefReason,
 };
 
 // 2026-04-10 CST: 这里先补 repository-level audit 红测，原因是当前 foundation 只有节点级 validator，
@@ -188,103 +187,127 @@ fn repository_metadata_audit_aggregates_validator_issues_and_hygiene_diagnostics
         Some(&11usize)
     );
     assert_eq!(
-        report.hygiene_summary.diagnostic_type_counts.get("MissingEvidenceRef"),
+        report
+            .hygiene_summary
+            .diagnostic_type_counts
+            .get("MissingEvidenceRef"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .diagnostic_type_counts
             .get("DuplicateEvidenceRefWithinNode"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .diagnostic_type_counts
             .get("DuplicateEvidenceRef"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary.diagnostic_type_counts.get("WeakLocator"),
+        report
+            .hygiene_summary
+            .diagnostic_type_counts
+            .get("WeakLocator"),
         Some(&6usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .diagnostic_type_counts
             .get("WeakSourceRef"),
         Some(&7usize)
     );
     assert_eq!(
-        report.hygiene_summary.weak_locator_reason_counts.get("Blank"),
+        report
+            .hygiene_summary
+            .weak_locator_reason_counts
+            .get("Blank"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_locator_reason_counts
             .get("TooShort"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_locator_reason_counts
             .get("SheetOnly"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_locator_reason_counts
             .get("SingleCellOnly"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_locator_reason_counts
             .get("AmbiguousKeyword"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_locator_reason_counts
             .get("InvalidRangeFormat"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_source_ref_reason_counts
             .get("Blank"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_source_ref_reason_counts
             .get("TooShort"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_source_ref_reason_counts
             .get("MissingNamespace"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_source_ref_reason_counts
             .get("EntityMissing"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_source_ref_reason_counts
             .get("ContainsWhitespace"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_source_ref_reason_counts
             .get("InvalidCharacter"),
         Some(&1usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_source_ref_reason_counts
             .get("UnknownNamespace"),
         Some(&1usize)
@@ -385,7 +408,10 @@ fn repository_metadata_audit_aggregates_validator_issues_and_hygiene_diagnostics
         vec!["node-revenue-short-locator".to_string()]
     );
 
-    assert_eq!(report.hygiene_reason_views.weak_source_ref_by_reason.len(), 7);
+    assert_eq!(
+        report.hygiene_reason_views.weak_source_ref_by_reason.len(),
+        7
+    );
     assert_eq!(
         report.hygiene_reason_views.weak_source_ref_by_reason[0].severity,
         excel_skill::ops::foundation::repository_metadata_audit::RepositoryHygieneSeverity::Critical
@@ -479,7 +505,10 @@ fn repository_metadata_audit_keeps_stable_grouping_on_large_repository_fixture()
         ]
     );
 
-    assert_eq!(report.hygiene_reason_views.weak_source_ref_by_reason.len(), 4);
+    assert_eq!(
+        report.hygiene_reason_views.weak_source_ref_by_reason.len(),
+        4
+    );
     assert_eq!(
         report.hygiene_reason_views.weak_source_ref_by_reason[0].node_ids,
         vec![
@@ -509,17 +538,24 @@ fn repository_metadata_audit_reason_views_keep_node_dedup_semantics_for_repeated
 
     assert_eq!(report.hygiene_summary.total_diagnostics, 9);
     assert_eq!(
-        report.hygiene_summary.weak_locator_reason_counts.get("Blank"),
+        report
+            .hygiene_summary
+            .weak_locator_reason_counts
+            .get("Blank"),
         Some(&2usize)
     );
     assert_eq!(
-        report.hygiene_summary
+        report
+            .hygiene_summary
             .weak_source_ref_reason_counts
             .get("ContainsWhitespace"),
         Some(&3usize)
     );
     assert_eq!(
-        report.hygiene_summary.weak_source_ref_reason_counts.get("Blank"),
+        report
+            .hygiene_summary
+            .weak_source_ref_reason_counts
+            .get("Blank"),
         Some(&3usize)
     );
 
@@ -537,7 +573,10 @@ fn repository_metadata_audit_reason_views_keep_node_dedup_semantics_for_repeated
         vec!["node-revenue-repeat-locator".to_string()]
     );
 
-    assert_eq!(report.hygiene_reason_views.weak_source_ref_by_reason.len(), 2);
+    assert_eq!(
+        report.hygiene_reason_views.weak_source_ref_by_reason.len(),
+        2
+    );
     assert_eq!(
         report.hygiene_reason_views.weak_source_ref_by_reason[0].diagnostic_count,
         1
@@ -909,22 +948,38 @@ fn large_stability_repository() -> KnowledgeRepository {
                 .with_concept_id("revenue")
                 .with_metadata_entry("domain", "finance")
                 .with_evidence_ref(EvidenceRef::new("", "C1:C3")),
-            KnowledgeNode::new("node-revenue-whitespace-source-a", "Whitespace Source A", "Body")
-                .with_concept_id("revenue")
-                .with_metadata_entry("domain", "finance")
-                .with_evidence_ref(EvidenceRef::new("sheet: sales q1", "D1:D3")),
-            KnowledgeNode::new("node-revenue-whitespace-source-b", "Whitespace Source B", "Body")
-                .with_concept_id("revenue")
-                .with_metadata_entry("domain", "finance")
-                .with_evidence_ref(EvidenceRef::new("sheet: sales q2", "E1:E3")),
-            KnowledgeNode::new("node-revenue-invalid-char-source-a", "Invalid Source A", "Body")
-                .with_concept_id("revenue")
-                .with_metadata_entry("domain", "finance")
-                .with_evidence_ref(EvidenceRef::new("sheet:sales?2024", "F1:F3")),
-            KnowledgeNode::new("node-revenue-unknown-namespace-a", "Unknown Namespace A", "Body")
-                .with_concept_id("revenue")
-                .with_metadata_entry("domain", "finance")
-                .with_evidence_ref(EvidenceRef::new("blob:sales", "G1:G3")),
+            KnowledgeNode::new(
+                "node-revenue-whitespace-source-a",
+                "Whitespace Source A",
+                "Body",
+            )
+            .with_concept_id("revenue")
+            .with_metadata_entry("domain", "finance")
+            .with_evidence_ref(EvidenceRef::new("sheet: sales q1", "D1:D3")),
+            KnowledgeNode::new(
+                "node-revenue-whitespace-source-b",
+                "Whitespace Source B",
+                "Body",
+            )
+            .with_concept_id("revenue")
+            .with_metadata_entry("domain", "finance")
+            .with_evidence_ref(EvidenceRef::new("sheet: sales q2", "E1:E3")),
+            KnowledgeNode::new(
+                "node-revenue-invalid-char-source-a",
+                "Invalid Source A",
+                "Body",
+            )
+            .with_concept_id("revenue")
+            .with_metadata_entry("domain", "finance")
+            .with_evidence_ref(EvidenceRef::new("sheet:sales?2024", "F1:F3")),
+            KnowledgeNode::new(
+                "node-revenue-unknown-namespace-a",
+                "Unknown Namespace A",
+                "Body",
+            )
+            .with_concept_id("revenue")
+            .with_metadata_entry("domain", "finance")
+            .with_evidence_ref(EvidenceRef::new("blob:sales", "G1:G3")),
         ],
         vec![KnowledgeEdge::new(
             "node-revenue-owner-a",

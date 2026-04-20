@@ -504,10 +504,7 @@ impl RepositoryMetadataAuditIssueDtoV1 {
                 canonical_field_key: None,
                 replaced_by: None,
             },
-            MetadataValidationIssue::InvalidAllowedValue {
-                field_key,
-                ..
-            } => Self {
+            MetadataValidationIssue::InvalidAllowedValue { field_key, .. } => Self {
                 node_id: issue.node_id.clone(),
                 issue_type: "InvalidAllowedValue".to_string(),
                 concept_id: None,
@@ -516,10 +513,7 @@ impl RepositoryMetadataAuditIssueDtoV1 {
                 canonical_field_key: None,
                 replaced_by: None,
             },
-            MetadataValidationIssue::InvalidValueType {
-                field_key,
-                ..
-            } => Self {
+            MetadataValidationIssue::InvalidValueType { field_key, .. } => Self {
                 node_id: issue.node_id.clone(),
                 issue_type: "InvalidValueType".to_string(),
                 concept_id: None,
@@ -926,12 +920,15 @@ fn summarize_hygiene_diagnostics(
         }
 
         let diagnostic_type_key = hygiene_diagnostic_type_key(diagnostic).to_string();
-        *diagnostic_type_counts.entry(diagnostic_type_key).or_insert(0) += 1;
+        *diagnostic_type_counts
+            .entry(diagnostic_type_key)
+            .or_insert(0) += 1;
 
         if let Some(node_id) = hygiene_diagnostic_node_id(diagnostic) {
             affected_node_ids.insert(node_id.to_string());
-        } else if let RepositoryEvidenceHygieneDiagnostic::DuplicateEvidenceRef { node_ids, .. } =
-            diagnostic
+        } else if let RepositoryEvidenceHygieneDiagnostic::DuplicateEvidenceRef {
+            node_ids, ..
+        } = diagnostic
         {
             for node_id in node_ids {
                 affected_node_ids.insert(node_id.clone());
@@ -1035,7 +1032,8 @@ fn build_hygiene_views_by_node(
 ) -> Vec<RepositoryEvidenceHygieneNodeGroup> {
     let mut diagnostic_counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut highest_severity_by_node: BTreeMap<String, RepositoryHygieneSeverity> = BTreeMap::new();
-    let mut diagnostic_type_counts_by_node: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    let mut diagnostic_type_counts_by_node: BTreeMap<String, BTreeMap<String, usize>> =
+        BTreeMap::new();
 
     for diagnostic in diagnostics {
         let severity = hygiene_severity_for_diagnostic(diagnostic);
@@ -1063,16 +1061,18 @@ fn build_hygiene_views_by_node(
 
     let mut groups = diagnostic_counts
         .into_iter()
-        .map(|(node_id, diagnostic_count)| RepositoryEvidenceHygieneNodeGroup {
-            highest_severity: highest_severity_by_node
-                .remove(&node_id)
-                .unwrap_or(RepositoryHygieneSeverity::Info),
-            diagnostic_type_counts: diagnostic_type_counts_by_node
-                .remove(&node_id)
-                .unwrap_or_default(),
-            node_id,
-            diagnostic_count,
-        })
+        .map(
+            |(node_id, diagnostic_count)| RepositoryEvidenceHygieneNodeGroup {
+                highest_severity: highest_severity_by_node
+                    .remove(&node_id)
+                    .unwrap_or(RepositoryHygieneSeverity::Info),
+                diagnostic_type_counts: diagnostic_type_counts_by_node
+                    .remove(&node_id)
+                    .unwrap_or_default(),
+                node_id,
+                diagnostic_count,
+            },
+        )
         .collect::<Vec<_>>();
 
     groups.sort_by(|left, right| {
@@ -1120,7 +1120,9 @@ fn build_weak_locator_reason_groups(
         hygiene_severity_rank(&left.severity)
             .cmp(&hygiene_severity_rank(&right.severity))
             .then_with(|| right.diagnostic_count.cmp(&left.diagnostic_count))
-            .then_with(|| weak_locator_reason_key(&left.reason).cmp(weak_locator_reason_key(&right.reason)))
+            .then_with(|| {
+                weak_locator_reason_key(&left.reason).cmp(weak_locator_reason_key(&right.reason))
+            })
     });
 
     groups
@@ -1189,14 +1191,10 @@ fn hygiene_severity_for_diagnostic(
             RepositoryWeakSourceRefReason::Blank
             | RepositoryWeakSourceRefReason::TooShort
             | RepositoryWeakSourceRefReason::MissingNamespace
-            | RepositoryWeakSourceRefReason::EntityMissing => {
-                RepositoryHygieneSeverity::Critical
-            }
+            | RepositoryWeakSourceRefReason::EntityMissing => RepositoryHygieneSeverity::Critical,
             RepositoryWeakSourceRefReason::ContainsWhitespace
             | RepositoryWeakSourceRefReason::InvalidCharacter
-            | RepositoryWeakSourceRefReason::UnknownNamespace => {
-                RepositoryHygieneSeverity::Warning
-            }
+            | RepositoryWeakSourceRefReason::UnknownNamespace => RepositoryHygieneSeverity::Warning,
         },
     }
 }
@@ -1232,9 +1230,7 @@ fn hygiene_severity_key(severity: &RepositoryHygieneSeverity) -> &'static str {
 // 2026-04-12 CST: Added diagnostic type key mapping because the summary needs a
 // compact aggregate view of hygiene classes. Purpose: preserve detail semantics
 // while exposing stable bucket names to downstream AI consumers.
-fn hygiene_diagnostic_type_key(
-    diagnostic: &RepositoryEvidenceHygieneDiagnostic,
-) -> &'static str {
+fn hygiene_diagnostic_type_key(diagnostic: &RepositoryEvidenceHygieneDiagnostic) -> &'static str {
     match diagnostic {
         RepositoryEvidenceHygieneDiagnostic::MissingEvidenceRef { .. } => "MissingEvidenceRef",
         RepositoryEvidenceHygieneDiagnostic::DuplicateEvidenceRefWithinNode { .. } => {
@@ -1249,9 +1245,7 @@ fn hygiene_diagnostic_type_key(
 // 2026-04-12 CST: Added node-id extraction helper so affected-node counting
 // stays centralized. Purpose: keep summary assembly simple and avoid repeated
 // pattern matching in the aggregation loop.
-fn hygiene_diagnostic_node_id(
-    diagnostic: &RepositoryEvidenceHygieneDiagnostic,
-) -> Option<&str> {
+fn hygiene_diagnostic_node_id(diagnostic: &RepositoryEvidenceHygieneDiagnostic) -> Option<&str> {
     match diagnostic {
         RepositoryEvidenceHygieneDiagnostic::MissingEvidenceRef { node_id }
         | RepositoryEvidenceHygieneDiagnostic::DuplicateEvidenceRefWithinNode { node_id, .. }
@@ -1264,9 +1258,7 @@ fn hygiene_diagnostic_node_id(
 // 2026-04-12 CST: Added multi-node extraction because some repository hygiene
 // diagnostics are shared across several nodes. Purpose: reuse one canonical path
 // for grouped-view construction and affected-node counting.
-fn hygiene_diagnostic_node_ids(
-    diagnostic: &RepositoryEvidenceHygieneDiagnostic,
-) -> Vec<&str> {
+fn hygiene_diagnostic_node_ids(diagnostic: &RepositoryEvidenceHygieneDiagnostic) -> Vec<&str> {
     match diagnostic {
         RepositoryEvidenceHygieneDiagnostic::DuplicateEvidenceRef { node_ids, .. } => {
             node_ids.iter().map(String::as_str).collect()
@@ -1458,9 +1450,9 @@ fn contains_source_whitespace(source_ref: &str) -> bool {
 fn contains_invalid_source_character(source_ref: &str) -> bool {
     split_source_ref(source_ref)
         .map(|(_, entity)| {
-            entity
-                .chars()
-                .any(|ch| !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '#')))
+            entity.chars().any(|ch| {
+                !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '#'))
+            })
         })
         .unwrap_or(false)
 }

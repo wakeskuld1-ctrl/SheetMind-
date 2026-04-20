@@ -1,0 +1,30 @@
+{
+  "artifact_path": "tests/runtime_fixtures/security_shadow_evaluation/fake_artifact.json",
+  "artifact_sha256": "fixture-sha",
+  "contract_version": "security_scorecard_model_registry.v1",
+  "document_type": "security_scorecard_model_registry",
+  "grade_reason": "promoted_by_refit_decision",
+  "horizon_days": 10,
+  "instrument_scope": "ETF",
+  "instrument_subscope": "treasury_etf",
+  "market_scope": "A_SHARE",
+  "metrics_summary_json": {
+    "readiness_assessment": {
+      "class_balance_status": "class_balance_ready",
+      "minimum_sample_status": "sample_ready",
+      "notes": [],
+      "path_event_coverage_status": "path_event_ready",
+      "production_readiness": "shadow_ready"
+    }
+  },
+  "model_grade": "shadow",
+  "model_id": "a_share_etf_treasury_etf_10d_direction_head",
+  "model_version": "candidate_20260411_shadow",
+  "oot_window": "2025-07-01..2025-12-31",
+  "published_at": "2026-04-11T19:20:00+08:00",
+  "registry_id": "registry-shadow-eval-20260411",
+  "status": "candidate",
+  "target_head": "direction_head",
+  "training_window": "2024-01-01..2024-12-31",
+  "validation_window": "2025-01-01..2025-06-30"
+}

@@ -1044,7 +1044,10 @@ fn security_chair_resolution_downgrades_to_abstain_when_scorecard_model_is_unava
     // Purpose: enforce the "position_plan + chair" dual-anchor contract.
     assert_eq!(output["data"]["chair_resolution"]["entry_grade"], "watch");
     assert_eq!(output["data"]["chair_resolution"]["target_gross_pct"], 0.01);
-    assert_eq!(output["data"]["chair_resolution"]["sizing_grade"], "watch_probe");
+    assert_eq!(
+        output["data"]["chair_resolution"]["sizing_grade"],
+        "watch_probe"
+    );
     assert!(
         output["data"]["chair_resolution"]["entry_reason"]
             .as_str()

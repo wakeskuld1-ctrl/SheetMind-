@@ -12,8 +12,7 @@ use crate::ops::stock::security_master_scorecard::{
     security_master_scorecard,
 };
 use crate::ops::stock::security_position_plan::{
-    build_security_entry_assessment_from_documents,
-    build_security_sizing_assessment_from_documents,
+    build_security_entry_assessment_from_documents, build_security_sizing_assessment_from_documents,
 };
 use crate::ops::stock::security_scorecard::{SecurityScorecardDocument, SecurityScorecardError};
 

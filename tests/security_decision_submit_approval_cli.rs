@@ -444,8 +444,14 @@ fn security_decision_submit_approval_writes_runtime_files_for_ready_case() {
     // when the current ready fixture still resolves to a no-trade direction.
     assert_eq!(output["data"]["position_plan"]["entry_grade"], "watch");
     assert_eq!(output["data"]["position_plan"]["target_gross_pct"], 0.01);
-    assert_eq!(output["data"]["position_plan"]["sizing_grade"], "watch_probe");
-    assert_eq!(output["data"]["position_plan"]["add_plan"]["allow_add"], false);
+    assert_eq!(
+        output["data"]["position_plan"]["sizing_grade"],
+        "watch_probe"
+    );
+    assert_eq!(
+        output["data"]["position_plan"]["add_plan"]["allow_add"],
+        false
+    );
     assert!(
         output["data"]["approval_brief"]["entry_summary"]
             .as_str()
@@ -2031,8 +2037,14 @@ fn security_decision_submit_approval_requests_more_evidence_when_training_suppor
     // Purpose: keep the position-plan object aligned with the training guardrail.
     assert_eq!(output["data"]["position_plan"]["entry_grade"], "watch");
     assert_eq!(output["data"]["position_plan"]["target_gross_pct"], 0.01);
-    assert_eq!(output["data"]["position_plan"]["sizing_grade"], "watch_probe");
-    assert_eq!(output["data"]["position_plan"]["add_plan"]["allow_add"], false);
+    assert_eq!(
+        output["data"]["position_plan"]["sizing_grade"],
+        "watch_probe"
+    );
+    assert_eq!(
+        output["data"]["position_plan"]["add_plan"]["allow_add"],
+        false
+    );
     assert!(
         output["data"]["position_plan"]["entry_blockers"]
             .as_array()
@@ -2368,7 +2380,10 @@ fn security_decision_submit_approval_maps_blocked_status_and_auto_reject_flags()
     // Purpose: keep blocked/no-entry semantics explicit and machine-readable.
     assert_eq!(output["data"]["position_plan"]["entry_grade"], "blocked");
     assert_eq!(output["data"]["position_plan"]["target_gross_pct"], 0.0);
-    assert_eq!(output["data"]["position_plan"]["sizing_grade"], "blocked_flat");
+    assert_eq!(
+        output["data"]["position_plan"]["sizing_grade"],
+        "blocked_flat"
+    );
     assert!(
         output["data"]["position_plan"]["entry_blockers"]
             .as_array()

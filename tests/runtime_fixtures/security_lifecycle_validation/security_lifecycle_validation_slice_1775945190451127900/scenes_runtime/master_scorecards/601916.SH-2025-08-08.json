@@ -1,0 +1,34 @@
+{
+  "master_scorecard_id": "master-scorecard-601916.SH-2025-08-08",
+  "contract_version": "security_master_scorecard.v1",
+  "document_type": "security_master_scorecard",
+  "generated_at": "2026-04-12T14:00:00+08:00",
+  "symbol": "601916.SH",
+  "analysis_date": "2025-08-08",
+  "decision_id": "601916.SH-2025-08-08",
+  "committee_session_ref": "committee-601916.SH-2025-08-08",
+  "scorecard_ref": "scorecard-601916.SH-2025-08-08",
+  "scorecard_status": "model_unavailable",
+  "aggregation_version": "historical_replay_v1",
+  "aggregation_status": "replay_unavailable",
+  "profitability_effectiveness_score": 0.0,
+  "risk_resilience_score": 0.0,
+  "path_quality_score": 0.0,
+  "master_score": 0.0,
+  "master_signal": "unavailable",
+  "trained_head_summary": {
+    "head_count": 0,
+    "availability_status": "multi_head_unavailable",
+    "expected_return": null,
+    "expected_drawdown": null,
+    "expected_path_quality": null,
+    "expected_upside_first_probability": null,
+    "expected_stop_first_probability": null
+  },
+  "horizon_breakdown": [],
+  "limitations": [
+    "historical replay unavailable: security forward outcome build failed: insufficient future rows for 601916.SH at 2025-08-08: required 180, available 0",
+    "当前未提供评分卡模型 artifact，无法执行分箱、WOE 与点数累加。",
+    "本轮只保留正式对象、原始特征快照与治理链挂接，不输出伪造分数。"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "artifact_path": "tests/runtime_fixtures/security_scorecard_training/candidate_direction_stronger_direction_head.json",
+  "artifact_sha256": "fixture-sha",
+  "contract_version": "security_scorecard_model_registry.v1",
+  "document_type": "security_scorecard_model_registry",
+  "grade_reason": "ranking_fixture",
+  "horizon_days": 5,
+  "instrument_scope": "EQUITY",
+  "instrument_subscope": null,
+  "market_scope": "A_SHARE",
+  "metrics_summary_json": {
+    "readiness_assessment": {
+      "path_event_coverage_status": "path_event_ready",
+      "production_readiness": "shadow_candidate_ready"
+    },
+    "test": {
+      "accuracy": 0.78,
+      "auc": 0.73
+    }
+  },
+  "model_grade": "candidate",
+  "model_id": "a_share_bank_candidate_direction_stronger_5d_direction_head",
+  "model_version": "candidate_20260412_ranking",
+  "oot_window": "2025-12-01..2026-01-31",
+  "published_at": "2026-04-12T22:35:00+08:00",
+  "registry_id": "registry-candidate_direction_stronger-direction_head-5d",
+  "status": "candidate",
+  "target_head": "direction_head",
+  "training_window": "2025-01-01..2025-08-31",
+  "validation_window": "2025-09-01..2025-11-30"
+}

@@ -1,0 +1,26 @@
+{
+  "contract_version": "security_disclosure_history_backfill.v1",
+  "document_type": "security_disclosure_history_backfill_result",
+  "batch_ref": "disclosure-history-backfill:disclosure-batch-2026-04-12-a",
+  "imported_record_count": 2,
+  "covered_symbol_count": 1,
+  "covered_published_dates": [
+    "2026-03-28"
+  ],
+  "storage_path": "tests\\runtime_fixtures\\security_disclosure_history_backfill\\security_disclosure_history_backfill_1775951739367479700\\security_disclosure_history.db",
+  "backfill_result_path": "tests\\runtime_fixtures\\security_disclosure_history_backfill\\security_disclosure_history_backfill_1775951739367479700\\disclosure_history_backfill_results\\disclosure_history_backfill_disclosure_batch_2026_04_12_a.json",
+  "records": [
+    {
+      "record_ref": "AN202603281234567890",
+      "symbol": "601916.SH",
+      "published_at": "2026-03-28",
+      "title": "2025 Annual Report"
+    },
+    {
+      "record_ref": "AN202603281234567891",
+      "symbol": "601916.SH",
+      "published_at": "2026-03-28",
+      "title": "2025 Profit Distribution Plan"
+    }
+  ]
+}

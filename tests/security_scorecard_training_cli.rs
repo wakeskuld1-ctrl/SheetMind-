@@ -15,7 +15,9 @@ use crate::common::{
     // direction-first orchestration red test must execute against an isolated
     // runtime db instead of the catalog-only helper.
     // Purpose: let the RED phase fail on missing orchestration behavior rather than on a test compile gap.
-    create_test_runtime_db, run_cli_with_json, run_cli_with_json_and_runtime,
+    create_test_runtime_db,
+    run_cli_with_json,
+    run_cli_with_json_and_runtime,
     run_cli_with_json_runtime_and_envs,
 };
 
@@ -233,7 +235,10 @@ fn security_direction_first_training_run_prefers_direction_accuracy_before_regre
     // seven-hour selection loop before regression metrics are used as tie-breakers.
     // Purpose: force survivor selection to keep the stronger direction candidate
     // even when another candidate has better regression metrics.
-    assert_eq!(output["status"], "ok", "unexpected direction-first output: {output}");
+    assert_eq!(
+        output["status"], "ok",
+        "unexpected direction-first output: {output}"
+    );
     assert_eq!(
         output["data"]["stage_summary"]["survivors"][0]["candidate_id"],
         "candidate_direction_stronger"
@@ -683,7 +688,10 @@ fn security_scorecard_training_supports_treasury_etf_upside_first_head_contract(
     // publishes the right governed identity and label contract".
     // Purpose: force the CLI path to prove treasury subscope, X-group proxy
     // features, and upside-first label semantics in one end-to-end run.
-    assert_eq!(output["status"], "ok", "unexpected treasury ETF output: {output}");
+    assert_eq!(
+        output["status"], "ok",
+        "unexpected treasury ETF output: {output}"
+    );
     assert_eq!(
         output["data"]["model_registry"]["instrument_subscope"],
         "treasury_etf"
@@ -849,11 +857,11 @@ fn security_scorecard_training_supports_treasury_etf_stop_first_head_with_thicke
     // stop-first end-to-end test, because A2-standard should prove that callers
     // who omit explicit sample counts no longer fall back to the old thin pool.
     // Purpose: make default sample governance visible in one real ETF artifact.
-    assert_eq!(output["status"], "ok", "unexpected treasury ETF stop output: {output}");
     assert_eq!(
-        output["data"]["metrics_summary_json"]["sample_count"],
-        32
+        output["status"], "ok",
+        "unexpected treasury ETF stop output: {output}"
     );
+    assert_eq!(output["data"]["metrics_summary_json"]["sample_count"], 32);
     assert_eq!(
         output["data"]["metrics_summary_json"]["sample_breakdown"]["train"]["sample_count"],
         16
@@ -1051,7 +1059,10 @@ fn security_scorecard_training_marks_legacy_regression_sample_plan_as_research_o
         ],
     );
 
-    assert_eq!(output["status"], "ok", "unexpected regression legacy output: {output}");
+    assert_eq!(
+        output["status"], "ok",
+        "unexpected regression legacy output: {output}"
+    );
     assert_eq!(
         output["data"]["metrics_summary_json"]["readiness_assessment"]["minimum_sample_status"],
         "sample_thin"
@@ -1101,8 +1112,16 @@ fn assert_etf_regression_head_training_contract(
     .expect("market csv should be written");
     fs::write(&sector_csv, sector_rows.join("\n")).expect("sector csv should be written");
 
-    import_history_csv(&runtime_db_path, &instrument_one_csv, instrument_series[0].0);
-    import_history_csv(&runtime_db_path, &instrument_two_csv, instrument_series[1].0);
+    import_history_csv(
+        &runtime_db_path,
+        &instrument_one_csv,
+        instrument_series[0].0,
+    );
+    import_history_csv(
+        &runtime_db_path,
+        &instrument_two_csv,
+        instrument_series[1].0,
+    );
     import_history_csv(&runtime_db_path, &market_csv, "510300.SH");
     import_history_csv(&runtime_db_path, &sector_csv, sector_symbol);
 
@@ -1167,12 +1186,18 @@ fn assert_etf_regression_head_training_contract(
     // sub-pool identity plus proxy-family carry-through unguarded end to end.
     // Purpose: require ETF regression training to publish governed metrics and
     // preserve subscope-specific proxy features in the artifact X group.
-    assert_eq!(output["status"], "ok", "unexpected etf regression output: {output}");
+    assert_eq!(
+        output["status"], "ok",
+        "unexpected etf regression output: {output}"
+    );
     assert_eq!(
         output["data"]["model_registry"]["instrument_subscope"],
         instrument_subscope
     );
-    assert_eq!(output["data"]["model_registry"]["target_head"], "return_head");
+    assert_eq!(
+        output["data"]["model_registry"]["target_head"],
+        "return_head"
+    );
     assert_eq!(
         output["data"]["metrics_summary_json"]["target_mode"],
         "regression"

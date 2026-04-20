@@ -1,5 +1,27 @@
 # Findings
 
+## 2026-04-20 Excel 风控优化器稳交付版
+- 这次需求的核心不是重做现有 Excel 公式，而是把现有“测算表”升级成“整数优化交付物”。
+- 已经确认的业务数学规则：
+  - `赔付额 = 下注额 * 47`
+  - `返水 = 总下注额 * 2%`
+  - `可赔付本金 = 总下注额 - 返水`
+  - `盈亏值 = 赔付额 - 可赔付本金`
+  - `亏损号码` 定义为 `盈亏值 > 0`
+- 已经确认的优化规则：
+  - 每个号码新下注额必须是整数
+  - 每个号码只能下调，不能上调
+  - 第一优先级是总退款金额最少
+  - 第二优先级是亏损号码数量尽量接近目标值，例如 19
+- 已经确认的交付规则：
+  - 第一页承载现场输入、目标输入、当前态测算和按钮
+  - 第二页只展示优化建议
+  - 稳交付版采用 `xlsm + Rust solver.exe`
+- 当前最大的技术未知不是优化建模本身，而是“如何稳定地把求解结果写回同一个带宏的 workbook，同时保持交付简单”。
+- 计划中的关键技术刺探点：
+  - Rust 是否能稳定完成 `xlsm` 原地回写并保留宏
+  - 若不能，是否需要受控回退为“Rust 输出结构化结果 + 薄 VBA 回填第二页”
+
 ## 2026-04-13 Position Plan Sizing Layer Stage 2
 - 第二阶段缺的不是更多字段声明，而是共享 sizing 规则没有真正接进：
   - `position_plan`
@@ -152,3 +174,23 @@
   - 还不能声称最终 survivor 排名已经生成
   - 还不能声称全部 40 个候选都已完成
   - 还不能声称这轮一定精确跑满 7 小时，因为当前工具不是 wall-clock scheduler
+## 2026-04-17 StockMind Mainline Reconciliation
+- 远端 `https://github.com/wakeskuld1-ctrl/StockMind.git` 当前公开主线只有 `main`
+- `HEAD` 也指向 `main`，说明这次应该直接以 `StockMind/main` 为主基线，不需要额外猜测线上工作分支
+- 本地旧工程 `D:\Rust\Excel_Skill` 仍然带有大量 `tests/runtime_fixtures/...` 未跟踪临时目录，不适合继续作为主流程仓库
+- `D:\Rust\StockMind` 虽然一开始不存在，但实际克隆时因 Windows 路径过长导致 checkout 失败；改用更短路径 `D:\SM` 后成功
+- 对这次任务来说，最稳妥的路径不是双仓库自动 merge，而是：
+  - 先拉新工程
+  - 再盘点旧工程能力
+  - 最后按模块择优迁移
+- `StockMind/main` 已经自带大部分股票主链能力，而且 `src/ops` 比旧工程更聚焦于 stock/security 场景
+- 旧工程 `D:\Rust\Excel_Skill` 独有的大头主要是 Excel/table/analysis 泛化能力，不应整包回灌到 `StockMind`
+- 首轮关键文件对比结论：
+  - `security_direction_first_training_run.rs`：新旧仓内容等长，形态接近，可视为已在线上主线存在
+  - `security_position_plan.rs`：线上仓已包含 `entry_grade / target_gross_pct / sizing_grade` 等字段，且文件更长，说明主线并不落后
+  - `security_decision_submit_approval.rs`：线上仓已接入 sizing overlay 与 `entry_summary` 统一展示
+  - `security_chair_resolution.rs`：旧工程里显式暴露了 `entry_grade / target_gross_pct / sizing_grade / sizing_reason`，这一块值得作为候选回灌点重点检查
+- `src/ops` 目录对照显示：
+  - 新仓独有大量 stock/security 专用模块
+  - 旧仓独有主要是 Excel 泛化处理模块与 `foundation.rs`
+  - 因此本轮不适合做“整仓合并”，更适合做“极小范围能力回灌”

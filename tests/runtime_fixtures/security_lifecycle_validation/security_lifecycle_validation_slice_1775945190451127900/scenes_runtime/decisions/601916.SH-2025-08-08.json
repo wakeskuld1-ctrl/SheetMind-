@@ -1,0 +1,61 @@
+{
+  "decision_ref": "decision_ref:27808:1775945190641680100",
+  "decision_id": "601916.SH-2025-08-08",
+  "scene_name": "security_decision_committee",
+  "asset_id": "601916.SH",
+  "instrument_type": "equity",
+  "strategy_type": "security_decision_committee",
+  "horizon": "swing",
+  "recommendation_action": "abstain",
+  "exposure_side": "neutral",
+  "direction": "NoTrade",
+  "status": "ReadyForReview",
+  "confidence_score": 0.43,
+  "expected_return_range": {
+    "low": 0.12,
+    "base": 0.15,
+    "high": 0.18
+  },
+  "downside_risk": {
+    "soft_stop": 0.05,
+    "hard_stop": 0.05,
+    "tail_risk_note": "当前需要重点核查证据缺口、事件风险与环境变化，而不是直接把研究偏强等同于可执行"
+  },
+  "position_size_suggestion": {
+    "gross_pct": 0.1,
+    "max_pct": 0.15,
+    "sizing_basis": "starter"
+  },
+  "key_supporting_points": [
+    "多头延续占优，近 20 日阻力 256.93 已被有效突破。",
+    "个股与大盘、板块同向，当前属于多头顺风环境",
+    "技术环境与财报快照同向，当前更适合按偏积极综合结论跟踪。",
+    "最新财报显示营收和归母净利润保持同比增长。",
+    "最近公告以定期披露为主，信息面暂未看到明显负向事件。"
+  ],
+  "key_risks": [
+    "即使处于顺风环境，仍需跟踪个股关键位与量能确认是否持续",
+    "量能确认不足",
+    "突破后回踩若承接转弱，多头延续强度会下降",
+    "高位过热后回落风险"
+  ],
+  "invalidation_conditions": [
+    "量能确认不足",
+    "突破后回踩若承接转弱，多头延续强度会下降",
+    "高位过热后回落风险",
+    "即使处于顺风环境，仍需跟踪个股关键位与量能确认是否持续"
+  ],
+  "evidence_refs": [
+    "sec-ea31e8545833b283"
+  ],
+  "portfolio_impact": {
+    "sector_exposure_delta": null,
+    "factor_exposure_note": null,
+    "liquidity_class": "unknown"
+  },
+  "approval": {
+    "required": true,
+    "approval_state": "Pending",
+    "approval_ref": "approval_ref:27808:1775945190641692200"
+  }
+}

@@ -1,5 +1,7 @@
 // 2026-03-31 CST: 这里把 ops 显式拆成 foundation / stock 两个业务域，原因是用户已经确认底座能力和股票能力不能继续串台。
 // 目的：先在模块层建立清晰边界，再通过兼容 re-export 维持现有调用不炸，后续新增能力按模块归属进入对应域。
+pub mod betting_optimizer;
+pub mod betting_workbook_bridge;
 pub mod foundation;
 pub mod stock;
 

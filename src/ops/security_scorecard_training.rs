@@ -985,8 +985,8 @@ fn build_numeric_prediction_bins(
             // Purpose: keep sparse numeric intervals from publishing overly
             // extreme regression estimates when support is shallow.
             let raw_bin_mean = values.iter().sum::<f64>() / values.len() as f64;
-            let baseline_prediction =
-                train_samples.iter().map(|sample| sample.label).sum::<f64>() / train_samples.len() as f64;
+            let baseline_prediction = train_samples.iter().map(|sample| sample.label).sum::<f64>()
+                / train_samples.len() as f64;
             Some(shrink_regression_bin_prediction(
                 raw_bin_mean,
                 baseline_prediction,
@@ -2738,7 +2738,8 @@ mod tests {
             },
         ];
         let train_refs = samples.iter().collect::<Vec<_>>();
-        let baseline = samples.iter().map(|sample| sample.label).sum::<f64>() / samples.len() as f64;
+        let baseline =
+            samples.iter().map(|sample| sample.label).sum::<f64>() / samples.len() as f64;
 
         let bins = build_categorical_prediction_bins(&train_refs, "integrated_stance")
             .expect("categorical prediction bins should build");
@@ -2822,9 +2823,6 @@ mod tests {
             readiness["regression_quality_status"],
             "regression_quality_weak"
         );
-        assert_eq!(
-            readiness["production_readiness"],
-            "research_candidate_only"
-        );
+        assert_eq!(readiness["production_readiness"], "research_candidate_only");
     }
 }

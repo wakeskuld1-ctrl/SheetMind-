@@ -23,6 +23,7 @@ regex = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 rust_xlsxwriter = "0.89"
 ureq = "2"
+zip = "2"
 # 2026-03-29 CST: 这里增加 eframe 依赖，原因是首发桌面 GUI 方案已确定为 Rust 原生 GUI 壳；
 # 目的：为 `sheetmind_app` 提供窗口运行时，同时不改动现有 CLI 主链。
 # 2026-03-31 CST: 这里把 GUI 运行时依赖改成 optional，原因是默认产品主线不再把桌面壳混入 CLI / Tool / 股票测试；
@@ -46,3 +47,12 @@ path = "src/bin/sheetmind_app.rs"
 # 2026-03-31 CST: 这里把 GUI 二进制显式挂到 `gui` feature 上，原因是桌面壳不应混入默认主线构建；
 # 目的：让默认 `cargo test` 和 CLI 验证只覆盖主业务链，只有显式开启 GUI 时才编译桌面入口。
 required-features = ["gui"]
+
+[profile.release]
+# 2026-04-21 CST: Add conservative release-size tuning because the approved
+# delivery route for betting_solver is still a standalone exe beside the xlsm,
+# and the user explicitly approved profile-only slimming before crate splitting.
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

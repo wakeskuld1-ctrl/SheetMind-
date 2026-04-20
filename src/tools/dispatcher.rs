@@ -39,6 +39,18 @@ use crate::ops::fill_lookup::{FillLookupRule, fill_missing_from_lookup_by_keys};
 use crate::ops::fill_missing_values::{FillMissingRule, fill_missing_values};
 use crate::ops::filter::{FilterCondition, filter_rows};
 use crate::ops::format_table_for_export::{ExportFormatOptions, format_table_for_export};
+use crate::ops::foundation::capability_router::NavigationRequest;
+use crate::ops::foundation::knowledge_ingestion::{
+    load_repository_from_json_path, load_repository_from_jsonl_path,
+};
+use crate::ops::foundation::metadata_constraint::{MetadataConstraint, MetadataScope};
+use crate::ops::foundation::metadata_schema::load_metadata_schema_from_json_path;
+use crate::ops::foundation::navigation_pipeline::NavigationPipeline;
+use crate::ops::foundation::ontology_schema::OntologyRelationType;
+use crate::ops::foundation::repository_metadata_audit::{
+    RepositoryMetadataAudit, RepositoryMetadataAuditExportDtoV1,
+};
+use crate::ops::foundation::roaming_engine::RoamingPlan;
 use crate::ops::group::{AggregationSpec, group_and_aggregate};
 use crate::ops::join::{JoinKeepMode, join_tables};
 use crate::ops::linear_regression::linear_regression;
@@ -66,18 +78,6 @@ use crate::ops::table_workflow::suggest_table_workflow;
 use crate::ops::top_n::top_n_rows;
 use crate::ops::trend_analysis::trend_analysis;
 use crate::ops::window::{WindowCalculation, WindowOrderSpec, window_calculation};
-use crate::ops::foundation::capability_router::NavigationRequest;
-use crate::ops::foundation::knowledge_ingestion::{
-    load_repository_from_json_path, load_repository_from_jsonl_path,
-};
-use crate::ops::foundation::metadata_constraint::{MetadataConstraint, MetadataScope};
-use crate::ops::foundation::metadata_schema::load_metadata_schema_from_json_path;
-use crate::ops::foundation::navigation_pipeline::NavigationPipeline;
-use crate::ops::foundation::ontology_schema::OntologyRelationType;
-use crate::ops::foundation::repository_metadata_audit::{
-    RepositoryMetadataAudit, RepositoryMetadataAuditExportDtoV1,
-};
-use crate::ops::foundation::roaming_engine::RoamingPlan;
 use crate::runtime::local_memory::{
     EventLogInput, LocalMemoryRuntime, SchemaStatus, SessionStage, SessionStatePatch,
 };
@@ -156,9 +156,7 @@ pub fn dispatch(request: ToolRequest) -> ToolResponse {
         // foundation roaming mainline now needs one stable DTO-facing outlet
         // above the internal NavigationEvidence struct. Purpose: let AI and
         // CLI callers consume the versioned contract from the main dispatcher.
-        "navigation_evidence_export_v1" => {
-            dispatch_navigation_evidence_export_v1(request.args)
-        }
+        "navigation_evidence_export_v1" => dispatch_navigation_evidence_export_v1(request.args),
         // 2026-03-31 CST: 这里把股票技术面 Tool 明确切到 stock dispatcher，原因是股票业务域不应继续挂在通用分析 dispatcher 上。
         // 目的：先在分发入口建立 foundation / stock 边界，避免后续继续把股票能力写回 analysis_ops。
         "technical_consultation_basic" => {
@@ -3697,7 +3695,9 @@ fn parse_navigation_metadata_scope(
         let normalized_operator = raw_constraint.operator.trim().to_ascii_lowercase();
         let field = raw_constraint.field.trim().to_string();
         if field.is_empty() {
-            return Err("navigation_evidence_export_v1 metadata_constraints 缺少 field".to_string());
+            return Err(
+                "navigation_evidence_export_v1 metadata_constraints 缺少 field".to_string(),
+            );
         }
         let constraint = match normalized_operator.as_str() {
             "equals" => MetadataConstraint::Equals {

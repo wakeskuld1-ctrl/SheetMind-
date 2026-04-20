@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::ops::stock::security_approval_brief_signature::sign_security_approval_brief_document;
+use crate::ops::stock::security_chair_resolution::derive_training_guarded_chair_action;
 use crate::ops::stock::security_decision_approval_bridge::{
     PersistedApprovalPositionPlanBinding, PersistedDecisionAuditRecord,
     SecurityDecisionApprovalBridgeOptions, bridge_security_decision_to_approval,
@@ -16,7 +17,6 @@ use crate::ops::stock::security_decision_approval_brief::{
     build_model_governance_summary, build_model_grade_summary,
     build_security_decision_approval_brief,
 };
-use crate::ops::stock::security_chair_resolution::derive_training_guarded_chair_action;
 use crate::ops::stock::security_decision_committee::{
     SecurityDecisionCommitteeError, SecurityDecisionCommitteeRequest,
     SecurityDecisionCommitteeResult, security_decision_committee,
@@ -329,7 +329,10 @@ pub fn security_decision_submit_approval(
         if bridge.position_plan.entry_blockers.is_empty() {
             String::new()
         } else {
-            format!(" | blockers {}", bridge.position_plan.entry_blockers.join(","))
+            format!(
+                " | blockers {}",
+                bridge.position_plan.entry_blockers.join(",")
+            )
         }
     );
     bridge.approval_brief.position_plan_summary.entry_summary =

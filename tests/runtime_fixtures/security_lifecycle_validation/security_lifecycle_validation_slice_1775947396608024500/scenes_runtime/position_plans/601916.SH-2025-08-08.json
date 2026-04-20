@@ -1,0 +1,60 @@
+{
+  "contract_version": "security_position_plan.v2",
+  "document_type": "security_position_plan",
+  "plan_id": "plan-601916.SH-2025-08-08",
+  "decision_id": "601916.SH-2025-08-08",
+  "decision_ref": "decision_ref:16736:1775947396819989900",
+  "approval_ref": "approval_ref:16736:1775947396819999100",
+  "symbol": "601916.SH",
+  "analysis_date": "2025-08-08",
+  "plan_direction": "NoTrade",
+  "plan_status": "reviewable",
+  "risk_budget_pct": 0.01,
+  "suggested_gross_pct": 0.1,
+  "starter_gross_pct": 0.06,
+  "max_gross_pct": 0.13,
+  "entry_plan": {
+    "entry_mode": "staged",
+    "trigger_condition": "首仓 6.0% ，满足投决条件后执行",
+    "starter_gross_pct": 0.06,
+    "notes": "首仓方案依据当前状态 reviewable"
+  },
+  "add_plan": {
+    "allow_add": true,
+    "trigger_condition": "回踩确认或突破延续后允许加仓",
+    "max_gross_pct": 0.13,
+    "notes": "加仓前需继续满足风险闸门要求"
+  },
+  "reduce_plan": {
+    "allow_reduce": true,
+    "trigger_condition": "达到第一目标位或市场环境转弱时允许主动减仓",
+    "target_gross_pct": 0.06,
+    "notes": "减仓规则用于把仓位降回更稳健区间，避免只定义加仓而不定义收缩。"
+  },
+  "stop_loss_plan": {
+    "stop_loss_pct": 0.05,
+    "hard_stop_condition": "跌破 5.0% 风险线则执行硬止损",
+    "notes": "止损线直接继承投决会风险参数"
+  },
+  "take_profit_plan": {
+    "first_target_pct": 0.12,
+    "second_target_pct": 0.18,
+    "partial_exit_rule": "第一目标减仓三分之一，第二目标继续兑现",
+    "notes": "止盈目标沿用投决卡预期收益区间"
+  },
+  "cancel_conditions": [
+    "若跌破止损条件则取消后续加仓。",
+    "若市场或板块环境明显转逆风，则暂停执行。"
+  ],
+  "sizing_rationale": [
+    "当前可进入审阅状态，置信度 0.43。",
+    "存在 0 个提醒闸门，已在仓位上做降档处理。"
+  ],
+  "approval_binding": {
+    "decision_ref": "decision_ref:16736:1775947396819989900",
+    "approval_ref": "approval_ref:16736:1775947396819999100",
+    "approval_request_ref": "approval_ref:16736:1775947396819999100",
+    "package_scope": "security_decision_submit_approval",
+    "binding_status": "bound_to_approval_request"
+  }
+}

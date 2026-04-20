@@ -6086,11 +6086,23 @@ fn navigation_evidence_export_v1_returns_navigation_dto_json_from_cli() {
     // tool layer, not only through internal pipeline calls. Purpose: lock the
     // top-level shape before higher-level AI orchestration starts consuming it.
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["route"]["matched_concept_ids"], json!(["revenue"]));
+    assert_eq!(
+        output["data"]["route"]["matched_concept_ids"],
+        json!(["revenue"])
+    );
     assert_eq!(output["data"]["route"]["matched_terms"], json!(["sales"]));
-    assert_eq!(output["data"]["roaming_path"][0]["from_concept_id"], "revenue");
-    assert_eq!(output["data"]["roaming_path"][0]["to_concept_id"], "invoice");
-    assert_eq!(output["data"]["roaming_path"][0]["relation_type"], "DependsOn");
+    assert_eq!(
+        output["data"]["roaming_path"][0]["from_concept_id"],
+        "revenue"
+    );
+    assert_eq!(
+        output["data"]["roaming_path"][0]["to_concept_id"],
+        "invoice"
+    );
+    assert_eq!(
+        output["data"]["roaming_path"][0]["relation_type"],
+        "DependsOn"
+    );
     assert_eq!(output["data"]["hits"][0]["node_id"], "node_revenue_001");
     assert_eq!(
         output["data"]["citations"],
@@ -6204,7 +6216,10 @@ fn navigation_evidence_export_v1_accepts_jsonl_bundle_input() {
     // lower foundation ingestion layer. Purpose: prevent future callers from
     // depending on an accidental JSON-only dispatcher path.
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["route"]["matched_concept_ids"], json!(["revenue"]));
+    assert_eq!(
+        output["data"]["route"]["matched_concept_ids"],
+        json!(["revenue"])
+    );
     assert_eq!(output["data"]["hits"][0]["node_id"], "node_revenue_001");
 }
 
@@ -6348,7 +6363,10 @@ fn navigation_evidence_export_v1_uses_route_only_defaults_when_optional_plan_arg
     // only know the bundle path and the user question. Purpose: lock the thin
     // route-first default path before more AI callers depend on it.
     assert_eq!(output["status"], "ok");
-    assert_eq!(output["data"]["route"]["matched_concept_ids"], json!(["revenue"]));
+    assert_eq!(
+        output["data"]["route"]["matched_concept_ids"],
+        json!(["revenue"])
+    );
     assert_eq!(output["data"]["hits"][0]["node_id"], "node_revenue_001");
 }
 
@@ -6370,7 +6388,10 @@ fn navigation_evidence_export_v1_rejects_blank_question() {
     // Purpose: keep caller-facing failures explicit instead of leaking a later
     // route miss with an effectively empty question.
     assert_eq!(output["status"], "error");
-    assert_eq!(output["error"], "navigation_evidence_export_v1 缺少 question 参数");
+    assert_eq!(
+        output["error"],
+        "navigation_evidence_export_v1 缺少 question 参数"
+    );
 }
 
 #[test]
@@ -6390,7 +6411,10 @@ fn navigation_evidence_export_v1_rejects_blank_bundle_path() {
     // persisted repository input is missing. Purpose: stabilize the bad-input
     // message at the tool boundary.
     assert_eq!(output["status"], "error");
-    assert_eq!(output["error"], "navigation_evidence_export_v1 缺少 bundle_path 参数");
+    assert_eq!(
+        output["error"],
+        "navigation_evidence_export_v1 缺少 bundle_path 参数"
+    );
 }
 
 #[test]

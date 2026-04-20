@@ -1,0 +1,42 @@
+{
+  "contract_version": "security_history_expansion.v1",
+  "coverage_summary": {
+    "champion_readiness_hint": "champion_coverage_ready",
+    "coverage_note": "treasury history backfill available for shadow evaluation",
+    "coverage_tier": "standardized_ready",
+    "horizon_days": [
+      10,
+      30,
+      60
+    ],
+    "proxy_field_coverage": [
+      {
+        "coverage_status": "covered_in_expansion",
+        "covered_horizons": [
+          10,
+          30,
+          60
+        ],
+        "proxy_field": "yield_curve_proxy_status"
+      }
+    ],
+    "shadow_readiness_hint": "shadow_coverage_ready"
+  },
+  "created_at": "2026-04-11T19:30:00+08:00",
+  "date_range": "2025-01-01..2025-12-31",
+  "document_type": "security_history_expansion",
+  "history_expansion_id": "history-expansion:A_SHARE:ETF:treasury_etf:2025-01-01_2025-12-31:v1",
+  "instrument_scope": "ETF",
+  "instrument_subscope": "treasury_etf",
+  "market_scope": "A_SHARE",
+  "proxy_fields": [
+    "yield_curve_proxy_status",
+    "yield_curve_slope_delta_bp_5d",
+    "funding_liquidity_proxy_status",
+    "funding_liquidity_spread_delta_bp_5d"
+  ],
+  "symbol_list": [
+    "511010.SH",
+    "511060.SH"
+  ]
+}

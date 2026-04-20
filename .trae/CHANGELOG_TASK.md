@@ -3620,3 +3620,394 @@
 - Upload note added
 - AI handoff note added
 - Branch prepared for GitHub push
+## 2026-04-17
+### 修改内容
+- Added StockMind mainline reconciliation design note:
+  - `docs/plans/2026-04-17-stockmind-mainline-reconciliation-design.md`
+- Added StockMind mainline reconciliation implementation plan:
+  - `docs/plans/2026-04-17-stockmind-mainline-reconciliation-plan.md`
+- Updated session continuity files:
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- Created a separate local StockMind project by cloning the remote mainline into:
+  - `D:\SM`
+- Created the integration branch in the new project:
+  - `codex/reconcile-local-features-20260417`
+- Completed a first-pass capability comparison between:
+  - `D:\SM`
+  - `D:\Rust\Excel_Skill`
+
+### 修改原因
+- The user explicitly switched the workflow to “remote StockMind mainline first, local Excel_Skill only as a feature source”.
+- A separate local project was required to avoid contaminating the old dirty workspace and to keep future stock development centered on the new repository.
+
+### 方案还差什么
+- [ ] Confirm the first migration slice to apply on `D:\SM`.
+- [ ] Implement the approved slice on `codex/reconcile-local-features-20260417`.
+- [ ] Run focused verification in the new repository after the first code backport lands.
+
+### 潜在问题
+- [ ] Cloning to `D:\Rust\StockMind` failed due to Windows path-length limits, so the active local project path is currently `D:\SM`.
+- [ ] The old repository contains many Excel/table-processing modules that should not be blindly merged into StockMind.
+- [ ] The first-pass comparison suggests only selective stock/security backports make sense, not a whole-repo merge.
+
+### 关闭项
+- Separate StockMind local project created
+- Integration branch created
+- First-pass capability comparison completed
+## 2026-04-20
+### 修改内容
+- Tightened the betting optimizer contract in:
+  - `src/ops/betting_optimizer.rs`
+- Updated betting optimizer regression coverage in:
+  - `tests/betting_optimizer_unit.rs`
+- Verified the full-sample solver now only refunds current risk numbers where `pnl_value > 0` and keeps current safe numbers unchanged.
+
+### 修改原因
+- The user corrected the business rule during implementation: under the workbook's current formula, only numbers with positive `盈亏额` represent risk exposures that should be eligible for refunds.
+- The previous solver version did not explicitly freeze current safe numbers, so the optimization contract needed to be tightened before continuing workbook integration.
+
+### 方案还差什么
+- [ ] Extend the workbook bridge so sheet 1 target inputs can call the tightened solver and sheet 2 can render the adjusted recommendation rows.
+- [ ] Add summary-generation and workbook write-back tests that describe the “only current risk numbers can refund” rule in delivered output text.
+
+### 潜在问题
+- [ ] The current solver logic is verified by focused unit tests, but the end-to-end workbook read/write path for this new constraint is not wired yet.
+- [ ] Existing project-wide warnings in unrelated modules remain and were not addressed in this slice.
+
+### 关闭项
+- Betting optimizer refund-eligibility contract corrected
+- Focused optimizer regression tests updated and passing
+- Workbook bridge smoke test still passing after solver change
+## 2026-04-20
+### 修改内容
+- Added workbook summary generation in:
+  - `src/ops/betting_optimizer.rs`
+- Rebuilt the betting workbook bridge in:
+  - `src/ops/betting_workbook_bridge.rs`
+- Added a dedicated solver binary in:
+  - `src/bin/betting_solver.rs`
+- Added bridge and CLI regression coverage in:
+  - `tests/betting_workbook_bridge_cli.rs`
+  - `tests/betting_solver_cli.rs`
+- Added delivery docs and package assets in:
+  - `assets/excel_templates/README.md`
+  - `docs/plans/2026-04-20-betting-workbook-optimizer-handoff.md`
+  - `assets/excel_templates/betting_optimizer/vbaProject.bin`
+- Built a release delivery folder in:
+  - `outputs/betting_optimizer_delivery`
+
+### 修改原因
+- The user requested that the work continue past the solver core and become a standard deliverable rather than stopping at source-level logic.
+- The project therefore needed a stable workbook contract, a runnable solver binary, delivery documentation, and an actual packaged output directory.
+
+### 方案还差什么
+- [ ] Replace the spike-stage VBA asset with a formal business macro project if the Excel button must directly launch `betting_solver.exe`.
+- [ ] Add a packaging helper or release script if future customer drops need one-command regeneration.
+
+### 潜在问题
+- [ ] The current package is stable for manual CLI-driven use, but the embedded macro asset is still the spike-stage placeholder and should not be overstated as final business VBA.
+- [ ] Project-wide warnings from unrelated modules remain and were not cleaned up in this delivery slice.
+
+### 关闭项
+- Solver binary added
+- Workbook read/write bridge added
+- Delivery folder generated
+- Focused optimizer, bridge, and CLI tests passed
+## 2026-04-20
+### 修改内容
+- Restored the betting workbook first sheet to an original-style calculator layout in:
+  - `src/ops/betting_workbook_bridge.rs`
+- Added regression checks for original-style page structure and required-field labels in:
+  - `tests/betting_workbook_bridge_cli.rs`
+- Updated the approved workbook UI contract and implementation plan in:
+  - `docs/plans/2026-04-20-betting-workbook-optimizer-design.md`
+  - `docs/plans/2026-04-20-betting-workbook-optimizer-plan.md`
+- Rebuilt the release delivery artifacts in:
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原.xlsm`
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原-结果.xlsm`
+  - `outputs/betting_optimizer_delivery/betting_solver.exe`
+
+### 修改原因
+- The user rejected the earlier vertical program-style workbook page and explicitly approved a “方案 A” restoration that should look and operate like the original calculator sheet.
+- The delivered workbook therefore had to move back to grouped business-facing coordinates, mark all manual-entry fields clearly, and keep the Rust solver contract intact underneath.
+
+### 方案还差什么
+- [ ] Replace the placeholder embedded VBA macro with a formal production macro if the final customer package must support in-Excel button launching without any manual CLI fallback.
+- [ ] Decide whether to retire or overwrite the older locked delivery files `计算器s6.1_稳交付版.xlsm` and `计算器s6.1_稳交付版-结果.xlsm` after confirming they are no longer open in Excel.
+
+### 潜在问题
+- [ ] The older delivery workbook filename was locked by another process during regeneration, so this slice emitted the refreshed package under the `_页面还原` filenames instead of overwriting the earlier files.
+- [ ] Project-wide Rust warnings in unrelated dispatcher/tool modules remain and were not addressed in this workbook UI slice.
+
+### 关闭项
+- Original-style first-sheet layout restored
+- Required input fields marked with `（需要填写）`
+- Bridge, optimizer, and solver regression tests re-run and passing
+- Refreshed delivery artifacts generated with the restored workbook shell
+## 2026-04-20
+### 修改内容
+- Replaced the placeholder betting VBA asset with a formal builder-driven macro project in:
+  - `scripts/build_betting_vba_asset.ps1`
+  - `assets/excel_templates/betting_optimizer/vba/BettingSolverRunner.bas`
+  - `assets/excel_templates/betting_optimizer/vba/SolverProgressFormCode.bas`
+- Added a VBA asset regression test in:
+  - `tests/betting_vba_asset_builder_cli.rs`
+- Rebuilt the formal macro binaries in:
+  - `assets/excel_templates/betting_optimizer/vbaProject.bin`
+  - `tests/fixtures/betting_optimizer/vbaProject.bin`
+- Refreshed the packaged delivery note and artifacts in:
+  - `outputs/betting_optimizer_delivery/README.md`
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原.xlsm`
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原-结果.xlsm`
+  - `outputs/betting_optimizer_delivery/betting_solver.exe`
+
+### 修改原因
+- The user reported that the workbook button appeared to hang for minutes, required a visible progress state, and needed transparent logs instead of a black-box trigger.
+- Root-cause verification showed the Rust solver finished quickly while the embedded workbook macro was still a `Hello from Rust!` spike placeholder, so the delivery blocker had to move to the formal VBA launch chain.
+
+### 方案还差什么
+- [ ] Add a dedicated automated cancel-path probe if future acceptance requires proving that `RequestCancel` terminates a live long-running solver process rather than just verifying the button and macro chain exist.
+- [ ] Decide whether the legacy delivery filenames without `_页面还原` should now be regenerated or retired to avoid parallel package variants.
+
+### 潜在问题
+- [ ] The fresh Excel COM end-to-end verification covered successful launch, status update, sheet refresh, and log creation, but it did not simulate a human clicking `取消` during a long-running solve.
+- [ ] Project-wide Rust warnings in unrelated modules remain and were not addressed in this delivery-focused slice.
+
+### 关闭项
+- Placeholder VBA asset removed from the delivery path
+- Formal `say_hello` macro launcher rebuilt and embedded
+- Workbook macro run now creates macro and solver logs
+- Excel COM smoke verification confirmed stable completion in about 4 seconds
+## 2026-04-20
+### 修改内容
+- Added approved red risk/adjustment highlighting in:
+  - `src/ops/betting_workbook_bridge.rs`
+- Added workbook XML regression checks for conditional formatting and red style application in:
+  - `tests/betting_workbook_bridge_cli.rs`
+- Saved the implementation plan in:
+  - `docs/plans/2026-04-20-betting-workbook-color-highlighting-plan.md`
+- Rebuilt the delivery outputs in:
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原.xlsm`
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原-结果.xlsm`
+  - `outputs/betting_optimizer_delivery/betting_solver.exe`
+
+### 修改原因
+- The user approved `方案A` and asked that adjusted values and loss-risk values be visually marked in red instead of requiring manual scanning.
+- The user also questioned the 50MB+ solver size, so this slice needed a verified workbook styling change plus a grounded explanation of current binary weight.
+
+### 方案还差什么
+- [ ] If binary size becomes a delivery blocker, split `betting_solver` into a smaller crate or feature-gated library path so unused data/HTTP/table-analysis dependencies stop participating in the solver build.
+- [ ] Decide whether the package should also mark textual flags such as `是否建议下调=是` in red, or keep the current contract limited to key numeric fields.
+
+### 潜在问题
+- [ ] The workbook highlighting is now verified at XML/test level, but this slice did not add a separate visual screenshot artifact for sign-off.
+- [ ] The solver executable remains about 52.6MB because no dedicated slimming profile or dependency split was introduced in this slice.
+
+### 关闭项
+- Sheet 1 loss cells now use red conditional formatting when `亏损额 > 0`
+- Sheet 2 adjusted stake, refund, and positive loss-risk profit/loss cells now use red highlight style
+- Focused bridge tests and solver tests re-run and passing
+- Delivery workbook package regenerated with the new color rules
+## 2026-04-21
+### 修改内容
+- Added approved multi-round result-sheet support in:
+  - `src/ops/betting_workbook_bridge.rs`
+  - `src/bin/betting_solver.rs`
+  - `assets/excel_templates/betting_optimizer/vba/BettingSolverRunner.bas`
+- Added contract and regression coverage for round-sheet parsing, source-sheet solving, and next-round output in:
+  - `tests/betting_workbook_bridge_cli.rs`
+  - `tests/betting_solver_cli.rs`
+- Added the approved release-size profile in:
+  - `Cargo.toml`
+- Saved the approved design and implementation plan in:
+  - `docs/plans/2026-04-21-betting-multi-round-debug-and-slimming-design.md`
+  - `docs/plans/2026-04-21-betting-multi-round-debug-and-slimming-plan.md`
+- Rebuilt the formal embedded VBA asset and refreshed delivery artifacts in:
+  - `assets/excel_templates/betting_optimizer/vbaProject.bin`
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原.xlsm`
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原-结果.xlsm`
+  - `outputs/betting_optimizer_delivery/betting_solver.exe`
+
+### 修改原因
+- The user approved moving from a fixed two-sheet flow to an append-only multi-round debugging flow: adjust on result sheet N, then generate result sheet N+1.
+- The user also approved slimming plan A, so the delivery binary needed a low-risk profile-only reduction before any future crate split.
+
+### 方案还差什么
+- [ ] If the user wants in-workbook cleanup, add an explicit VBA action to delete later rounds after a chosen round so historical branches can be reset without manual sheet deletion.
+- [ ] If the user wants the non-`_页面还原` package variants kept in sync, regenerate or retire those older parallel delivery filenames to avoid package drift.
+
+### 潜在问题
+- [ ] The embedded VBA asset was rebuilt successfully in the current environment, but customer machines still depend on Excel macro trust settings for runtime execution.
+- [ ] The solver binary is now much smaller via profile tuning alone, but the wider project still compiles many unrelated dependencies, so future feature growth could push size back up without a dedicated solver crate boundary.
+
+### 关闭项
+- Release `betting_solver.exe` size dropped from `52,562,986` bytes to `2,545,152` bytes
+- Result sheets now use `优化建议_第N轮` naming instead of a fixed overwritten sheet
+- Result sheets now carry source-sheet metadata, editable next-round baseline cells, and a `基于本页再次测算` macro entrypoint
+- Rust CLI now supports `--source-sheet` and can solve directly from `优化建议_第1轮` into `优化建议_第2轮`
+- Workbook bridge tests, solver CLI tests, and VBA asset builder tests all passed after the change
+
+## 2026-04-21
+### 修改内容
+- Completed the approved A2 manual-constraint delivery polish in:
+  - `src/ops/betting_workbook_bridge.rs`
+  - `src/bin/betting_solver.rs`
+  - `tests/betting_workbook_bridge_cli.rs`
+  - `tests/betting_solver_cli.rs`
+- Added verified workbook assertions for:
+  - manual-constraint status column writeback
+  - blank carry-forward input cells on the newly generated round
+  - constraint-limited status text in the result-sheet status block
+- Extended solver trace logging with:
+  - `constraint_limited=true/false`
+  - `manual_locked_count`
+  - `refund_cap_count`
+- Refreshed formal delivery artifacts in:
+  - `outputs/betting_optimizer_delivery/betting_solver.exe`
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原.xlsm`
+  - `outputs/betting_optimizer_delivery/计算器s6.1_稳交付版_页面还原-结果.xlsm`
+
+### 修改原因
+- The user asked for a stable delivery artifact, and specifically wanted the calculation process to be transparent instead of a black box.
+- The newly approved manual-constraint flow needed final verification on the writeback contract, result-page status area, and operator-facing logs before claiming delivery.
+
+### 方案还差什么
+- [ ] If the user later wants stronger optimality under refund caps, replace the current constraint-limited fallback with a deeper global re-optimization model.
+- [ ] If the user later wants workbook-side diagnostics, add a visible log viewer or one-click open-log action from VBA.
+
+### 潜在问题
+- [ ] The current verification covered the betting delivery path (`betting_workbook_bridge_cli`, `betting_optimizer_unit`, `betting_solver_cli`, release build), not the entire repository test matrix.
+- [ ] Three legacy workbook tests remain `ignored` because their hard-coded encoded sheet-name literals are unstable across fixture encodings; the verified replacements now cover the same delivery contract.
+
+### 关闭项
+- Result-sheet `K7` now distinguishes normal completion from `constraint_limited` output and explicitly tells the operator they can continue adjusting on the current result page.
+- Solver trace logs now expose `constraint_limited`, `manual_locked_count`, and `refund_cap_count`.
+- Manual-constraint writeback behavior and blank next-round input cells were re-verified with fresh tests.
+- Delivery binary and workbook artifacts were rebuilt on `2026-04-21`.
+
+## 2026-04-21
+### 修改内容
+- Created a clean customer-facing delivery folder:
+  - `outputs/客户交付包_2026-04-21`
+- Added a simplified non-technical usage guide in:
+  - `outputs/客户交付包_2026-04-21/使用说明.txt`
+- Copied the final customer runtime files into the new delivery folder:
+  - `outputs/客户交付包_2026-04-21/计算器s6.1_稳交付版_页面还原.xlsm`
+  - `outputs/客户交付包_2026-04-21/betting_solver.exe`
+
+### 修改原因
+- The user requested a packaged customer handoff instead of an engineering-style output directory.
+- The user explicitly noted that the customer is not IT-savvy, so the package needed to be simplified to the minimum usable files plus a plain-language guide.
+
+### 方案还差什么
+- [ ] If the user later wants one-click delivery, compress the customer folder into a ready-to-send zip package.
+- [ ] If the user later wants a more business-facing handoff, convert the text guide into a branded Word/PDF document.
+
+### 潜在问题
+- [ ] The customer still needs to allow Excel macros locally, otherwise the buttons cannot start the solver.
+- [ ] If the customer separates `betting_solver.exe` from the workbook or renames it, workbook-side execution will fail.
+
+### 关闭项
+- A clean customer package folder was created with only 3 files.
+- The usage instructions were rewritten in plain Chinese for non-IT users.
+- The final workbook and solver executable were copied into the customer package folder.
+
+## 2026-04-21
+### 修改内容
+- Fixed the betting optimizer regression that incorrectly returned `NoFeasibleSolution` on the live `10564 / 1500 / 19` customer case.
+- Added a real customer regression test in:
+  - `tests/betting_optimizer_unit.rs`
+- Updated solver search behavior in:
+  - `src/ops/betting_optimizer.rs`
+- Rebuilt and refreshed delivery binaries in:
+  - `outputs/客户交付包_2026-04-21/betting_solver.exe`
+  - `outputs/betting_optimizer_delivery/betting_solver.exe`
+- Generated one verified workbook output artifact:
+  - `outputs/客户交付包_2026-04-21/计算器s6.1_稳交付版_页面还原-修复验证.xlsm`
+
+### 修改原因
+- The user reported that the customer package kept failing with `当前无最优解`, even though the live sheet had `33` current loss numbers and should be tunable back toward the requested target.
+- The old solver froze the adjustable-number set too early and stopped at a first-stage candidate instead of evaluating the global best integer solution for the approved target.
+
+### 方案还差什么
+- [ ] If the user wants the workbook status text to explicitly explain the new global-search rule, update the Chinese summary/status copy in the result sheet and logs.
+- [ ] If the user wants refund-cap rows to participate in the same global optimum instead of falling back to `constraint_limited`, add lower-bound-aware re-optimization rather than the current post-check fallback.
+
+### 潜在问题
+- [ ] This fix intentionally changes solver behavior toward target-first global optimization on the live betting case; if future business rules redefine the objective priority again, the comparator in `is_better_solution()` must be updated together with tests.
+- [ ] Repository-wide warnings in unrelated dispatcher code still exist; they do not block this betting delivery fix, but they remain noise in fresh builds.
+
+### 关闭项
+- The live customer regression case now solves successfully instead of returning `NoFeasibleSolution`.
+- Fresh verification confirmed:
+  - `cargo test --test betting_optimizer_unit -- --nocapture`
+  - `cargo test --test betting_solver_cli -- --nocapture`
+  - `cargo test --test betting_workbook_bridge_cli -- --nocapture`
+  - `cargo run --bin betting_solver -- solve <customer workbook> <verified output> --source-sheet 计算器`
+- The new solver run produced:
+  - `total_refund=5618`
+  - `max_loss=1497.92`
+  - `loss_count=19`
+  - `constraint_limited=false`
+
+## 2026-04-21
+### 修改内容
+- Added boundary regression coverage for the betting optimizer in:
+  - `tests/betting_optimizer_unit.rs`
+- Added workbook/CLI boundary regression coverage in:
+  - `tests/betting_solver_cli.rs`
+- Replaced the brittle hard-coded round sheet literal in the CLI chaining test with workbook-discovered round sheet names.
+- Added boundary regression design and execution notes in:
+  - `docs/plans/2026-04-21-betting-boundary-regression-design.md`
+  - `docs/plans/2026-04-21-betting-boundary-regression-plan.md`
+
+### 修改原因
+- The user explicitly required self-designed edge-case tests after the optimizer fix and asked for the system to discover new problems instead of stopping at the original customer regression.
+- Fresh boundary verification exposed that the old CLI round-sheet regression depended on a hard-coded encoded sheet name, which was not stable enough for ongoing delivery verification.
+
+### 方案还差什么
+- [ ] If the user wants stronger optimality proof beyond targeted edge cases, add more brute-force cross-check tests over randomly generated small-number datasets.
+- [ ] If the user wants delivery-pack confidence at the workbook artifact level, add a scripted end-to-end solve check against the packaged customer workbook with archived logs per run.
+
+### 潜在问题
+- [ ] `betting_workbook_bridge_cli` still keeps 3 legacy ignored tests because the old fixture sheet-name literals are unstable under the encoded workbook path; that debt is documented but not removed in this round.
+- [ ] Repository-wide unused-code warnings remain in unrelated dispatcher modules and still appear during fresh cargo test runs.
+
+### 关闭项
+- Fresh optimizer boundary cases now pass, including:
+  - single-number concentration
+  - already-safe uniform distribution
+  - low-loss average distribution driven up to target
+  - sparse high-risk distribution with many zero rows
+  - small-case brute-force optimum comparison
+- Fresh CLI/workbook verification confirmed:
+  - `cargo test --test betting_solver_cli -- --nocapture`
+  - `cargo test --test betting_workbook_bridge_cli -- --nocapture`
+  - `cargo test --test betting_optimizer_unit -- --nocapture`
+- The CLI next-round regression no longer depends on a hard-coded encoded sheet name and now reads the actual generated round sheet from workbook metadata.
+
+## 2026-04-21
+### 修改内容
+- Added GitHub upload execution notes in:
+  - `docs/execution-notes-2026-04-21-betting-upload.md`
+- Added AI handoff notes for the betting delivery/upload state in:
+  - `docs/ai-handoff-2026-04-21-betting-upload.md`
+- Prepared the repository for a broad branch push that includes generated delivery artifacts requested by the user.
+
+### 修改原因
+- The user explicitly asked to push everything to GitHub, including compiled and uncompiled materials.
+- A broad upload needed explicit delivery notes and AI handoff context so the next engineer or AI can understand what was verified and what remains risky.
+
+### 方案还差什么
+- [ ] If the user later wants a cleaner public history, split generated artifacts and source changes into separate commits or branches.
+- [ ] If the user later wants lighter repository size, evaluate moving heavyweight generated outputs to release assets or Git LFS.
+
+### 潜在问题
+- [ ] A broad upload that includes generated artifacts and dependency folders can make clone and fetch operations heavier.
+- [ ] Some ignored build-cache paths such as `target/` are still excluded by repository rules unless explicitly force-added later.
+
+### 关闭项
+- Upload-specific execution notes and AI handoff notes were created before Git staging.
+- The betting delivery verification trail referenced in the upload notes is now preserved inside the repository.

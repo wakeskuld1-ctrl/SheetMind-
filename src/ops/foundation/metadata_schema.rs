@@ -359,25 +359,19 @@ impl MetadataSchema {
 // schema-file contract explicit and reusable beyond this single dispatcher.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MetadataSchemaLoadError {
-    ReadFailed {
-        path: String,
-        message: String,
-    },
-    JsonDeserializeFailed {
-        path: String,
-        message: String,
-    },
-    SchemaBuildFailed {
-        path: String,
-        message: String,
-    },
+    ReadFailed { path: String, message: String },
+    JsonDeserializeFailed { path: String, message: String },
+    SchemaBuildFailed { path: String, message: String },
 }
 
 impl fmt::Display for MetadataSchemaLoadError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MetadataSchemaLoadError::ReadFailed { path, message } => {
-                write!(formatter, "failed to read metadata schema file {path}: {message}")
+                write!(
+                    formatter,
+                    "failed to read metadata schema file {path}: {message}"
+                )
             }
             MetadataSchemaLoadError::JsonDeserializeFailed { path, message } => write!(
                 formatter,
@@ -427,11 +421,12 @@ pub fn load_metadata_schema_from_json_path(
         message: error.to_string(),
     })?;
 
-    let document: MetadataSchemaDocument =
-        serde_json::from_str(&raw).map_err(|error| MetadataSchemaLoadError::JsonDeserializeFailed {
+    let document: MetadataSchemaDocument = serde_json::from_str(&raw).map_err(|error| {
+        MetadataSchemaLoadError::JsonDeserializeFailed {
             path: path.display().to_string(),
             message: error.to_string(),
-        })?;
+        }
+    })?;
 
     document
         .into_schema()

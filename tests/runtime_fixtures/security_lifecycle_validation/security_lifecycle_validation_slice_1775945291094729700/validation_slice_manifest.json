@@ -1,0 +1,16 @@
+{
+  "analysis_date": "2026-04-12",
+  "approval_ref": "approval_ref:7612:1775945291290182200",
+  "condition_review_path": "tests\\runtime_fixtures\\security_lifecycle_validation\\security_lifecycle_validation_slice_1775945291094729700\\condition_review.json",
+  "condition_review_ref": "condition-review:601916.SH:2026-04-12:manual_review:v1",
+  "decision_package_path": "tests\\runtime_fixtures\\security_lifecycle_validation\\security_lifecycle_validation_slice_1775945291094729700\\scenes_runtime\\decision_packages\\601916.SH-2025-08-08\\v2.json",
+  "decision_ref": "decision_ref:7612:1775945291290173500",
+  "document_type": "security_lifecycle_validation_slice",
+  "execution_record_path": "tests\\runtime_fixtures\\security_lifecycle_validation\\security_lifecycle_validation_slice_1775945291094729700\\execution_record.json",
+  "execution_record_ref": "execution-record:601916.SH:2026-04-12:build:v1",
+  "position_plan_ref": "plan-601916.SH-2025-08-08",
+  "post_trade_review_path": "tests\\runtime_fixtures\\security_lifecycle_validation\\security_lifecycle_validation_slice_1775945291094729700\\post_trade_review.json",
+  "post_trade_review_ref": "post-trade-review:601916.SH:2026-04-12:completed:v1",
+  "runtime_root": "tests\\runtime_fixtures\\security_lifecycle_validation\\security_lifecycle_validation_slice_1775945291094729700\\scenes_runtime",
+  "symbol": "601916.SH"
+}

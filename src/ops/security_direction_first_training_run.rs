@@ -10,8 +10,7 @@ use crate::ops::stock::security_scorecard_model_registry::{
     SecurityScorecardModelRegistry, sanitize_identifier,
 };
 use crate::ops::stock::security_scorecard_training::{
-    SecurityScorecardTrainingError, SecurityScorecardTrainingRequest,
-    security_scorecard_training,
+    SecurityScorecardTrainingError, SecurityScorecardTrainingRequest, security_scorecard_training,
 };
 
 // 2026-04-12 CST: Add a governed direction-first orchestration request, because
@@ -159,10 +158,12 @@ pub fn security_direction_first_training_run(
     };
 
     let runtime_root = resolve_runtime_root(request);
-    let stage_summary_path = runtime_root.join("direction_first_training_runs").join(format!(
-        "{}.json",
-        sanitize_identifier(&stage_summary.run_id)
-    ));
+    let stage_summary_path = runtime_root
+        .join("direction_first_training_runs")
+        .join(format!(
+            "{}.json",
+            sanitize_identifier(&stage_summary.run_id)
+        ));
     persist_json(&stage_summary_path, &stage_summary)?;
 
     Ok(SecurityDirectionFirstTrainingRunResult {

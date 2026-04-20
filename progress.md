@@ -1,5 +1,26 @@
 # Progress
 
+## 2026-04-20 Excel 风控优化器稳交付版
+- 已与用户把问题重新收敛为正式的整数优化任务，而不是普通 Excel 公式解释任务。
+- 已确认并冻结的关键约束：
+  - 只能下调下注额
+  - 新下注额必须是整数
+  - 最大亏损值受目标阈值约束
+  - 主目标是总退款金额最少
+  - 次目标是亏损号码数量尽量接近目标值
+- 已确认页面契约：
+  - 第一页：业务输入、目标输入、当前态测算、按钮
+  - 第二页：优化建议结果
+- 已确认稳交付架构：
+  - `xlsm + Rust solver.exe`
+  - VBA 只保留最薄按钮调用层
+- 本轮已完成：
+  - 读取相关 skill
+  - 拆解现有 Excel 公式与宏入口
+  - 完成正式设计文档
+  - 完成正式实施计划
+- 当前尚未开始实现；下一阶段应进入 TDD 和技术刺探，而不是先写业务代码
+
 ## 2026-04-13 Position Plan Sizing Layer Stage 2
 - 已按已批准的第二阶段双层方案继续推进，没有再做额外架构扩散。
 - 本轮完成：
@@ -170,3 +191,32 @@
 - 当前还未完成：
   - 最终 `stage_summary`
   - 全部 40 个候选跑完后的 survivor / eliminated 清单
+## 2026-04-17 StockMind Mainline Reconciliation
+- 已确认用户要求切换为“线上 `StockMind/main` 为主流程，本地旧工程只作为功能来源”
+- 已确认远端仓库：
+  - `HEAD -> main`
+  - 当前公开头分支为 `main`
+- 已先尝试克隆到：
+  - `D:\Rust\StockMind`
+- 遇到问题：
+  - Windows 路径过长导致 checkout 失败
+- 已完成最小修正：
+  - 删除失败的半成品目录
+  - 改用更短路径 `D:\SM`
+  - 成功克隆新工程
+- 已确认新工程基线：
+  - 路径：`D:\SM`
+  - 当前主分支：`main`
+  - 当前整合分支：`codex/reconcile-local-features-20260417`
+  - 基线提交：`d2b445d`
+- 已新增设计文档：
+  - `docs/plans/2026-04-17-stockmind-mainline-reconciliation-design.md`
+- 已新增实施计划：
+  - `docs/plans/2026-04-17-stockmind-mainline-reconciliation-plan.md`
+- 已完成首轮关键能力盘点：
+  - 线上仓已经拥有大部分 stock/security 主链
+  - 旧仓不适合整包合并
+  - 当前最像“值得回灌”的候选点是 `security_chair_resolution` 中显式暴露 entry/sizing 字段的那部分能力
+- 下一步：
+  - 给出第一批迁移选项
+  - 等用户批准后再做实际代码回灌
