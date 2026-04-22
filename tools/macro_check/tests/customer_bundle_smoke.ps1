@@ -27,6 +27,13 @@ New-Item -ItemType Directory -Force -Path $appDirectory | Out-Null
 New-Item -ItemType Directory -Force -Path $reportsRoot | Out-Null
 
 try {
+    $batPath = (Get-ChildItem -LiteralPath (Join-Path $toolRoot "customer_bundle") -Filter "*.bat" -File | Select-Object -First 1).FullName
+    Assert-True (-not [string]::IsNullOrWhiteSpace($batPath)) "Expected one BAT launcher in customer bundle"
+    $batText = Get-Content -LiteralPath $batPath -Raw -Encoding Default
+    Assert-True ($batText.Contains("Windows PowerShell 5.1 or newer is required.")) "Expected PowerShell version gate message"
+    Assert-True ($batText.Contains("powershell_version_error.txt")) "Expected PowerShell version error artifact"
+    Assert-True ($batText.Contains("if not ""%EXIT_CODE%""==""0"" (")) "Expected delivery BAT to pause only on failure"
+
     $missingCaught = $false
     try {
         Resolve-DeliveryLauncherPath -AppDirectory $appDirectory | Out-Null

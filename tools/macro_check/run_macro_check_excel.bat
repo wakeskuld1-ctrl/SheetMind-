@@ -12,6 +12,18 @@ if not exist "%PS_SCRIPT%" (
   exit /b 1
 )
 
+where powershell >nul 2>nul
+if errorlevel 1 (
+  echo PowerShell was not found on this machine.
+  exit /b 90
+)
+
+powershell -NoProfile -Command "$v=$Host.Version; if (($v.Major -lt 5) -or (($v.Major -eq 5) -and ($v.Minor -lt 1))) { exit 51 }"
+if "%ERRORLEVEL%"=="51" (
+  echo Windows PowerShell 5.1 or newer is required.
+  exit /b 51
+)
+
 powershell -ExecutionPolicy Bypass -File "%PS_SCRIPT%" -PreferredHost excel
 set "EXIT_CODE=%ERRORLEVEL%"
 

@@ -28,8 +28,15 @@ try {
     Assert-True (-not [string]::IsNullOrWhiteSpace($batPath)) "Expected one BAT launcher in precheck bundle"
     $batText = Get-Content -LiteralPath $batPath -Raw -Encoding Default
     Assert-True ($batText.Contains("if not ""%EXIT_CODE%""==""0"" (")) "Expected BAT to keep the window only on failure"
+    Assert-True ($batText.Contains("Windows PowerShell 5.1 or newer is required.")) "Expected PowerShell version gate message"
+    Assert-True ($batText.Contains("powershell_version_error.txt")) "Expected PowerShell version error artifact"
     Assert-True ($batText.Contains("Missing src\precheck.ps1")) "Expected missing-script failure hint"
     Assert-True ($batText.Contains("Precheck failed with exit code")) "Expected runtime failure hint"
+
+    $readmePath = (Get-ChildItem -LiteralPath (Join-Path $toolRoot "precheck_bundle") -Filter "*.txt" -File | Select-Object -First 1).FullName
+    Assert-True (-not [string]::IsNullOrWhiteSpace($readmePath)) "Expected one text readme in precheck bundle"
+    $readmeText = Get-Content -LiteralPath $readmePath -Raw -Encoding UTF8
+    Assert-True ($readmeText.Contains("powershell_version_error.txt")) "Expected readme to mention version error return file"
 
     $reportDirectory = Get-PrecheckReportDirectory -ReportsRoot $reportsRoot
     Assert-True ($reportDirectory.StartsWith($reportsRoot)) "Expected report directory under reports root"

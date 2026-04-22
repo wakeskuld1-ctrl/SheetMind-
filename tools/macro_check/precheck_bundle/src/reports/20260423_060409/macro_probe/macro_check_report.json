@@ -1,0 +1,108 @@
+﻿{
+    "inventory":  {
+                      "discovered_at":  "2026-04-23 06:04:09",
+                      "hosts":  [
+                                    {
+                                        "host_key":  "excel",
+                                        "display_name":  "Microsoft Excel",
+                                        "executable_path":  "C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE",
+                                        "source":  "registry"
+                                    }
+                                ],
+                      "xlsm_association":  {
+                                               "extension":  ".xlsm",
+                                               "prog_id":  "Excel.SheetMacroEnabled.12",
+                                               "open_command":  "\"C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE\" \"%1\""
+                                           },
+                      "xlsx_association":  {
+                                               "extension":  ".xlsx",
+                                               "prog_id":  "Excel.Sheet.12",
+                                               "open_command":  "\"C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE\" \"%1\""
+                                           },
+                      "default_host":  "excel",
+                      "has_excel":  true,
+                      "has_wps":  false
+                  },
+    "probe":  {
+                  "requested_host":  "default",
+                  "requested_host_available":  true,
+                  "host_started":  true,
+                  "marker_written":  true,
+                  "marker_path":  "D:\\Rust\\Excel_Skill\\tools\\macro_check\\precheck_bundle\\src\\reports\\20260423_060409\\macro_probe\\probe_runtime\\macro_probe_signal.txt",
+                  "process_name":  "EXCEL",
+                  "actual_host":  "excel",
+                  "blocking_hint":  null
+              },
+    "launch":  {
+                   "mode":  "association",
+                   "launcher_path":  "",
+                   "launcher_arguments":  "",
+                   "launcher_resolved_arguments":  null,
+                   "launcher_working_directory":  "",
+                   "launcher_started":  false,
+                   "launcher_process_name":  null
+               },
+    "security":  {
+                     "firewall_profiles":  [
+                                               {
+                                                   "name":  "Domain",
+                                                   "enabled":  true,
+                                                   "default_inbound_action":  "NotConfigured",
+                                                   "default_outbound_action":  "NotConfigured"
+                                               },
+                                               {
+                                                   "name":  "Private",
+                                                   "enabled":  true,
+                                                   "default_inbound_action":  "NotConfigured",
+                                                   "default_outbound_action":  "NotConfigured"
+                                               },
+                                               {
+                                                   "name":  "Public",
+                                                   "enabled":  true,
+                                                   "default_inbound_action":  "NotConfigured",
+                                                   "default_outbound_action":  "NotConfigured"
+                                               }
+                                           ],
+                     "launcher_firewall_rules":  [
+
+                                                 ],
+                     "antivirus_products":  [
+                                                {
+                                                    "display_name":  "Windows Defender",
+                                                    "product_exe":  "windowsdefender://",
+                                                    "reporting_exe":  "%ProgramFiles%\\Windows Defender\\MsMpeng.exe",
+                                                    "source":  "security_center"
+                                                }
+                                            ],
+                     "standalone_antivirus_hits":  [
+
+                                                   ],
+                     "office_macro_policies":  [
+                                                   {
+                                                       "scope":  "HKCU",
+                                                       "office_version":  "16.0",
+                                                       "application":  "Excel",
+                                                       "value_name":  "VBAWarnings",
+                                                       "value":  1,
+                                                       "risk_level":  "info",
+                                                       "description":  "1"
+                                                   },
+                                                   {
+                                                       "scope":  "HKCU",
+                                                       "office_version":  "16.0",
+                                                       "application":  "Excel",
+                                                       "value_name":  "AccessVBOM",
+                                                       "value":  1,
+                                                       "risk_level":  "info",
+                                                       "description":  "1"
+                                                   }
+                                               ]
+                 },
+    "outcome":  {
+                    "generated_at":  "2026-04-23 06:04:13",
+                    "grade":  "runnable",
+                    "issues":  [
+
+                               ]
+                }
+}
