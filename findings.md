@@ -194,3 +194,11 @@
   - 新仓独有大量 stock/security 专用模块
   - 旧仓独有主要是 Excel 泛化处理模块与 `foundation.rs`
   - 因此本轮不适合做“整仓合并”，更适合做“极小范围能力回灌”
+## 2026-04-22 Macro Launch Check
+- The smallest reliable delivery probe is a real workbook-open macro, not a registry-only guess.
+- Windows PowerShell 5 is fragile with UTF-8 no-BOM scripts, so the shipping scripts were kept ASCII-only.
+- The shipped probe workbook can be reproduced from VBA source by Excel COM on a development machine.
+- A real local verification on this machine produced `high_risk`: Excel started, but the marker file was not written before timeout.
+- That local result is still useful because it exposes the exact delivery risk the tool is meant to detect.
+- The first generated probe workbook also exposed an import-path bug: exported VBA header lines such as `Attribute VB_Name` must be stripped before `CodeModule.AddFromString`.
+- After normalizing the VBA import source and rebuilding the probe workbook, the syntax/import failure disappeared; the remaining failure is now a genuine runtime macro-execution risk.

@@ -220,3 +220,28 @@
 - 下一步：
   - 给出第一批迁移选项
   - 等用户批准后再做实际代码回灌
+## 2026-04-22 Macro Launch Check
+- Added `tools/macro_check/macro_check_core.ps1` and `tools/macro_check/tests/macro_check_core_smoke.ps1`.
+- Added probe VBA source and `tools/macro_check/build_macro_probe_asset.ps1`.
+- Generated `tools/macro_check/assets/macro_probe.xlsm`.
+- Added `tools/macro_check/macro_check.ps1`, `run_macro_check.bat`, and `README.md`.
+- Verified smoke test passed.
+- Verified one real local run completed and wrote:
+  - `tools/macro_check/reports/local_verify/macro_check_report.txt`
+  - `tools/macro_check/reports/local_verify/macro_check_report.json`
+- Observed local outcome:
+  - host started: `True`
+  - marker written: `False`
+  - grade: `high_risk`
+- Follow-up fix:
+  - normalized VBA source before workbook generation to strip `Attribute VB_Name` and smart-quote variants
+- Rebuilt `tools/macro_check/assets/macro_probe.xlsm` and re-ran the full check.
+- Confirmed the syntax/import problem is gone; the remaining blocker is runtime macro execution not completing within timeout on this machine.
+- Added:
+  - `tools/macro_check/run_macro_check_excel.bat`
+  - `tools/macro_check/run_macro_check_wps.bat`
+- Added requested-host vs actual-host reporting to the generated report.
+- Verified:
+  - default run resolves to `actual_host = excel`
+  - forced Excel run resolves to `actual_host = excel`
+  - forced WPS run reports `requested_host_available = False` on this machine

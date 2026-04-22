@@ -1,0 +1,50 @@
+﻿{
+    "inventory":  {
+                      "discovered_at":  "2026-04-22 19:43:55",
+                      "hosts":  {
+                                    "host_key":  "excel",
+                                    "display_name":  "Microsoft Excel",
+                                    "executable_path":  "C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE",
+                                    "source":  "registry"
+                                },
+                      "xlsm_association":  {
+                                               "extension":  ".xlsm",
+                                               "prog_id":  "Excel.SheetMacroEnabled.12",
+                                               "open_command":  "\"C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE\" \"%1\""
+                                           },
+                      "xlsx_association":  {
+                                               "extension":  ".xlsx",
+                                               "prog_id":  "Excel.Sheet.12",
+                                               "open_command":  "\"C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE\" \"%1\""
+                                           },
+                      "default_host":  "excel",
+                      "has_excel":  true,
+                      "has_wps":  false
+                  },
+    "probe":  {
+                  "requested_host":  "wps",
+                  "requested_host_available":  false,
+                  "host_started":  false,
+                  "marker_written":  false,
+                  "marker_path":  "D:\\Rust\\Excel_Skill\\tools\\macro_check\\reports\\verify_wps\\probe_runtime\\macro_probe_signal.txt",
+                  "process_name":  null,
+                  "actual_host":  null,
+                  "blocking_hint":  "Requested host is not installed: wps"
+              },
+    "outcome":  {
+                    "generated_at":  "2026-04-22 19:43:55",
+                    "grade":  "high_risk",
+                    "issues":  [
+                                   {
+                                       "severity":  "high_risk",
+                                       "code":  "requested_host_missing",
+                                       "message":  "The requested host was not available: wps"
+                                   },
+                                   {
+                                       "severity":  "warning",
+                                       "code":  "blocking_hint",
+                                       "message":  "Requested host is not installed: wps"
+                                   }
+                               ]
+                }
+}

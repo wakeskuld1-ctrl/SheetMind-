@@ -639,6 +639,17 @@ fn template_contains_active_sheet_recalc_macro_entrypoint() {
 }
 
 #[test]
+fn template_binds_base_sheet_button_to_active_sheet_solver_macro() {
+    let output_path = create_test_output_path("betting_optimizer_button_binding", "xlsm");
+    let vba_project_path = "tests/fixtures/betting_optimizer/vbaProject.bin";
+
+    write_betting_template_xlsm(output_path.to_str().unwrap(), vba_project_path).unwrap();
+
+    let vml_text = read_zip_entry_text(&output_path, "xl/drawings/vmlDrawing1.vml");
+    assert!(vml_text.contains("RunBettingSolverFromActiveSheet"));
+}
+
+#[test]
 fn workbook_bridge_can_read_next_round_baseline_from_result_sheet() {
     let template_path = create_test_output_path("betting_optimizer_round_input_template", "xlsm");
     let output_path = create_test_output_path("betting_optimizer_round_input_output", "xlsm");

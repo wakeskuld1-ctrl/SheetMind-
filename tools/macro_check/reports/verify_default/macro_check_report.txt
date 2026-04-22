@@ -1,0 +1,25 @@
+﻿Macro Launch Readiness Report
+Generated At: 2026-04-22 19:43:33
+
+Outcome
+Grade: high_risk
+
+Host Inventory
+Default Host: excel
+Excel Installed: True
+WPS Installed: False
+XLSM Association: "C:\Program Files\Microsoft Office\Root\Office16\EXCEL.EXE" "%1"
+
+Dynamic Probe
+Requested Host: default
+Requested Host Available: True
+Host Started: True
+Marker Written: False
+Marker Path: D:\Rust\Excel_Skill\tools\macro_check\reports\verify_default\probe_runtime\macro_probe_signal.txt
+Observed Process: EXCEL
+Actual Host: excel
+Blocking Hint: Workbook open timed out before the marker file appeared. Macro execution may be blocked by host security prompts or macro settings.
+
+Issues
+- [high_risk] marker_missing: The host started, but the macro probe did not write its marker file.
+- [warning] blocking_hint: Workbook open timed out before the marker file appeared. Macro execution may be blocked by host security prompts or macro settings.

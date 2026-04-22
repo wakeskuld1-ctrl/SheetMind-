@@ -12,6 +12,7 @@ use zip::ZipArchive;
 
 use crate::ops::betting_optimizer::{
     BettingMetrics, BettingOptimizerEntry, BettingOptimizerRequest, BettingOptimizerSolution,
+    build_optimizer_copy_texts,
 };
 
 pub const CURRENT_SHEET_NAME: &str = "计算器";
@@ -27,12 +28,27 @@ const ACTION_ROW: u32 = 12;
 const STATUS_ROW: u32 = 13;
 const RESULT_META_LABEL_COL: u16 = 9;
 const RESULT_META_VALUE_COL: u16 = 10;
+const RESULT_COPY_LABEL_COL: u16 = 13;
+const RESULT_COPY_VALUE_START_COL: u16 = 13;
+const RESULT_COPY_VALUE_END_COL: u16 = 16;
 const RESULT_SOURCE_SHEET_ROW: u32 = 1;
 const RESULT_ROUND_NAME_ROW: u32 = 2;
 const RESULT_MAX_LOSS_TARGET_ROW: u32 = 3;
 const RESULT_LOSS_COUNT_TARGET_ROW: u32 = 4;
 const RESULT_ACTION_ROW: u32 = 5;
 const RESULT_STATUS_ROW: u32 = 6;
+const RESULT_COPY_LABEL_ROW: u32 = 7;
+const RESULT_COPY_VALUE_START_ROW: u32 = 8;
+const RESULT_COPY_VALUE_END_ROW: u32 = 9;
+const RESULT_LARGE_OVERAGE_LABEL_ROW: u32 = 10;
+const RESULT_LARGE_OVERAGE_VALUE_START_ROW: u32 = 11;
+const RESULT_LARGE_OVERAGE_VALUE_END_ROW: u32 = 12;
+const RESULT_SMALL_GROUP_LABEL_ROW: u32 = 13;
+const RESULT_SMALL_GROUP_VALUE_START_ROW: u32 = 14;
+const RESULT_SMALL_GROUP_VALUE_END_ROW: u32 = 15;
+const RESULT_LARGE_GROUP_LABEL_ROW: u32 = 16;
+const RESULT_LARGE_GROUP_VALUE_START_ROW: u32 = 17;
+const RESULT_LARGE_GROUP_VALUE_END_ROW: u32 = 18;
 const RESULT_DETAIL_HEADER_ROW: u32 = 7;
 const RESULT_DETAIL_START_ROW: u32 = 8;
 const RESULT_NEXT_BASELINE_COL: u16 = 8;
@@ -116,6 +132,10 @@ struct SolutionSheetContext<'a> {
     current_metrics: &'a BettingMetrics,
     solution: &'a BettingOptimizerSolution,
     summary: &'a str,
+    original_copy_text: &'a str,
+    large_overage_copy_text: &'a str,
+    small_group_copy_text: &'a str,
+    large_group_copy_text: &'a str,
     source_sheet_name: &'a str,
 }
 
@@ -629,10 +649,15 @@ pub fn write_betting_workbook_solution_xlsm_from_contract(
     summary: &str,
 ) -> Result<(), BettingWorkbookBridgeError> {
     let temp_vba_path = extract_embedded_vba_project(template_path)?;
+    let copy_texts = build_optimizer_copy_texts(solution);
     let solution_context = SolutionSheetContext {
         current_metrics,
         solution,
         summary,
+        original_copy_text: &copy_texts.original,
+        large_overage_copy_text: &copy_texts.large_overage,
+        small_group_copy_text: &copy_texts.small_group,
+        large_group_copy_text: &copy_texts.large_group,
         source_sheet_name: &contract.source_sheet_name,
     };
     let result = write_workbook(
@@ -1006,13 +1031,42 @@ fn write_current_sheet(
 
     let button = Button::new()
         .set_caption("测算并生成建议")
-        .set_macro("say_hello")
+        .set_macro("RunBettingSolverFromActiveSheet")
         .set_width(160)
         .set_height(32);
     sheet
         .insert_button(ACTION_ROW, TARGET_VALUE_COL, &button)
         .map_err(map_xlsx_error)?;
 
+    Ok(())
+}
+
+// 2026-04-22 CST: Keep each operator copy variant in its own row block
+// because the user now needs four independent copy boxes while preserving
+// the existing column layout and manual-adjustment table structure.
+fn write_result_copy_block(
+    sheet: &mut rust_xlsxwriter::Worksheet,
+    label_row: u32,
+    value_start_row: u32,
+    value_end_row: u32,
+    label_text: &str,
+    value_text: &str,
+    section_header: &Format,
+    detail_text: &Format,
+) -> Result<(), BettingWorkbookBridgeError> {
+    sheet
+        .write_string_with_format(label_row, RESULT_COPY_LABEL_COL, label_text, section_header)
+        .map_err(map_xlsx_error)?;
+    sheet
+        .merge_range(
+            value_start_row,
+            RESULT_COPY_VALUE_START_COL,
+            value_end_row,
+            RESULT_COPY_VALUE_END_COL,
+            value_text,
+            detail_text,
+        )
+        .map_err(map_xlsx_error)?;
     Ok(())
 }
 
@@ -1042,6 +1096,13 @@ fn write_suggestion_sheet(
     sheet.set_column_width(10, 18).map_err(map_xlsx_error)?;
     sheet.set_column_width(11, 18).map_err(map_xlsx_error)?;
     sheet.set_column_width(12, 18).map_err(map_xlsx_error)?;
+    // 2026-04-21 CST: Reserve a wide copy-text area to the right of the
+    // manual-constraint table so every generated round keeps the same
+    // operator-facing refund sentence without overlapping editable columns.
+    sheet.set_column_width(13, 18).map_err(map_xlsx_error)?;
+    sheet.set_column_width(14, 18).map_err(map_xlsx_error)?;
+    sheet.set_column_width(15, 18).map_err(map_xlsx_error)?;
+    sheet.set_column_width(16, 18).map_err(map_xlsx_error)?;
 
     let title_format = Format::new()
         .set_align(FormatAlign::Center)
@@ -1104,9 +1165,60 @@ fn write_suggestion_sheet(
         let current_metrics = context.current_metrics;
         let solution = context.solution;
         let summary = context.summary;
+        let original_copy_text = context.original_copy_text;
+        let large_overage_copy_text = context.large_overage_copy_text;
+        let small_group_copy_text = context.small_group_copy_text;
+        let large_group_copy_text = context.large_group_copy_text;
         sheet
             .merge_range(1, 0, 2, 7, summary, &section_header)
             .map_err(map_xlsx_error)?;
+        // 2026-04-21 CST: Keep a dedicated copy block in the result-sheet meta
+        // area so every generated round exposes the same operator-facing refund
+        // sentence without shifting the established metric/detail table rows.
+        // 2026-04-21 CST: Move the copy block to a dedicated far-right area
+        // because rows 7+ in columns J:M are reused by the manual-constraint
+        // table, and keeping the operator copy text there causes it to be
+        // overwritten from round 2 onward.
+        write_result_copy_block(
+            sheet,
+            RESULT_COPY_LABEL_ROW,
+            RESULT_COPY_VALUE_START_ROW,
+            RESULT_COPY_VALUE_END_ROW,
+            "可复制描述（原始）",
+            original_copy_text,
+            &section_header,
+            &detail_text,
+        )?;
+        write_result_copy_block(
+            sheet,
+            RESULT_LARGE_OVERAGE_LABEL_ROW,
+            RESULT_LARGE_OVERAGE_VALUE_START_ROW,
+            RESULT_LARGE_OVERAGE_VALUE_END_ROW,
+            "可复制描述（大于30净额）",
+            large_overage_copy_text,
+            &section_header,
+            &detail_text,
+        )?;
+        write_result_copy_block(
+            sheet,
+            RESULT_SMALL_GROUP_LABEL_ROW,
+            RESULT_SMALL_GROUP_VALUE_START_ROW,
+            RESULT_SMALL_GROUP_VALUE_END_ROW,
+            "可复制描述（小于等于30归类）",
+            small_group_copy_text,
+            &section_header,
+            &detail_text,
+        )?;
+        write_result_copy_block(
+            sheet,
+            RESULT_LARGE_GROUP_LABEL_ROW,
+            RESULT_LARGE_GROUP_VALUE_START_ROW,
+            RESULT_LARGE_GROUP_VALUE_END_ROW,
+            "可复制描述（大于30归类）",
+            large_group_copy_text,
+            &section_header,
+            &detail_text,
+        )?;
         sheet
             .write_string_with_format(
                 RESULT_SOURCE_SHEET_ROW,

@@ -44,6 +44,48 @@ fn latest_round_sheet_name(path: &std::path::Path) -> String {
         .expect("workbook should contain at least one round result sheet")
 }
 
+// 2026-04-21 CST: Keep a regression for the new copy-friendly summary block
+// so every generated round sheet exposes the same operator-facing refund text.
+fn assert_round_sheet_has_copy_block(path: &std::path::Path, sheet_name: &str) {
+    let mut workbook = open_workbook_auto(path).unwrap();
+    let range = workbook.worksheet_range(sheet_name).unwrap();
+    let copy_label = range.get_value((7, 13)).unwrap().to_string();
+    let copy_text = range.get_value((8, 13)).unwrap().to_string();
+
+    assert_eq!(copy_label, "可复制描述");
+    assert!(!copy_text.is_empty());
+    assert!(copy_text.contains("建议") || copy_text.contains("无需下调"));
+}
+
+// 2026-04-22 CST: Add a new multi-box verifier because the result sheet now
+// keeps four separate copy-friendly descriptions in rows only, without adding
+// extra columns or changing the manual-adjustment table layout.
+fn assert_round_sheet_has_all_copy_blocks(path: &std::path::Path, sheet_name: &str) {
+    let mut workbook = open_workbook_auto(path).unwrap();
+    let range = workbook.worksheet_range(sheet_name).unwrap();
+    let original_label = range.get_value((7, 13)).unwrap().to_string();
+    let original_text = range.get_value((8, 13)).unwrap().to_string();
+    let overage_label = range.get_value((10, 13)).unwrap().to_string();
+    let overage_text = range.get_value((11, 13)).unwrap().to_string();
+    let small_group_label = range.get_value((13, 13)).unwrap().to_string();
+    let small_group_text = range.get_value((14, 13)).unwrap().to_string();
+    let large_group_label = range.get_value((16, 13)).unwrap().to_string();
+    let large_group_text = range.get_value((17, 13)).unwrap().to_string();
+
+    assert_eq!(original_label, "可复制描述（原始）");
+    assert_eq!(overage_label, "可复制描述（大于30净额）");
+    assert_eq!(small_group_label, "可复制描述（小于等于30归类）");
+    assert_eq!(large_group_label, "可复制描述（大于30归类）");
+    assert!(!original_text.is_empty());
+    assert!(!overage_text.is_empty());
+    assert!(!small_group_text.is_empty());
+    assert!(!large_group_text.is_empty());
+    assert!(original_text.contains("建议") || original_text.contains("无需下调"));
+    assert!(overage_text.contains("净额建议"));
+    assert!(small_group_text.contains("归类"));
+    assert!(large_group_text.contains("归类"));
+}
+
 #[test]
 fn betting_solver_returns_nonzero_when_arguments_missing() {
     let mut cmd = Command::cargo_bin("betting_solver").unwrap();
@@ -185,6 +227,7 @@ fn betting_solver_can_solve_from_round_sheet_and_produce_next_round() {
     let template_path = create_test_output_path("betting_solver_round1_template", "xlsm");
     let round1_path = create_test_output_path("betting_solver_round1_output", "xlsm");
     let round2_path = create_test_output_path("betting_solver_round2_output", "xlsm");
+    let round3_path = create_test_output_path("betting_solver_round3_output", "xlsm");
 
     Command::cargo_bin("betting_solver")
         .unwrap()
@@ -208,6 +251,7 @@ fn betting_solver_can_solve_from_round_sheet_and_produce_next_round() {
     // name so the CLI regression checks workbook chaining behavior rather than
     // depending on a brittle encoded literal.
     let round1_sheet_name = latest_round_sheet_name(&round1_path);
+    assert_round_sheet_has_all_copy_blocks(&round1_path, &round1_sheet_name);
 
     Command::cargo_bin("betting_solver")
         .unwrap()
@@ -233,6 +277,104 @@ fn betting_solver_can_solve_from_round_sheet_and_produce_next_round() {
 
     assert_ne!(round2_sheet_name, round1_sheet_name);
     assert!(workbook_xml.contains(&round2_sheet_name));
+    assert_round_sheet_has_all_copy_blocks(&round2_path, &round2_sheet_name);
+
+    Command::cargo_bin("betting_solver")
+        .unwrap()
+        .args([
+            "solve",
+            round2_path.to_str().unwrap(),
+            round3_path.to_str().unwrap(),
+            "--source-sheet",
+            round2_sheet_name.as_str(),
+        ])
+        .assert()
+        .success();
+
+    let round3_sheet_name = latest_round_sheet_name(&round3_path);
+    assert_ne!(round3_sheet_name, round2_sheet_name);
+    assert_round_sheet_has_all_copy_blocks(&round3_path, &round3_sheet_name);
+}
+
+#[test]
+fn betting_solver_can_rebuild_clean_template_from_existing_round_sheet() {
+    let template_path = create_test_output_path("betting_solver_rebuild_template", "xlsm");
+    let round1_path = create_test_output_path("betting_solver_rebuild_round1", "xlsm");
+    let rebuilt_path = create_test_output_path("betting_solver_rebuild_output", "xlsm");
+
+    Command::cargo_bin("betting_solver")
+        .unwrap()
+        .args(["template", template_path.to_str().unwrap()])
+        .assert()
+        .success();
+
+    Command::cargo_bin("betting_solver")
+        .unwrap()
+        .args([
+            "solve",
+            template_path.to_str().unwrap(),
+            round1_path.to_str().unwrap(),
+            "--source-sheet",
+            CURRENT_SHEET_NAME,
+        ])
+        .assert()
+        .success();
+
+    let round1_sheet_name = latest_round_sheet_name(&round1_path);
+
+    Command::cargo_bin("betting_solver")
+        .unwrap()
+        .args([
+            "rebuild",
+            round1_path.to_str().unwrap(),
+            rebuilt_path.to_str().unwrap(),
+            "--source-sheet",
+            round1_sheet_name.as_str(),
+        ])
+        .assert()
+        .success();
+
+    let rebuilt_workbook = open_workbook_auto(&rebuilt_path).unwrap();
+    let rebuilt_sheet_names = rebuilt_workbook.sheet_names().to_vec();
+    assert_eq!(
+        rebuilt_sheet_names,
+        vec![CURRENT_SHEET_NAME.to_string(), "优化建议".to_string()],
+        "rebuild should generate a fresh two-sheet workbook without carried-over rounds"
+    );
+
+    let rebuilt_contract = excel_skill::ops::betting_workbook_bridge::load_betting_workbook_contract(
+        rebuilt_path.to_str().unwrap(),
+    )
+    .unwrap();
+    let source_contract =
+        excel_skill::ops::betting_workbook_bridge::load_betting_workbook_contract_from_sheet(
+            round1_path.to_str().unwrap(),
+            Some(&round1_sheet_name),
+        )
+        .unwrap();
+
+    assert_eq!(
+        rebuilt_contract.request.max_loss_limit,
+        source_contract.request.max_loss_limit
+    );
+    assert_eq!(
+        rebuilt_contract.request.loss_count_target,
+        source_contract.request.loss_count_target
+    );
+    assert_eq!(
+        rebuilt_contract
+            .request
+            .entries
+            .iter()
+            .map(|entry| entry.original_stake)
+            .collect::<Vec<_>>(),
+        source_contract
+            .request
+            .entries
+            .iter()
+            .map(|entry| entry.original_stake)
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]

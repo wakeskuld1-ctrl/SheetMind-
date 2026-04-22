@@ -1,0 +1,47 @@
+﻿{
+    "inventory":  {
+                      "discovered_at":  "2026-04-22 19:30:30",
+                      "hosts":  {
+                                    "host_key":  "excel",
+                                    "display_name":  "Microsoft Excel",
+                                    "executable_path":  "C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE",
+                                    "source":  "registry"
+                                },
+                      "xlsm_association":  {
+                                               "extension":  ".xlsm",
+                                               "prog_id":  "Excel.SheetMacroEnabled.12",
+                                               "open_command":  "\"C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE\" \"%1\""
+                                           },
+                      "xlsx_association":  {
+                                               "extension":  ".xlsx",
+                                               "prog_id":  "Excel.Sheet.12",
+                                               "open_command":  "\"C:\\Program Files\\Microsoft Office\\Root\\Office16\\EXCEL.EXE\" \"%1\""
+                                           },
+                      "default_host":  "excel",
+                      "has_excel":  true,
+                      "has_wps":  false
+                  },
+    "probe":  {
+                  "host_started":  true,
+                  "marker_written":  false,
+                  "marker_path":  "D:\\Rust\\Excel_Skill\\tools\\macro_check\\reports\\20260422_193030\\probe_runtime\\macro_probe_signal.txt",
+                  "process_name":  "EXCEL",
+                  "blocking_hint":  "Workbook open timed out before the marker file appeared. Macro execution may be blocked by host security prompts or macro settings."
+              },
+    "outcome":  {
+                    "generated_at":  "2026-04-22 19:30:51",
+                    "grade":  "high_risk",
+                    "issues":  [
+                                   {
+                                       "severity":  "high_risk",
+                                       "code":  "marker_missing",
+                                       "message":  "The host started, but the macro probe did not write its marker file."
+                                   },
+                                   {
+                                       "severity":  "warning",
+                                       "code":  "blocking_hint",
+                                       "message":  "Workbook open timed out before the marker file appeared. Macro execution may be blocked by host security prompts or macro settings."
+                                   }
+                               ]
+                }
+}

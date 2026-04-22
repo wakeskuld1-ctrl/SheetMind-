@@ -1,6 +1,7 @@
 use excel_skill::ops::betting_optimizer::{
-    BettingOptimizerEntry, BettingOptimizerRequest, build_optimizer_summary,
-    evaluate_current_metrics, solve_betting_adjustment,
+    BettingAdjustmentEntry, BettingOptimizerEntry, BettingOptimizerRequest,
+    BettingOptimizerSolution, build_optimizer_copy_text, build_optimizer_copy_texts,
+    build_optimizer_summary, evaluate_current_metrics, solve_betting_adjustment,
 };
 
 fn numbered_entries(stakes: &[i64]) -> Vec<BettingOptimizerEntry> {
@@ -357,9 +358,125 @@ fn optimizer_summary_mentions_limit_refund_and_focus_numbers() {
 
     assert!(summary.contains("1000"));
     assert!(summary.contains("27"));
-    assert!(summary.contains("02"));
-    assert!(summary.contains("17"));
-    assert!(summary.contains("29"));
+    assert!(summary.contains("19"));
+    assert!(!summary.contains("02"));
+}
+
+#[test]
+fn optimizer_copy_text_uses_refund_amount_language_for_adjusted_numbers() {
+    let request = sample_request_with_limit(1000.0, 19);
+    let solution = solve_betting_adjustment(&request).unwrap();
+
+    let copy_text = build_optimizer_copy_text(&solution);
+
+    assert!(copy_text.starts_with("重点下调建议："));
+    assert!(copy_text.contains("02打"));
+    assert!(copy_text.contains("17打"));
+    assert!(copy_text.contains("29打"));
+    assert!(!copy_text.contains("调整后最大亏损"));
+}
+
+#[test]
+fn optimizer_copy_text_reports_no_adjustment_when_solution_has_no_refund() {
+    let request = uniform_request(30, 49, 1500.0, 0);
+    let solution = solve_betting_adjustment(&request).unwrap();
+
+    let copy_text = build_optimizer_copy_text(&solution);
+
+    assert_eq!(copy_text, "本轮无需下调，保持当前方案即可。");
+}
+
+#[test]
+fn optimizer_copy_texts_split_original_excess_small_and_large_groups() {
+    // 2026-04-22 CST: Freeze the new copy-box wording because the user now
+    // needs three additional operator-friendly descriptions without changing
+    // solver math or the underlying refund amounts.
+    let solution = BettingOptimizerSolution {
+        total_original_stake: 0,
+        total_adjusted_stake: 0,
+        total_refund: 204,
+        rebate: 0.0,
+        payable_principal: 0.0,
+        max_loss: 0.0,
+        loss_count: 19,
+        loss_count_gap: 0,
+        constraint_limited: false,
+        entries: vec![
+            BettingAdjustmentEntry {
+                label: "01".to_string(),
+                original_stake: 100,
+                adjusted_stake: 67,
+                refund_amount: 33,
+                payout_amount: 0.0,
+                pnl_value: 0.0,
+                is_loss_number: true,
+            },
+            BettingAdjustmentEntry {
+                label: "02".to_string(),
+                original_stake: 100,
+                adjusted_stake: 52,
+                refund_amount: 48,
+                payout_amount: 0.0,
+                pnl_value: 0.0,
+                is_loss_number: true,
+            },
+            BettingAdjustmentEntry {
+                label: "03".to_string(),
+                original_stake: 100,
+                adjusted_stake: 72,
+                refund_amount: 28,
+                payout_amount: 0.0,
+                pnl_value: 0.0,
+                is_loss_number: true,
+            },
+            BettingAdjustmentEntry {
+                label: "08".to_string(),
+                original_stake: 100,
+                adjusted_stake: 97,
+                refund_amount: 3,
+                payout_amount: 0.0,
+                pnl_value: 0.0,
+                is_loss_number: true,
+            },
+            BettingAdjustmentEntry {
+                label: "11".to_string(),
+                original_stake: 100,
+                adjusted_stake: 70,
+                refund_amount: 30,
+                payout_amount: 0.0,
+                pnl_value: 0.0,
+                is_loss_number: true,
+            },
+            BettingAdjustmentEntry {
+                label: "49".to_string(),
+                original_stake: 100,
+                adjusted_stake: 35,
+                refund_amount: 65,
+                payout_amount: 0.0,
+                pnl_value: 0.0,
+                is_loss_number: true,
+            },
+        ],
+    };
+
+    let copy_texts = build_optimizer_copy_texts(&solution);
+
+    assert_eq!(
+        copy_texts.original,
+        "重点下调建议：01打33，02打48，03打28，08打3，11打30，49打65。"
+    );
+    assert_eq!(
+        copy_texts.large_overage,
+        "大于30净额建议：01打3，02打18，49打35。"
+    );
+    assert_eq!(
+        copy_texts.small_group,
+        "小于等于30归类：03打28，08打3，11打30。"
+    );
+    assert_eq!(
+        copy_texts.large_group,
+        "大于30归类：01打33，02打48，49打65。"
+    );
 }
 
 #[test]

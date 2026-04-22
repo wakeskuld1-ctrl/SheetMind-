@@ -1,0 +1,24 @@
+﻿Macro Launch Readiness Report
+Generated At: 2026-04-22 20:29:54
+
+Outcome
+Grade: runnable
+
+Host Inventory
+Default Host: excel
+Excel Installed: True
+WPS Installed: False
+XLSM Association: "C:\Program Files\Microsoft Office\Root\Office16\EXCEL.EXE" "%1"
+
+Dynamic Probe
+Requested Host: default
+Requested Host Available: True
+Host Started: True
+Marker Written: True
+Marker Path: D:\Rust\Excel_Skill\tools\macro_check\reports\20260422_202953\probe_runtime\macro_probe_signal.txt
+Observed Process: EXCEL
+Actual Host: excel
+Blocking Hint: 
+
+Issues
+- No obvious issues

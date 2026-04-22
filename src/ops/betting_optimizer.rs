@@ -118,6 +118,13 @@ pub struct BettingOptimizerSolution {
     pub entries: Vec<BettingAdjustmentEntry>,
 }
 
+pub struct BettingOptimizerCopyTextSet {
+    pub original: String,
+    pub large_overage: String,
+    pub small_group: String,
+    pub large_group: String,
+}
+
 #[derive(Debug, Error)]
 pub enum BettingOptimizerError {
     #[error("betting optimizer input cannot be empty")]
@@ -215,14 +222,8 @@ pub fn build_optimizer_summary(
         );
     }
 
-    let focus_labels = focus_numbers
-        .iter()
-        .map(|entry| entry.label.clone())
-        .collect::<Vec<_>>()
-        .join("、");
-
     format!(
-        "{}当前方案最大亏损为{}，目标为{}。在仅允许下调当前风险号码且保持整数下注的前提下，建议总退款{}，调整后最大亏损{}，亏损号码数调整为{}。重点下调号码为：{}。",
+        "{}当前方案最大亏损为{}，目标为{}。在仅允许下调当前风险号码且保持整数下注的前提下，建议总退款{}，调整后最大亏损{}，亏损号码数调整为{}。",
         if solution.constraint_limited {
             "受人工约束影响，本轮结果为最接近目标的可行结果。"
         } else {
@@ -232,9 +233,101 @@ pub fn build_optimizer_summary(
         format_decimal(request.max_loss_limit),
         solution.total_refund,
         format_decimal(solution.max_loss),
-        solution.loss_count,
-        focus_labels
+        solution.loss_count
     )
+}
+
+// 2026-04-21 CST: Add a dedicated copy-text builder because the approved
+// workbook layout now keeps the numeric overview and the operator copy text in
+// separate cells, and the copy text must use refund amounts in "XX打YY" form.
+pub fn build_optimizer_copy_text(solution: &BettingOptimizerSolution) -> String {
+    let refunded_numbers = solution
+        .entries
+        .iter()
+        .filter(|entry| entry.refund_amount > 0)
+        .map(|entry| format!("{}打{}", entry.label, entry.refund_amount))
+        .collect::<Vec<_>>();
+
+    if refunded_numbers.is_empty() {
+        "本轮无需下调，保持当前方案即可。".to_string()
+    } else {
+        format!("重点下调建议：{}。", refunded_numbers.join("，"))
+    }
+}
+
+// 2026-04-22 CST: Add grouped copy helpers because the user approved three
+// extra copy boxes driven only by the solved refund amounts, without changing
+// the optimizer math or recalculating any workbook values.
+pub fn build_optimizer_copy_texts(
+    solution: &BettingOptimizerSolution,
+) -> BettingOptimizerCopyTextSet {
+    const LARGE_REFUND_THRESHOLD: i64 = 30;
+
+    let refunded_entries = solution
+        .entries
+        .iter()
+        .filter(|entry| entry.refund_amount > 0)
+        .collect::<Vec<_>>();
+    let format_entries = |entries: &[&BettingAdjustmentEntry], subtract_threshold: bool| {
+        entries
+            .iter()
+            .map(|entry| {
+                let display_amount = if subtract_threshold {
+                    entry.refund_amount - LARGE_REFUND_THRESHOLD
+                } else {
+                    entry.refund_amount
+                };
+                format!("{}打{}", entry.label, display_amount)
+            })
+            .collect::<Vec<_>>()
+    };
+    let small_group_entries = refunded_entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.refund_amount <= LARGE_REFUND_THRESHOLD)
+        .collect::<Vec<_>>();
+    let large_group_entries = refunded_entries
+        .iter()
+        .copied()
+        .filter(|entry| entry.refund_amount > LARGE_REFUND_THRESHOLD)
+        .collect::<Vec<_>>();
+
+    let original = if refunded_entries.is_empty() {
+        "本轮无需下调，保持当前方案即可。".to_string()
+    } else {
+        format!("重点下调建议：{}。", format_entries(&refunded_entries, false).join("，"))
+    };
+    let large_overage = if large_group_entries.is_empty() {
+        "大于30净额建议：无。".to_string()
+    } else {
+        format!(
+            "大于30净额建议：{}。",
+            format_entries(&large_group_entries, true).join("，")
+        )
+    };
+    let small_group = if small_group_entries.is_empty() {
+        "小于等于30归类：无。".to_string()
+    } else {
+        format!(
+            "小于等于30归类：{}。",
+            format_entries(&small_group_entries, false).join("，")
+        )
+    };
+    let large_group = if large_group_entries.is_empty() {
+        "大于30归类：无。".to_string()
+    } else {
+        format!(
+            "大于30归类：{}。",
+            format_entries(&large_group_entries, false).join("，")
+        )
+    };
+
+    BettingOptimizerCopyTextSet {
+        original,
+        large_overage,
+        small_group,
+        large_group,
+    }
 }
 
 fn validate_request(request: &BettingOptimizerRequest) -> Result<i64, BettingOptimizerError> {

@@ -1,0 +1,5 @@
+Put exactly one delivery EXE in this folder before sending the package out.
+
+Optional support-only files:
+- launcher.args.txt
+- launcher.workdir.txt

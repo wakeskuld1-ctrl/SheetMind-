@@ -1,0 +1,25 @@
+﻿Macro Launch Readiness Report
+Generated At: 2026-04-22 19:43:55
+
+Outcome
+Grade: high_risk
+
+Host Inventory
+Default Host: excel
+Excel Installed: True
+WPS Installed: False
+XLSM Association: "C:\Program Files\Microsoft Office\Root\Office16\EXCEL.EXE" "%1"
+
+Dynamic Probe
+Requested Host: wps
+Requested Host Available: False
+Host Started: False
+Marker Written: False
+Marker Path: D:\Rust\Excel_Skill\tools\macro_check\reports\verify_wps\probe_runtime\macro_probe_signal.txt
+Observed Process: 
+Actual Host: 
+Blocking Hint: Requested host is not installed: wps
+
+Issues
+- [high_risk] requested_host_missing: The requested host was not available: wps
+- [warning] blocking_hint: Requested host is not installed: wps

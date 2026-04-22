@@ -1,0 +1,3 @@
+host_app=Microsoft Excel
+workbook=D:\Rust\Excel_Skill\tools\macro_check\reports\20260422_202759\probe_runtime\macro_probe.xlsm
+opened_at=2026-04-22 20:28:01

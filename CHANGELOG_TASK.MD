@@ -1644,3 +1644,84 @@
 ### 记忆点（可选）
 - 用户再次强调：每次代码任务结束后都要同步主文档、AI 交接文档和 `CHANGELOG_TASK.MD`，不能只改代码不留痕。
 - 用户再次强调：账户级仓位管理不是只给建议，还必须能回写执行偏差并进入投后复盘，这样闭环才算成立。
+## 2026-04-22
+### Modified Files
+- `tools/macro_check/macro_check_core.ps1`: added reusable inventory, grading, and report helpers for the macro launch checker. Reason: keep the delivery logic testable before wiring the live workbook probe.
+- `tools/macro_check/tests/macro_check_core_smoke.ps1`: added a no-dependency smoke test for grading and artifact output. Reason: lock the first red/green slice before running the real host probe.
+- `tools/macro_check/assets/vba/MacroProbeSupport.bas`: added the workbook-open marker writer. Reason: use a real macro as the success signal instead of static environment guessing.
+- `tools/macro_check/assets/vba/ThisWorkbookCode.txt`: added the `Workbook_Open` trigger for the probe workbook. Reason: run the probe automatically on open.
+- `tools/macro_check/build_macro_probe_asset.ps1`: added a reproducible builder for the shipped `.xlsm` probe workbook. Reason: keep the binary asset regenerable from source.
+- `tools/macro_check/assets/macro_probe.xlsm`: generated the shipped probe workbook. Reason: customer-side runs should not require rebuilding the asset.
+- `tools/macro_check/macro_check.ps1`: added the runtime checker. Reason: detect host startup, wait for the marker file, and write delivery reports.
+- `tools/macro_check/run_macro_check.bat`: added the double-click entrypoint. Reason: reduce customer-side friction.
+- `tools/macro_check/README.md`: added folder-level usage and scope notes. Reason: keep the delivery contract explicit.
+- `docs/plans/2026-04-22-macro-launch-check-design.md`: recorded the approved design in the real repository.
+- `docs/plans/2026-04-22-macro-launch-check-plan.md`: recorded the implementation plan in the real repository.
+- `task_plan.md`, `findings.md`, `progress.md`: updated handoff state for the new delivery tool.
+
+### Why
+- The approved scope was intentionally narrow: answer only whether Excel or WPS can open an `.xlsm` workbook and actually run its startup macro.
+- A real workbook-open probe was chosen because static configuration alone cannot prove macro startup readiness.
+
+### Verification
+- Passed: `powershell -ExecutionPolicy Bypass -File D:\Rust\Excel_Skill\tools\macro_check\tests\macro_check_core_smoke.ps1`
+- Passed: `powershell -ExecutionPolicy Bypass -File D:\Rust\Excel_Skill\tools\macro_check\build_macro_probe_asset.ps1`
+- Passed with runtime report output: `powershell -ExecutionPolicy Bypass -File D:\Rust\Excel_Skill\tools\macro_check\macro_check.ps1 -OutputDirectory D:\Rust\Excel_Skill\tools\macro_check\reports\local_verify -TimeoutSeconds 15`
+
+### Observed Result
+- Local machine result was `high_risk`.
+- Host observation:
+  - default host = `excel`
+  - host started = `True`
+  - marker written = `False`
+- Interpretation:
+  - the tool itself ran end-to-end and produced reports
+  - the local environment did not prove macro startup success within timeout
+
+### Remaining Risks
+- Existing Excel trust or prompt settings can still block macro execution even when the host opens successfully.
+- Current process observation is intentionally lightweight; if a customer case needs deeper forensics, process/window diagnostics may need a second phase.
+
+### 2026-04-22 Follow-up Fix
+- `tools/macro_check/build_macro_probe_asset.ps1`: added VBA source normalization before `AddFromString`. Reason: the probe import path must strip export-only `Attribute VB_Name` headers and normalize smart quotes before generating the workbook asset.
+
+### 2026-04-22 Re-Verification
+- Passed: `powershell -ExecutionPolicy Bypass -File D:\Rust\Excel_Skill\tools\macro_check\build_macro_probe_asset.ps1`
+- Passed: `powershell -ExecutionPolicy Bypass -File D:\Rust\Excel_Skill\tools\macro_check\tests\macro_check_core_smoke.ps1`
+- Passed with runtime report output: `powershell -ExecutionPolicy Bypass -File D:\Rust\Excel_Skill\tools\macro_check\macro_check.ps1 -OutputDirectory D:\Rust\Excel_Skill\tools\macro_check\reports\local_verify -TimeoutSeconds 20`
+
+### 2026-04-22 Re-Verification Observed Result
+- The VBA syntax/import failure was fixed.
+- The end-to-end tool still reports `high_risk` on this machine, but now for a real runtime reason:
+  - default host = `excel`
+  - host started = `True`
+  - marker written = `False`
+  - blocking hint = `Workbook open timed out before the marker file appeared...`
+- Interpretation:
+  - the probe workbook now builds and opens
+  - the remaining risk is macro execution not completing within timeout, not VBA source corruption
+
+### 2026-04-22 Host-Forced Enhancement
+- `tools/macro_check/macro_check.ps1`: added `PreferredHost` support. Reason: shared Office/WPS environments need a way to test Excel and WPS separately instead of only following the default `.xlsm` association.
+- `tools/macro_check/macro_check_core.ps1`: added requested-host reporting and mismatch/missing-host grading. Reason: the report must clearly separate "what we asked to test" from "what actually launched".
+- `tools/macro_check/run_macro_check_excel.bat`: added an Excel-forced entrypoint.
+- `tools/macro_check/run_macro_check_wps.bat`: added a WPS-forced entrypoint.
+- `tools/macro_check/README.md`: documented the new entrypoints and host-selection behavior.
+
+### 2026-04-22 Host-Forced Verification
+- Passed: `powershell -ExecutionPolicy Bypass -File D:\Rust\Excel_Skill\tools\macro_check\tests\macro_check_core_smoke.ps1`
+- Passed with runtime report output: default host run
+- Passed with runtime report output: forced Excel run
+- Passed with runtime report output: forced WPS missing-host run
+
+### 2026-04-22 Host-Forced Observed Result
+- Default run:
+  - requested host = `default`
+  - actual host = `excel`
+- Forced Excel run:
+  - requested host = `excel`
+  - actual host = `excel`
+- Forced WPS run on this machine:
+  - requested host = `wps`
+  - requested host available = `False`
+  - report cleanly marks missing WPS instead of silently falling back to Excel

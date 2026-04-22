@@ -1,0 +1,43 @@
+﻿Macro Launch Readiness Report
+Generated At: 2026-04-22 20:46:52
+
+Outcome
+Grade: runnable
+
+Host Inventory
+Default Host: excel
+Excel Installed: True
+WPS Installed: False
+XLSM Association: "C:\Program Files\Microsoft Office\Root\Office16\EXCEL.EXE" "%1"
+
+Launcher
+Launch Mode: launcher
+Launcher Path: C:\Program Files\Microsoft Office\Root\Office16\EXCEL.EXE
+Launcher Arguments Template: {probe_workbook}
+Launcher Resolved Arguments: "D:\Rust\Excel_Skill\tools\macro_check\reports\verify_launcher_excel\probe_runtime\macro_probe.xlsm"
+Launcher Working Directory: 
+Launcher Started: True
+Launcher Process: EXCEL
+
+Dynamic Probe
+Requested Host: default
+Requested Host Available: True
+Host Started: True
+Marker Written: True
+Marker Path: D:\Rust\Excel_Skill\tools\macro_check\reports\verify_launcher_excel\probe_runtime\macro_probe_signal.txt
+Observed Process: EXCEL
+Actual Host: excel
+Blocking Hint: 
+
+Security Signals
+Firewall Profile: Domain Enabled=True Inbound=NotConfigured Outbound=NotConfigured
+Firewall Profile: Private Enabled=True Inbound=NotConfigured Outbound=NotConfigured
+Firewall Profile: Public Enabled=True Inbound=NotConfigured Outbound=NotConfigured
+Launcher Firewall Rules: none
+Security Center Antivirus: Windows Defender Source=security_center
+Standalone Antivirus Hits: none
+Office Macro Policy: HKCU 16.0 VBAWarnings=1 Risk=info Detail=1
+Office Macro Policy: HKCU 16.0 AccessVBOM=1 Risk=info Detail=1
+
+Issues
+- No obvious issues

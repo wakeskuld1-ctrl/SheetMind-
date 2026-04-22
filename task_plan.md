@@ -277,3 +277,16 @@
 3. 创建整合分支并确认基线状态
 4. 对照旧工程关键能力模块
 5. 输出首轮迁移建议
+## 2026-04-22 Macro Launch Check
+
+### Goal
+- Ship a standalone folder under `tools/macro_check/` that verifies whether the customer machine can open an `.xlsm` workbook and run its startup macro.
+
+### Current Status
+- [x] Approved scope was re-confirmed before implementation.
+- [x] Added a testable PowerShell core and a smoke test.
+- [x] Added VBA probe source and a reproducible workbook builder.
+- [x] Added the runtime checker, BAT entrypoint, and README.
+- [x] Generated `tools/macro_check/assets/macro_probe.xlsm`.
+- [x] Ran one real local verification.
+- [ ] Residual follow-up: improve host/process observation if a later customer case needs deeper diagnostics.

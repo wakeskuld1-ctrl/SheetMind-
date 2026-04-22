@@ -4011,3 +4011,157 @@
 ### 关闭项
 - Upload-specific execution notes and AI handoff notes were created before Git staging.
 - The betting delivery verification trail referenced in the upload notes is now preserved inside the repository.
+
+## 2026-04-21 结果页摘要拆分与退款描述文案
+
+### 完成内容
+- Kept the optimizer overview summary focused on aggregate metrics instead of listing specific numbers.
+- Added a dedicated copy-friendly refund sentence builder so the result sheet can expose text like `重点下调建议：03打125，04打120。`
+- Updated optimizer unit coverage so the summary test now follows the approved contract and the copy-text tests validate refund-amount wording.
+
+### 修改原因
+- The user approved a two-cell result summary: one overview cell for metrics and one separate cell for copyable execution wording.
+- The business wording requires `打` to mean refund amount rather than adjusted final stake.
+
+### 验证
+- `cargo test --test betting_optimizer_unit -- --nocapture`
+- `cargo test --test betting_workbook_bridge_cli -- --nocapture`
+- `cargo test --test betting_solver_cli -- --nocapture`
+
+### 风险
+- `tests/betting_workbook_bridge_cli.rs` still contains legacy encoded literals, so future edits to that file should avoid broad re-encoding.
+
+## 2026-04-21 多轮结果页可复制描述稳定化
+
+### 完成内容
+- Moved the result-sheet copy block to a dedicated far-right area so it no longer collides with the manual-constraint columns in generated round sheets.
+- Extended the round-chain CLI regression to verify the copy block across round 1, round 2, and round 3 instead of only checking the first generated result sheet.
+- Manually generated a three-round workbook chain and confirmed the copy block remains present in the same cells on every round result sheet.
+
+### 修改原因
+- The user reported that the copy-friendly description only appeared on the first generated round sheet and disappeared from later rounds.
+- Root cause verification showed the copy block written near columns `J:K` was later overwritten by the editable manual-constraint headers and values on rows `8+`.
+
+### 验证
+- `cargo test --test betting_solver_cli betting_solver_can_solve_from_round_sheet_and_produce_next_round -- --nocapture`
+- `cargo test --test betting_solver_cli -- --nocapture`
+- `cargo test --test betting_workbook_bridge_cli -- --nocapture`
+- `cargo test --test betting_optimizer_unit -- --nocapture`
+- Manual workbook chain check:
+  - `tests/runtime_fixtures/manual_round_chain/round1.xlsm`
+  - `tests/runtime_fixtures/manual_round_chain/round2.xlsm`
+  - `tests/runtime_fixtures/manual_round_chain/round3.xlsm`
+  - Verified copy block at `N8` / `N9:Q10` on each round sheet
+
+### 风险
+- The new copy block now lives in the far-right columns (`N:Q`), so if the result-sheet layout later grows further right, this reserved area should stay protected.
+- The repository still contains unrelated pre-existing worktree changes; this entry only covers the result-sheet copy-block stabilization work.
+
+## 2026-04-21 交付包刷新为多轮稳定版
+
+### 完成内容
+- Rebuilt the release `betting_solver.exe` from the current stabilized source tree and replaced the delivery copy under the recovered-package directory.
+- Re-ran the delivery workbook through the refreshed solver so the packaged `xlsm` now contains the new copy block in the stable far-right area.
+- Verified the packaged workbook can continue from round 1 to round 2 while keeping the copy block visible on the generated result sheet.
+
+### 修改原因
+- The user asked to directly update the recovered delivery package so the shipped `xlsm + exe` matches the multi-round stable implementation.
+
+### 验证
+- Delivery files refreshed in:
+  - `D:\Rust\_tmp_compare\betting_solver_rust_recovered\delivery\betting_minimal_delivery_2026-04-21`
+- Packaged workbook verification:
+  - `N8 = 可复制描述`
+  - `N9:Q10 = 重点下调建议...`
+- Packaged round-2 chaining verification:
+  - Generated a temporary round-2 workbook from the packaged round-1 result sheet
+  - Confirmed `N8 = 可复制描述`
+  - Confirmed `N9 = 本轮无需下调，保持当前方案即可。`
+
+### 风险
+- The delivery directory still contains several historical `.tmp.xlsm` files from prior manual packaging attempts; they do not affect the refreshed main package but may confuse manual browsing if left there long term.
+
+## 2026-04-22 最小交付包整理
+
+### 完成内容
+- Cleaned the recovered delivery directory down to the minimum five customer-facing files only.
+- Removed temporary workbooks, validation copies, runtime temp folders, and solver log folders from the package root.
+- Re-verified the remaining packaged workbook still opens and exposes the copy-text block on the latest round sheet.
+
+### 修改原因
+- The user asked for a minimal usable delivery bundle without extra temporary files or internal leftovers.
+
+### 验证
+- Delivery directory item count after cleanup: `5`
+- Remaining files:
+  - `betting_solver.exe`
+  - `最新Excel_修复验证_计算器s6.1_稳交付版_页面还原.xlsm`
+  - `README_使用说明.md`
+  - `EXE被拦截处理说明.md`
+  - `附件清单.md`
+- Workbook verification after cleanup:
+  - latest result sheet still readable
+  - `N8 = 可复制描述`
+  - `N9 = 重点下调建议...`
+
+### 风险
+- Cleanup intentionally removed local troubleshooting traces from the delivery root, so any future onsite debugging will need fresh logs generated from the packaged workbook at runtime.
+
+## 2026-04-22 结果页四描述框扩展
+
+### 完成内容
+- Extended the result-sheet copy-text area from one block to four blocks while keeping the existing right-side column layout unchanged.
+- Added three new operator-facing descriptions: `大于30净额`, `小于等于30归类`, and `大于30归类`, while preserving the original refund description.
+- Wired the new copy-text set into workbook writing, multi-round CLI regression coverage, and optimizer-level wording tests.
+- Refreshed the packaged solver executable and generated an updated packaged workbook copy with the new four-block wording.
+
+### 修改原因
+- The user added a new delivery requirement: keep the original copy text, do not add columns, and expose three extra copy-ready descriptions driven only by refund text rules.
+
+### 验证
+- `cargo test --test betting_optimizer_unit -- --nocapture`
+- `cargo test --test betting_solver_cli -- --nocapture`
+- `cargo test --test betting_workbook_bridge_cli -- --nocapture`
+- Manual workbook inspection confirmed the expanded right-side layout uses rows only:
+  - `N8/N9` original copy text
+  - `N11/N12` large-overage copy text
+  - `N14/N15` small-group copy text
+  - `N17/N18` large-group copy text
+- Updated packaged workbook copy written to:
+  - `D:\Rust\_tmp_compare\betting_solver_rust_recovered\delivery\betting_minimal_delivery_2026-04-21\betting_delivery_copyblocks_refreshed.xlsm`
+
+### 风险
+- The original packaged workbook file is currently locked by an open Excel process, so the refreshed workbook had to be written as a sibling file instead of overwriting the original filename in place.
+- The threshold grouping is implemented as `<= 30` for the small group and `> 30` for the large group; if the business later wants `30` grouped differently, both wording logic and regression expectations must be updated together.
+
+## 2026-04-22 交付包重建修复
+
+### 完成内容
+- Added a formal `rebuild` subcommand to `betting_solver` so the delivery flow can regenerate a clean two-sheet macro workbook from any existing source sheet without post-processing the `.xlsm`.
+- Rebound the base-sheet action button to `RunBettingSolverFromActiveSheet` so the first page and every result page now share the same macro entrypoint.
+- Rebuilt the customer delivery workbook from the latest valid round state instead of patching the corrupted workbook in place.
+- Replaced the broken packaged workbook with the rebuilt clean workbook and restored the delivery directory to the minimum five-file package.
+
+### 修改原因
+- The prior delivery attempt relied on a workbook post-processing step that corrupted the macro workbook structure, causing garbled copy text and button-triggered save failures.
+
+### 验证
+- `cargo test --test betting_solver_cli -- --nocapture`
+- `cargo test --test betting_workbook_bridge_cli -- --nocapture`
+- `cargo build --release --bin betting_solver`
+- Release package workbook save verification via Excel COM:
+  - `FinalSaveCall=OK`
+  - sheet layout after rebuild: `计算器 | 优化建议`
+- Real macro-chain verification on a delivery copy:
+  - workbook save succeeded before macro run
+  - `RunBettingSolverFromActiveSheet` executed successfully
+  - generated round sheet appeared
+  - result sheet copy blocks remained readable:
+    - `可复制描述（原始）`
+    - `可复制描述（大于30净额）`
+    - `可复制描述（小于等于30归类）`
+    - `可复制描述（大于30归类）`
+
+### 风险
+- The rebuilt packaged workbook intentionally resets the delivery workbook to a clean two-sheet state derived from the latest selected round, so historical round sheets are no longer bundled in the customer package.
+- Runtime logs and temp directories are still generated when the customer clicks the macro button; they are cleaned from the packaged root before delivery but will reappear during use, which is expected.

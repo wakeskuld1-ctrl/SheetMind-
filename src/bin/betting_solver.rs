@@ -2,8 +2,9 @@ use excel_skill::ops::betting_optimizer::{
     build_optimizer_summary, evaluate_current_metrics, solve_betting_adjustment,
 };
 use excel_skill::ops::betting_workbook_bridge::{
-    CURRENT_SHEET_NAME, load_betting_workbook_contract, load_betting_workbook_contract_from_sheet,
-    write_betting_template_xlsm, write_betting_workbook_solution_xlsm_from_contract,
+    load_betting_workbook_contract, load_betting_workbook_contract_from_sheet,
+    write_betting_template_xlsm, write_betting_template_xlsm_with_request,
+    write_betting_workbook_solution_xlsm_from_contract, CURRENT_SHEET_NAME,
 };
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -26,6 +27,7 @@ fn run() -> Result<(), String> {
     match args[0].as_str() {
         "template" => run_template_command(&args),
         "solve" => run_solve_command(&args),
+        "rebuild" => run_rebuild_command(&args),
         _ => Err(usage()),
     }
 }
@@ -46,7 +48,7 @@ fn run_template_command(args: &[String]) -> Result<(), String> {
         },
     )?;
     logger.log("template_success", format!("output={}", args[1]));
-    println!("模板已生成: {}", args[1]);
+    println!("Template generated: {}", args[1]);
     Ok(())
 }
 
@@ -143,7 +145,56 @@ fn run_solve_command(args: &[String]) -> Result<(), String> {
     })?;
 
     logger.log("solve_success", format!("output={output_path}"));
-    println!("优化建议已生成: {output_path}");
+    println!("Solved workbook generated: {output_path}");
+    Ok(())
+}
+
+fn run_rebuild_command(args: &[String]) -> Result<(), String> {
+    let (input_path, output_path, source_sheet_name) = parse_rebuild_args(args)?;
+    let source_sheet_name = source_sheet_name.unwrap_or_else(|| CURRENT_SHEET_NAME.to_string());
+
+    let logger = RunLogger::create_for_command("rebuild", Path::new(&output_path))
+        .map_err(|error| format!("failed to create betting solver log: {error}"))?;
+    logger.log(
+        "rebuild_start",
+        format!(
+            "command=rebuild input={input_path} output={output_path} source_sheet={source_sheet_name}"
+        ),
+    );
+
+    // 2026-04-22 CST: Rebuild a clean macro template from an existing source
+    // sheet so delivery recovery never needs a post-processing workbook patch.
+    let workbook = if source_sheet_name == CURRENT_SHEET_NAME {
+        load_betting_workbook_contract(&input_path)
+    } else {
+        load_betting_workbook_contract_from_sheet(&input_path, Some(&source_sheet_name))
+    }
+    .map_err(|error| {
+        logger.log("rebuild_contract_load_failed", error.to_string());
+        error.to_string()
+    })?;
+
+    let vba_project_path = default_vba_project_path();
+    write_betting_template_xlsm_with_request(
+        &output_path,
+        vba_project_path.to_string_lossy().as_ref(),
+        &workbook.request,
+    )
+    .map_err(|error| {
+        logger.log("rebuild_write_failed", error.to_string());
+        error.to_string()
+    })?;
+
+    logger.log(
+        "rebuild_success",
+        format!(
+            "output={} source_sheet={} entries={}",
+            output_path,
+            source_sheet_name,
+            workbook.request.entries.len()
+        ),
+    );
+    println!("Rebuilt clean workbook: {output_path}");
     Ok(())
 }
 
@@ -179,6 +230,32 @@ fn parse_solve_args(args: &[String]) -> Result<(String, Option<String>, Option<S
     Ok((input_path, output_path, source_sheet_name))
 }
 
+fn parse_rebuild_args(args: &[String]) -> Result<(String, String, Option<String>), String> {
+    if args.len() < 3 {
+        return Err(usage());
+    }
+
+    let input_path = args[1].clone();
+    let output_path = args[2].clone();
+    let mut source_sheet_name = None;
+    let mut index = 3;
+
+    while index < args.len() {
+        if args[index] == "--source-sheet" {
+            let Some(sheet_name) = args.get(index + 1) else {
+                return Err(usage());
+            };
+            source_sheet_name = Some(sheet_name.clone());
+            index += 2;
+            continue;
+        }
+
+        return Err(usage());
+    }
+
+    Ok((input_path, output_path, source_sheet_name))
+}
+
 fn default_vba_project_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("assets")
@@ -188,7 +265,7 @@ fn default_vba_project_path() -> PathBuf {
 }
 
 fn usage() -> String {
-    "用法:\n  betting_solver template <output.xlsm>\n  betting_solver solve <input.xlsm> [output.xlsm] [--source-sheet <sheet_name>]".to_string()
+    "Usage:\n  betting_solver template <output.xlsm>\n  betting_solver solve <input.xlsm> [output.xlsm] [--source-sheet <sheet_name>]\n  betting_solver rebuild <input.xlsm> <output.xlsm> [--source-sheet <sheet_name>]".to_string()
 }
 
 struct RunLogger {

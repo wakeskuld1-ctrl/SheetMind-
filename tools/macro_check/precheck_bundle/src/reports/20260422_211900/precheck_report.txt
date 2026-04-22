@@ -1,0 +1,63 @@
+﻿Customer Environment Precheck Report
+Generated At: 2026-04-22 21:19:02
+
+Outcome
+Grade: runnable
+Recommendation: Environment looks broadly ready for a later delivery EXE test.
+
+System Summary
+Computer Name: WAKESKULD
+Current User: WAKESKULD\wakes
+Is Administrator: False
+OS: Microsoft Windows 11 家庭中文版
+OS Version: 10.0.26200
+OS Build: 26200
+OS Architecture: 64 位
+Manufacturer: LENOVO
+Model: 90YS0003CP
+Memory GB: 31.62
+PowerShell Version: 5.1.26100.8115
+
+Runtime Clues
+DotNet Release: 533509
+DotNet Version Hint: 4.8.1-or-newer
+VC Runtime: Microsoft Visual C++ 2010  x64 Redistributable - 10.0.40219 Version=10.0.40219
+VC Runtime: Microsoft Visual C++ 2012 x64 Additional Runtime - 11.0.61030 Version=11.0.61030
+VC Runtime: Microsoft Visual C++ 2022 X64 Minimum Runtime - 14.44.35211 Version=14.44.35211
+VC Runtime: Microsoft Visual C++ 2022 X64 Additional Runtime - 14.44.35211 Version=14.44.35211
+VC Runtime: Microsoft Visual C++ 2012 x64 Minimum Runtime - 11.0.61030 Version=11.0.61030
+VC Runtime: Microsoft Visual C++ 2015-2022 Redistributable (x86) - 14.44.35211 Version=14.44.35211.0
+VC Runtime: Microsoft Visual C++ 2012 Redistributable (x86) - 11.0.61030 Version=11.0.61030.0
+VC Runtime: Microsoft Visual C++ 2022 X86 Minimum Runtime - 14.44.35211 Version=14.44.35211
+VC Runtime: Microsoft Visual C++ 2012 x86 Additional Runtime - 11.0.61030 Version=11.0.61030
+VC Runtime: Microsoft Visual C++ 2012 x86 Minimum Runtime - 11.0.61030 Version=11.0.61030
+VC Runtime: Microsoft Visual C++ 2022 X86 Additional Runtime - 14.44.35211 Version=14.44.35211
+VC Runtime: Microsoft Visual C++ 2012 Redistributable (x64) - 11.0.61030 Version=11.0.61030.0
+VC Runtime: Microsoft Visual C++ 2015-2022 Redistributable (x64) - 14.44.35211 Version=14.44.35211.0
+VC Runtime: Microsoft Visual C++ 2010  x86 Redistributable - 10.0.40219 Version=10.0.40219
+
+Macro Environment
+Macro Probe Grade: runnable
+Default Host: excel
+Excel Installed: True
+WPS Installed: False
+Host Started: True
+Marker Written: True
+Observed Process: EXCEL
+Actual Host: excel
+
+Security Signals
+Firewall Profile: Domain Enabled=True Inbound=NotConfigured Outbound=NotConfigured
+Firewall Profile: Private Enabled=True Inbound=NotConfigured Outbound=NotConfigured
+Firewall Profile: Public Enabled=True Inbound=NotConfigured Outbound=NotConfigured
+Security Center Antivirus: Windows Defender Source=security_center
+Standalone Antivirus Hits: none
+Office Macro Policy: HKCU 16.0 VBAWarnings=1 Risk=info Detail=1
+Office Macro Policy: HKCU 16.0 AccessVBOM=1 Risk=info Detail=1
+
+Limits
+- This precheck does not prove that the future delivery EXE will run.
+- This precheck only estimates readiness from host, macro, and security signals.
+
+Issues
+- No obvious issues
